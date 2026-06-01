@@ -1,0 +1,154 @@
+# statsArbBot — Implementation Plan (PLAN.md)
+
+**Status:** Draft v1 · **Date:** 2026-06-01
+**Companion docs:** `PRD.md` (what & why), `research.md` (quant evidence), `initial-codebase-analysis.md` (codebase map), `CONTEXT.md` (domain glossary), `docs/adr/` (decisions)
+
+> This is the *execution roadmap*. Requirements live in `PRD.md`; this document says **how** we build and verify them.
+
+---
+
+## 1. Principles
+
+- **Vertical slicing:** every phase delivers a working, tested, end-to-end increment — not a horizontal layer.
+- **Integrate early, seek feedback often.**
+- **Plan → Implement → Test → Commit** per phase. A phase is *done* only when its gate (unit + integration + Playwright E2E where UI exists) passes.
+- **Many right-sized sub-phases** to keep each implementation session's context small — but not over-divided.
+- **DB-backed state everywhere** — no flat-file live state.
+- **Pure, isolated statistical core** — one source of algorithmic truth, reused by live / sim / FF / backtest.
+- **Abstractions for swap-ability** — exchange registry (dYdX only implemented) and approval gate (stub → Telegram).
+
+---
+
+## 2. Tech Stack
+
+**Backend:** Python 3.12 · FastAPI (async) · Uvicorn · Prisma ORM (async) · PostgreSQL 16 · `dydx-v4-client` · pandas/numpy/statsmodels · APScheduler · `python-telegram-bot` v20+.
+**Frontend:** Next.js 14 (App Router, TS) · Tailwind (pure, no component lib) · SWR · `lightweight-charts` v5 · Recharts.
+**Testing:** pytest · pytest-asyncio · pytest-mock · Jest + RTL · Playwright.
+**Infra:** Docker Compose (postgres + api + ui).
+
+**UI theme tokens (preserve exactly):** bg `#0a0b0d` · card `#12141a` · border `#21262d` · muted `#8b949e` · text `#e4e6ea` · green `#00d4a1` · red `#ff4757` · yellow `#ffd32a` · blue `#4a90e2`.
+
+---
+
+## 3. Target Directory Structure
+
+```
+statsArbBot/
+├── docker-compose.yml
+├── PRD.md  PLAN.md  CONTEXT.md  research.md  initial-codebase-analysis.md
+├── docs/adr/                       # Architecture Decision Records
+├── backend/
+│   ├── app.py                      # FastAPI factory + lifespan
+│   ├── auth.py                     # passcode + JWT
+│   ├── config.py                   # constants (ZSCORE_THRESH, STOP_LOSS_ZSCORE=4.0, EXIT_ZSCORE=0.5, MAX_HALF_LIFE=72, ...)
+│   ├── statcore/                   # PURE statistical engine (Phase 1)
+│   │   ├── cointegration.py        # Engle-Granger, OLS hedge ratio + intercept
+│   │   ├── spread.py               # spread = S1 - β·S2 - α
+│   │   ├── halflife.py             # Ornstein-Uhlenbeck half-life
+│   │   ├── zscore.py               # rolling Z-score
+│   │   └── signals.py              # entry/exit/stop decision logic
+│   ├── exchanges/                  # registry + dydx client; binance/hyperliquid stubs
+│   ├── marketdata/                 # candles, price matrix, collateral
+│   ├── scan/                       # scan orchestration + dual-write
+│   ├── trading/                    # BotAgent, entry, exit, abort, approval-gate interface
+│   ├── simulation/                 # engine, executor (cost model), scheduler, realtime feed
+│   ├── replay/                     # fast-forward engine
+│   ├── backtest/                   # walk-forward engine + scripts
+│   ├── telegram/                   # bot + commands (Phase 9)
+│   ├── db/                         # prisma client, writers, models
+│   ├── routers/                    # live, scan, pairs, manual, sim, ff, backtest, exchange
+│   └── tests/                      # unit + integration
+├── ui/
+│   ├── app/                        # login, dashboard, pair detail, backtest routes, api/proxy, api/auth
+│   ├── components/                 # tables, charts, controls, manual-trade, slider, modals
+│   ├── lib/api.ts                  # typed API client
+│   ├── middleware.ts               # auth guard
+│   └── e2e/                        # Playwright specs
+└── prisma/schema.prisma
+```
+
+---
+
+## 4. Phases & Gates
+
+> Each phase: branch `phase-N-<name>` → implement → tests green → commit → PR → merge. Mid-phase defects → GitHub issue → fix → reference in commit/PR.
+
+### Phase 0 — Foundation, Docs & Skeleton
+**Do:** git init + connect `github.com/sauravs/statsArbBot`; `.gitignore`; rotate exposed secrets into fresh `.env`/`.env.example`. Write `PRD.md`, `PLAN.md`, `CONTEXT.md`, seed `docs/adr/`. Scaffold Docker Compose (postgres+api+ui), FastAPI factory + lifespan, Next.js app, Tailwind theme tokens, Prisma skeleton, **auth** (passcode + JWT + middleware + `/api/proxy`).
+**Gate:** `docker compose up` boots all 3 services; login → empty dashboard; DB connects + migrates; Playwright smoke (login→dashboard).
+
+### Phase 1 — Statistical Core *(correctness anchor)*
+**Do:** implement `statcore/` (Engle-Granger, OLS hedge ratio **with intercept**, OU half-life, rolling Z-score, spread, signal logic) with all four Option-B changes.
+**Gate:** unit tests assert numeric parity against reference data (`2_cointegrated_pairs.csv`, `3_backtest_file.csv`) within tolerance. Isolated on purpose — highest-risk code, validated before anything consumes it.
+
+### Phase 2 — Market Data + Scan → Pairs Table *(first user-visible slice)*
+**Do:** dYdX v4 data layer (markets, candles paginated + 429-retry + concurrency-limited, price matrix, collateral); scan orchestration (background async, progress streaming, **CSV + `CointScanResult` dual-write**, no race conditions); `/api/scan`, `/api/pairs`; PairsTable + scan button + progress UI.
+**Gate:** scan from UI → pairs render; survive reload (DB). Unit + integration + Playwright E2E.
+
+### Phase 3 — Pair Detail + 3-Panel Charts
+**Do:** pair OHLCV + spread + Z-score series endpoint; pair detail route with 3-panel `lightweight-charts` (normalized overlay / spread+σ bands / Z-score+thresholds + entry/exit markers).
+**Gate:** click pair → all three panels render correctly. Unit + Playwright E2E.
+
+### Phase 4 — Live Manual Trading *(new headline feature)*
+**Do:** `ManualTrade` table; single-handle Z-threshold slider (0.5–4.0) re-filtering active signals live; "Record Manual Trade" button on active-signal pairs only; capital-allocation modal; separate Manual Trades section with mark-closed + P&L; manual-trade CRUD + close API.
+**Gate:** set threshold → active pairs show button → record → appears (OPEN) → close → P&L computed (CLOSED). Integration + Playwright E2E.
+
+### Phase 5a — Live Trading Engine (execution core)
+**Do:** `BotAgent` atomic two-leg executor (preserve failsafe + CODE-RED); order placement/queries/cancel/abort via `dydx-v4-client`; entry scan (collateral guard, sides) + exit manager (`|Z|<0.5`, `|Z|≥4.0`, `3×half_life` time-stop, reconciliation, orphaned-leg handling); DB-backed trade state; `LiveSession`/`LiveTrade` with **real P&L**; **stub approval gate**.
+**Gate:** testnet forward_test — entry opens, exit/stop closes, recorded with P&L. Integration tests w/ mocked dYdX.
+
+### Phase 5b — Live Trading UI
+**Do:** OpenTradesTable, BotControls (activate/deactivate), AccountCard, PortfolioStatus, TradeHistoryPanel, mode tabs.
+**Gate:** UI reflects engine state; controls work. Playwright E2E.
+
+### Phase 6 — Real-Time Simulation
+**Do:** DB-backed `SimulationEngine` (stateless across ticks, restorable) with **proper rolling Z-score**; cost model (slippage/fee/funding); APScheduler ticks; realtime price feed; restart re-registration; sim UI (create/pause/resume/stop/topup).
+**Gate:** session ticks → virtual trades on real signals → positions/PnL/equity update. Integration + Playwright E2E.
+
+### Phase 7 — Fast-Forward Simulation
+**Do:** `FastForwardReplayEngine` (N× historical replay) reusing Phase-6 engine; progress; `SavedFFSimulation` aggregates; FF UI (list/run/detail/saved).
+**Gate:** FF run completes over a date range → saved results render. Integration + Playwright E2E.
+
+### Phase 8 — Walk-Forward Backtest
+**Do:** backtest engine (90d scan / 30d trade, S1–S4); subprocess orchestration w/ progress/pause/stop; partial save + resume; Strategy CRUD + rank recompute; backtest UI (page, comparison, create, reports).
+**Gate:** backtest completes → ranked strategies + equity curves + reports; pause/stop/resume work. Integration + Playwright E2E.
+
+### Phase 9 — Telegram Integration
+**Do:** replace stub gate with real `python-telegram-bot` v20 approval flow wired into entry/exit; commands `/status /balance /positions /pairs /cancel /activate /deactivate` (**fix `connect_dydx` bug**).
+**Gate:** signal → Telegram prompt → approve/reject/timeout → executes/skips; commands return live data. Integration tests w/ mocked Telegram.
+
+### Phase 10 — Hardening, Architecture Review & Deploy Prep
+**Do:** run `improve-codebase-architecture` skill; address findings; update ADRs; full regression; security review (confirm secrets rotated); AWS EC2 (cron+venv) deployment docs (documented, not executed).
+**Gate:** all suites green; review clean.
+
+---
+
+## 5. Verification Strategy
+
+| Layer | Tooling | Applies to |
+|---|---|---|
+| Unit | pytest / Jest | every phase |
+| Integration | FastAPI TestClient + mocked dYdX/Telegram | phases with API |
+| E2E | Playwright | every phase with UI |
+| Numeric parity | pytest vs reference CSVs | Phase 1 |
+| Live/sim validation | dYdX **testnet** | Phases 5–7 before production |
+| Full regression + arch + security review | all suites + skill | Phase 10 |
+
+---
+
+## 6. Git / GitHub Workflow
+- Repo: `github.com/sauravs/statsArbBot`. Branch per phase (`phase-N-<name>`) → PR → merge.
+- Commit messages end with the required `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer.
+- PR bodies end with the Claude Code attribution line.
+- Mid-phase defects tracked as GitHub issues, referenced in the fixing commit/PR.
+
+---
+
+## 7. Session / Context Notes
+- Authoritative context for any fresh session: `research.md` + `initial-codebase-analysis.md` + `PRD.md` + this `PLAN.md`.
+- Recommended: run each phase (or sub-phase) in its own session to keep context lean; open with "Read PRD.md, PLAN.md, research.md, initial-codebase-analysis.md, then execute Phase N."
+
+---
+
+## 8. Out of Scope (this rewrite)
+Binance/Hyperliquid impl; AI/LangGraph tables; WebSocket feed; Johansen/KSS; HMM regime filter; Kalman hedge ratio; log-prices; Z-proportional sizing; live AWS deploy.

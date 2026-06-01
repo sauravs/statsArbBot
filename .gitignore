@@ -1,0 +1,43 @@
+# Credentials — never commit
+.env
+
+# Reference codebases — local only, not part of the rewrite
+Old Reference Resources/
+
+# Local-only Claude Code settings
+.claude/settings.local.json
+
+# Bot state & output
+bot_agents.json
+cointegrated_pairs.csv
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Next.js (now inside ui/)
+ui/.next/
+ui/out/
+ui/node_modules/
+ui/.env.local
+ui/.env
+
+# Bot state (also in Bot_Scripts/)
+Bot_Scripts/bot_agents.json
+Bot_Scripts/cointegrated_pairs.csv
+Bot_Scripts/bot_config.json
+
+# Backtest generated data & results
+backtest/data/
+backtest/results/
