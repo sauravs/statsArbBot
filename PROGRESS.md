@@ -64,5 +64,5 @@ Phase N — <name>
 
 ## Carry-Over Notes / Open Items
 - ✅ `gh` authenticated (account `sauravs`, scopes incl. `repo`+`workflow`) — issues/PRs ready.
-- Rotate the exposed secrets from the old reference `.env` files before wiring a fresh `.env` (Phase 0).
+- Secrets: **use the existing `.env` as-is for development** (testnet — low risk; operator's decision). Generate fresh dYdX keys / Telegram token / dashboard password **only before switching to `production` (mainnet) mode**.
 - Data ingest (Phase 2.5): existing data has flat / zero-volume candles needing cleaning; `data/dydx` and `data/dydx_extended` are disjoint (~41 markets, no dedup needed).
