@@ -17,7 +17,19 @@ runs locally and in Docker.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from decouple import config as _env
+
+
+def _as_bool(value) -> bool:
+    """Truthy-string caster (decouple's default bool cast doesn't parse 'false')."""
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+# Repo root (config.py lives in backend/, the historical data sits at repo-root data/).
+REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 
 # ── Environment / infrastructure ─────────────────────────────────────────────
 DATABASE_URL: str = _env("DATABASE_URL", default="")
@@ -98,4 +110,25 @@ SCAN_DATA_SOURCE: str = _env("SCAN_DATA_SOURCE", default="dydx")
 # CSV half of the dual-write (PRD §3.1 step 7). Relative to the backend dir.
 COINTEGRATED_PAIRS_CSV: str = _env(
     "COINTEGRATED_PAIRS_CSV", default="data/cointegrated_pairs.csv"
+)
+
+# ── Historical data ingest (Phase 2.5 — ADR-0006) ────────────────────────────
+# Directories holding the copied dYdX CSVs, ingested into OhlcvCache/FundingRateCache
+# and replayed by Phases 7 (fast-forward) and 8 (backtest). Gitignored, repo-local.
+_DEFAULT_DATA_DIRS = os.pathsep.join(
+    [str(REPO_ROOT / "data" / "dydx"), str(REPO_ROOT / "data" / "dydx_extended")]
+)
+HISTORICAL_DATA_DIRS: list[str] = _env(
+    "HISTORICAL_DATA_DIRS", default=_DEFAULT_DATA_DIRS
+).split(os.pathsep)
+# A market must retain at least this many CLEAN hourly bars to be cached.
+# Default 2160 = 90 days, the walk-forward backtest's scan-window length (Phase 8),
+# so every cached market can fill at least one full formation window.
+INGEST_MIN_COVERAGE_ROWS: int = _env("INGEST_MIN_COVERAGE_ROWS", default=2160, cast=int)
+INGEST_DROP_FLAT: bool = _env("INGEST_DROP_FLAT", default=True, cast=_as_bool)
+INGEST_DROP_ZERO_VOLUME: bool = _env("INGEST_DROP_ZERO_VOLUME", default=True, cast=_as_bool)
+INGEST_FUNDING: bool = _env("INGEST_FUNDING", default=True, cast=_as_bool)
+# Validation report destination (markdown). Gitignored under data/.
+INGEST_REPORT_PATH: str = _env(
+    "INGEST_REPORT_PATH", default=str(REPO_ROOT / "data" / "ingest_report.md")
 )

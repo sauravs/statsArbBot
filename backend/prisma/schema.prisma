@@ -74,3 +74,44 @@ model CointScanResult {
   @@index([base_market, quote_market])
   @@map("coint_scan_results")
 }
+
+// ── Historical OHLCV cache (Phase 2.5) ───────────────────────────────────────
+// Seeded by ingesting the existing dYdX history (data/dydx + data/dydx_extended)
+// through the validation/cleaning pass (see ADR-0006). The cache holds only
+// CLEAN candles — zero-volume, flat, and OHLC-inconsistent bars are dropped on
+// ingest, and markets below the coverage threshold are excluded entirely; the
+// full accounting lives in the ingest validation report. Phases 7 (fast-forward)
+// and 8 (walk-forward backtest) replay from this table instead of re-fetching.
+
+model OhlcvCache {
+  id         String   @id @default(cuid())
+  exchange   Exchange @default(dydx)
+  market     String
+  resolution String   @default("1HOUR")
+  timestamp  DateTime @db.Timestamptz
+  open       Float
+  high       Float
+  low        Float
+  close      Float
+  volume     Float
+
+  @@unique([exchange, market, resolution, timestamp])
+  @@index([exchange, market, resolution, timestamp])
+  @@map("ohlcv_cache")
+}
+
+// Historical funding rates, ingested alongside OHLCV so the simulation/backtest
+// cost model can charge real carry (dYdX funds hourly). No OHLC cleaning applies
+// (single rate per timestamp); rows are de-duplicated and sorted on ingest.
+
+model FundingRateCache {
+  id           String   @id @default(cuid())
+  exchange     Exchange @default(dydx)
+  market       String
+  timestamp    DateTime @db.Timestamptz
+  funding_rate Float
+
+  @@unique([exchange, market, timestamp])
+  @@index([exchange, market, timestamp])
+  @@map("funding_rate_cache")
+}
