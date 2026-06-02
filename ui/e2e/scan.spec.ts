@@ -36,14 +36,20 @@ test.describe("Phase 2 — scan → pairs table", () => {
     expect(await page.getByTestId("pair-row").count()).toBe(count);
   });
 
-  test("exchange registry drives signal coloring threshold control", async ({
-    page,
-  }) => {
+  test("Z-threshold slider control updates live", async ({ page }) => {
     await login(page);
-    // The Z-threshold control is present and editable on the dashboard.
-    const input = page.getByLabel("Z-threshold");
-    await expect(input).toBeVisible();
-    await input.fill("2.5");
-    await expect(input).toHaveValue("2.5");
+    // The single-handle Z-threshold slider (PRD F4.1) is present and live.
+    await expect(page.getByTestId("z-threshold-slider")).toBeVisible();
+    const slider = page.getByTestId("z-threshold-input");
+    await slider.evaluate((el, v) => {
+      const input = el as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, v);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, "2.5");
+    await expect(page.getByTestId("z-threshold-value")).toHaveText("±2.5");
   });
 });

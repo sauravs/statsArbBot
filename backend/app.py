@@ -87,6 +87,7 @@ def create_app() -> FastAPI:
     )
 
     from routers.exchange import router as exchange_router
+    from routers.manual import router as manual_router
     from routers.pairs import router as pairs_router
     from routers.scan import router as scan_router
     from routers.system import router as system_router
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(system_router)
     app.include_router(scan_router)
     app.include_router(pairs_router)
+    app.include_router(manual_router)
     app.include_router(exchange_router)
     return app
 

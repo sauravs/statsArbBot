@@ -93,6 +93,18 @@ class FakeScanRepository:
         # Mirror PrismaScanRepository: zero_crossings desc, p_value asc tie-break.
         return sorted(rows, key=lambda r: (-r["zero_crossings"], r["p_value"]))
 
+    async def get_pair(self, *, exchange, mode, base_market, quote_market):
+        pairs = await self.get_latest_pairs(exchange=exchange, mode=mode)
+        return next(
+            (
+                p
+                for p in pairs
+                if p["base_market"] == base_market
+                and p["quote_market"] == quote_market
+            ),
+            None,
+        )
+
 
 class FakeOhlcvCacheRepository:
     """In-memory stand-in for PrismaOhlcvCacheRepository (no DB / generated client).
@@ -112,3 +124,63 @@ class FakeOhlcvCacheRepository:
     async def replace_funding(self, market, rows, *, exchange) -> int:
         self.funding[(exchange, market)] = list(rows)
         return len(rows)
+
+
+class FakeManualTradeRepository:
+    """In-memory stand-in for PrismaManualTradeRepository (no DB / generated client)."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, dict] = {}
+        self._seq = 0
+
+    @staticmethod
+    def _ser(data: dict) -> dict:
+        row = dict(data)
+        for k in ("recorded_at", "closed_at"):
+            v = row.get(k)
+            if isinstance(v, datetime):
+                row[k] = v.isoformat()
+        return row
+
+    async def create(self, data: dict) -> dict:
+        self._seq += 1
+        trade_id = f"mt_{self._seq}"
+        row = self._ser(data)
+        row.setdefault("status", "OPEN")
+        row.update(
+            id=trade_id,
+            closed_at=row.get("closed_at"),
+            exit_price_leg1=row.get("exit_price_leg1"),
+            exit_price_leg2=row.get("exit_price_leg2"),
+            pnl=row.get("pnl"),
+        )
+        self.store[trade_id] = row
+        return dict(row)
+
+    async def list(self, *, exchange, mode) -> list[dict]:
+        rows = [
+            r
+            for r in self.store.values()
+            if r["exchange"] == exchange and r["mode"] == mode
+        ]
+        # Mirror PrismaManualTradeRepository: newest first.
+        return [dict(r) for r in sorted(rows, key=lambda r: r["recorded_at"], reverse=True)]
+
+    async def get(self, trade_id) -> dict | None:
+        row = self.store.get(trade_id)
+        return dict(row) if row is not None else None
+
+    async def close(
+        self, trade_id, *, exit_price_leg1, exit_price_leg2, pnl, closed_at
+    ) -> dict | None:
+        row = self.store.get(trade_id)
+        if row is None:
+            return None
+        row.update(
+            status="CLOSED",
+            exit_price_leg1=exit_price_leg1,
+            exit_price_leg2=exit_price_leg2,
+            pnl=pnl,
+            closed_at=closed_at.isoformat() if isinstance(closed_at, datetime) else closed_at,
+        )
+        return dict(row)

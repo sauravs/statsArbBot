@@ -78,17 +78,13 @@ async def get_pair_series(
     source under ``SCAN_DATA_SOURCE=fake``) and assembled into the three panels.
     """
     try:
-        pairs = await get_scan_repository().get_latest_pairs(
-            exchange=exchange, mode=mode
+        record = await get_scan_repository().get_pair(
+            exchange=exchange, mode=mode, base_market=base, quote_market=quote
         )
     except Exception as exc:
         logger.error("get_pair_series DB read failed: %s", exc)
         raise HTTPException(status_code=503, detail="Could not read pairs from the database.")
 
-    record = next(
-        (p for p in pairs if p["base_market"] == base and p["quote_market"] == quote),
-        None,
-    )
     if record is None:
         raise HTTPException(
             status_code=404,

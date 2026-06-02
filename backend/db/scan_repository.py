@@ -62,6 +62,25 @@ class PrismaScanRepository:
         )
         return [self._to_dict(r) for r in records]
 
+    async def get_pair(
+        self, *, exchange: str, mode: str, base_market: str, quote_market: str
+    ) -> dict | None:
+        """Return one stored pair (orientation-sensitive), or None if absent.
+
+        The single lookup the pair-detail and manual-record endpoints share, so
+        the scan is the one source of a pair's β/α/half-life.
+        """
+        pairs = await self.get_latest_pairs(exchange=exchange, mode=mode)
+        return next(
+            (
+                p
+                for p in pairs
+                if p["base_market"] == base_market
+                and p["quote_market"] == quote_market
+            ),
+            None,
+        )
+
     @staticmethod
     def _to_dict(r) -> dict:
         return {

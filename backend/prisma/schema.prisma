@@ -31,6 +31,11 @@ enum TradingMode {
   production   // mainnet, real money
 }
 
+enum ManualTradeStatus {
+  OPEN
+  CLOSED
+}
+
 // ── Config audit (append-only) ───────────────────────────────────────────────
 // Stable seed model: records every bot-config change for auditing. Present from
 // Phase 0 so migrations exist; extended as config surfaces grow.
@@ -98,6 +103,40 @@ model OhlcvCache {
   @@unique([exchange, market, resolution, timestamp])
   @@index([exchange, market, resolution, timestamp])
   @@map("ohlcv_cache")
+}
+
+// ── Live Manual Trading (Phase 4, PRD F4) ────────────────────────────────────
+// A trade the operator records by hand off a bot signal. Entry prices for both
+// legs are captured server-side at record time (alongside the scan's β/α/half-
+// life and the freshly-computed spread/z), so the per-leg P&L can be computed
+// from user-supplied exit prices when the trade is later marked CLOSED. The PRD
+// §5 field list is realised here (entry prices + exit prices + pnl added so F4.7
+// P&L is actually computable — PRD §5 defers field-level schema to this phase).
+
+model ManualTrade {
+  id               String            @id @default(cuid())
+  exchange         Exchange
+  mode             TradingMode
+  base_market      String
+  quote_market     String
+  hedge_ratio      Float
+  half_life        Float
+  z_score          Float // current rolling Z of the spread at record time
+  spread_value     Float // current spread (S1 − β·S2 − α) at record time
+  entry_price_leg1 Float // base close captured at record time
+  entry_price_leg2 Float // quote close captured at record time
+  capital_leg1_usd Float
+  capital_leg2_usd Float
+  recorded_at      DateTime          @default(now()) @db.Timestamptz
+  status           ManualTradeStatus @default(OPEN)
+  closed_at        DateTime?         @db.Timestamptz
+  exit_price_leg1  Float?
+  exit_price_leg2  Float?
+  pnl              Float? // realised per-leg P&L sum, set on close
+
+  @@index([exchange, mode, status])
+  @@index([recorded_at])
+  @@map("manual_trades")
 }
 
 // Historical funding rates, ingested alongside OHLCV so the simulation/backtest

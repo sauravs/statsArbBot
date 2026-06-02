@@ -9,15 +9,22 @@ import {
   type ScanStatus,
 } from "@/lib/api";
 import PairsTable from "./PairsTable";
+import ZThresholdSlider from "./ZThresholdSlider";
+import RecordManualTradeModal from "./RecordManualTradeModal";
 
 const POLL_MS = 2000;
 
-export default function ScanPanel() {
+export default function ScanPanel({
+  onManualRecorded,
+}: {
+  onManualRecorded?: () => void;
+}) {
   const [pairs, setPairs] = useState<PairRecord[]>([]);
   const [scannedAt, setScannedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
   const [threshold, setThreshold] = useState(1.5);
   const [error, setError] = useState<string | null>(null);
+  const [recordPair, setRecordPair] = useState<PairRecord | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refreshPairs = useCallback(async () => {
@@ -95,18 +102,8 @@ export default function ScanPanel() {
           </span>
         </h2>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">Z-threshold</span>
-          <input
-            type="number"
-            step="0.1"
-            min="0.5"
-            max="5"
-            value={threshold}
-            onChange={(e) => setThreshold(parseFloat(e.target.value) || 1.5)}
-            aria-label="Z-threshold"
-            className="w-16 rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-blue focus:outline-none"
-          />
+        <div className="ml-auto flex flex-wrap items-center gap-4">
+          <ZThresholdSlider value={threshold} onChange={setThreshold} />
           <button
             onClick={() => runScan(true)}
             disabled={running}
@@ -152,7 +149,19 @@ export default function ScanPanel() {
         </p>
       )}
 
-      <PairsTable pairs={pairs} threshold={threshold} />
+      <PairsTable
+        pairs={pairs}
+        threshold={threshold}
+        onRecord={(p) => setRecordPair(p)}
+      />
+
+      {recordPair && (
+        <RecordManualTradeModal
+          pair={recordPair}
+          onClose={() => setRecordPair(null)}
+          onRecorded={() => onManualRecorded?.()}
+        />
+      )}
     </div>
   );
 }
