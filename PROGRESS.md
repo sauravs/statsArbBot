@@ -10,9 +10,10 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** Phase 3 — Pair detail + 3-panel charts — implemented on `phase-3-pair-charts`; gate passed locally (85 pytest · 6/6 Playwright incl. new pair-detail spec, against real uvicorn API + `next start` UI + Docker Postgres, fake data source). PR + `/code-review ultra` pending.
+- **Phase in progress:** none — Phase 3 merged (PR [#12](https://github.com/sauravs/statsArbBot/pull/12), merge commit `a07f11e`; 85 pytest · 6/6 Playwright; 2 code-review findings fixed in-PR). 
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action:** open the Phase 3 PR, run `/code-review ultra`, merge. Then Phase 4 — Live Manual Trading — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 4." **Before starting, check open `code-review` issues** (PLAN §6.1): only **#8** (synthetic-data duplication, tech-debt) remains open.
+- **Next action:** Phase 4 — Live Manual Trading — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 4." **Before starting, check open `code-review` issues** (PLAN §6.1): only **#8** (synthetic-data duplication, tech-debt) remains open.
+- **Review tooling note:** cloud `/code-review ultra` (ultrareview) can't launch until the Claude GitHub app is installed on the repo (https://github.com/apps/claude/installations/new); until then the per-phase review runs via the local `/code-review` skill (PLAN §6.1 — same outcome, in-session).
 
 ---
 
@@ -27,7 +28,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | 1 | Statistical core (correctness anchor) | ✅ | phase-1-statcore | [#3](https://github.com/sauravs/statsArbBot/pull/3) | ✅ gate passed (33/33 pytest; parity to ~1e-9) — merged. Integration/UI n/a (isolated core) |
 | 2 | Market data + scan → pairs table | ✅ | phase-2-marketdata-scan | [#5](https://github.com/sauravs/statsArbBot/pull/5) | ✅ gate passed (49/49 pytest · 5/5 Playwright incl. scan→render→reload vs real Postgres; real dual-write verified) — merged (`da86edb`). 2 code-review rounds, all fixed in-PR; 3 findings deferred to issues #6–#8 |
 | 2.5 | Historical data ingest & validation | 🟡 | phase-2.5-data-ingest | [#10](https://github.com/sauravs/statsArbBot/pull/10) | gate passed locally (70/70 pytest; real seed `OhlcvCache`=492k / `FundingRateCache`=569k vs Docker Postgres); local code-review fixes in-PR. Merge pending |
-| 3 | Pair detail + 3-panel charts | 🟡 | phase-3-pair-charts | | gate passed locally (85 pytest · 6/6 Playwright incl. live UI→proxy→API→DB pair-detail). PR/review pending |
+| 3 | Pair detail + 3-panel charts | ✅ | phase-3-pair-charts | [#12](https://github.com/sauravs/statsArbBot/pull/12) | ✅ gate passed (85 pytest · 6/6 Playwright incl. live UI→proxy→API→DB pair-detail) — merged (`a07f11e`). 2 code-review findings (chart time-alignment, sequential leg fetch) fixed in-PR |
 | 4 | Live Manual Trading (new feature) | ⬜ | | | |
 | 5a | Live trading engine (execution core) | ⬜ | | | |
 | 5b | Live trading UI | ⬜ | | | |
