@@ -112,6 +112,26 @@ COINTEGRATED_PAIRS_CSV: str = _env(
     "COINTEGRATED_PAIRS_CSV", default="data/cointegrated_pairs.csv"
 )
 
+# ── Live trading execution (Phase 5a) ────────────────────────────────────────
+# dYdX account credentials (used only for order placement / account queries; the
+# read-only price layer never needs them). Empty on a data-only deployment.
+DYDX_WALLET_ADDRESS: str = _env("DYDX_WALLET_API_KEY", default="")
+DYDX_PRIVATE_KEY: str = _env("DYDX_PRIVATE_KEY", default="")
+DYDX_SUBACCOUNT_INDEX: int = _env("DYDX_SUBACCOUNT_INDEX", default=0, cast=int)
+
+# Trading network endpoints, selected by ENVIRONMENT (account/orders only — price
+# data still always uses the mainnet indexer above). The node URL signs/broadcasts
+# on-chain; the REST indexer answers position/collateral queries.
+DYDX_MAINNET_NODE_URL: str = _env(
+    "DYDX_MAINNET_NODE_URL", default="dydx-ops-grpc.kingnodes.com:443"
+)
+
+# Market-order execution params (carried from the reference bot's constants.py).
+ORDER_PRICE_BUFFER: float = _env("ORDER_PRICE_BUFFER", default=0.05, cast=float)  # 5%
+ORDER_EXPIRY_BLOCKS: int = _env("ORDER_EXPIRY_BLOCKS", default=10, cast=int)
+MAX_ORDER_WAIT_SECS: float = _env("MAX_ORDER_WAIT_SECS", default=20.0, cast=float)
+ORDER_POLL_INTERVAL: float = _env("ORDER_POLL_INTERVAL", default=3.0, cast=float)
+
 # ── Historical data ingest (Phase 2.5 — ADR-0006) ────────────────────────────
 # Directories holding the copied dYdX CSVs, ingested into OhlcvCache/FundingRateCache
 # and replayed by Phases 7 (fast-forward) and 8 (backtest). Gitignored, repo-local.

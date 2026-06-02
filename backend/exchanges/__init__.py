@@ -32,10 +32,25 @@ def make_data_client():
     return DydxDataClient()
 
 
+async def make_trade_client():
+    """
+    Connect and return a live trade-execution client (Phase 5a).
+
+    dYdX is the only integrated exchange; account/order operations follow
+    ``ENVIRONMENT`` (testnet for forward_test, mainnet for production). Imports are
+    deferred so importing the registry never pulls in ``dydx-v4-client``. Returns
+    an object satisfying the ``trading.broker.TradeClient`` protocol.
+    """
+    from exchanges.dydx.trade_client import DydxTradeClient
+
+    return await DydxTradeClient.connect()
+
+
 __all__ = [
     "EXCHANGE_REGISTRY",
     "ExchangeInfo",
     "get_exchange",
     "list_exchanges",
     "make_data_client",
+    "make_trade_client",
 ]
