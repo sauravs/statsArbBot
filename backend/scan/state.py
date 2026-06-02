@@ -40,6 +40,8 @@ class ScanState:
     pairs_found: int = 0
     total_pairs: int = 0
     timed_out: bool = False
+    markets_dropped: int = 0  # eligible markets excluded from the matrix (#6/#7)
+    dropped_by_reason: dict[str, int] = field(default_factory=dict)
 
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
@@ -51,6 +53,8 @@ class ScanState:
         self.pairs_found = 0
         self.total_pairs = 0
         self.timed_out = False
+        self.markets_dropped = 0
+        self.dropped_by_reason = {}
 
     # ── start guard ──────────────────────────────────────────────────────────
 
@@ -93,6 +97,11 @@ class ScanState:
         self.markets_fetched = fetched
         self.total_markets = total
 
+    def note_dropped_markets(self, count: int, by_reason: dict[str, int]) -> None:
+        """Record markets excluded from the price matrix (issues #6/#7)."""
+        self.markets_dropped = count
+        self.dropped_by_reason = dict(by_reason)
+
     def update_pairs(self, tested: int, total: int, found: int) -> None:
         self.pairs_tested = tested
         self.total_pairs = total
@@ -125,6 +134,8 @@ class ScanState:
             "error": self.error,
             "markets_fetched": self.markets_fetched,
             "total_markets": self.total_markets,
+            "markets_dropped": self.markets_dropped,
+            "dropped_by_reason": self.dropped_by_reason,
             "pairs_tested": self.pairs_tested,
             "pairs_found": self.pairs_found,
             "total_pairs": self.total_pairs,

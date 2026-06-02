@@ -162,9 +162,26 @@ async def run_scan(
             client, num_pages=pages, progress_callback=_market_cb, now=scan_anchor
         )
 
+        # Surface markets excluded from the matrix (issues #6/#7) so a scan that
+        # silently loses most of the universe is visible, not a clean "success".
+        state.note_dropped_markets(matrix.num_dropped, matrix.dropped_by_reason)
+        if matrix.num_dropped:
+            logger.info(
+                "Scan excluded %d market(s): %s",
+                matrix.num_dropped, matrix.dropped_by_reason,
+            )
+
         if matrix.is_empty:
-            state.finish("No market data returned from indexer.")
-            return {"found": 0, "tested": 0}
+            reasons = matrix.dropped_by_reason
+            if matrix.num_dropped:
+                state.finish(
+                    f"No market data usable after alignment "
+                    f"({matrix.num_dropped} excluded: {reasons})."
+                )
+            else:
+                state.finish("No market data returned from indexer.")
+            return {"found": 0, "tested": 0, "markets_dropped": matrix.num_dropped,
+                    "dropped_by_reason": reasons}
 
         markets = list(matrix.df.columns)
         n = len(markets)
@@ -230,11 +247,20 @@ async def run_scan(
         except Exception as exc:  # noqa: BLE001
             logger.warning("CSV write failed (DB already persisted): %s", exc)
 
+        dropped_note = (
+            f" ({matrix.num_dropped} market(s) excluded: {matrix.dropped_by_reason})"
+            if matrix.num_dropped else ""
+        )
         state.finish(
             f"✓ Complete — {len(found)} cointegrated pair(s) "
-            f"from {tested:,}/{total_pairs:,} tested."
+            f"from {tested:,}/{total_pairs:,} tested{dropped_note}."
         )
-        return {"found": len(found), "tested": tested}
+        return {
+            "found": len(found),
+            "tested": tested,
+            "markets_dropped": matrix.num_dropped,
+            "dropped_by_reason": matrix.dropped_by_reason,
+        }
 
     except Exception as exc:  # noqa: BLE001 — scan must never crash the server
         logger.exception("Scan failed")

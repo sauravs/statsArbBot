@@ -109,6 +109,25 @@ async def test_run_scan_survives_degenerate_market(tmp_path, monkeypatch):
     assert {"AAA-USD", "BBB-USD"} == {rows[0]["base_market"], rows[0]["quote_market"]}
 
 
+async def test_run_scan_surfaces_dropped_markets(tmp_path, monkeypatch):
+    """Markets excluded from the matrix are reported in the result + state (#6/#7)."""
+    monkeypatch.setattr(config, "COINTEGRATED_PAIRS_CSV", str(tmp_path / "out.csv"))
+
+    s1, s2 = make_cointegrated_series(n=120)
+    # PARTIAL covers only the first half of the window → dropped as "misaligned".
+    client = FakeDydxClient({"AAA-USD": s1, "BBB-USD": s2, "PARTIAL-USD": s1[:60]})
+    repo = FakeScanRepository()
+    state = ScanState()
+    await state.try_begin()
+    result = await run_scan(client=client, repository=repo, state=state)
+
+    assert result["markets_dropped"] == 1
+    assert result["dropped_by_reason"].get("misaligned") == 1
+    assert state.markets_dropped == 1
+    assert state.snapshot()["markets_dropped"] == 1
+    assert state.snapshot()["dropped_by_reason"].get("misaligned") == 1
+
+
 async def test_run_scan_no_data_finishes_cleanly(monkeypatch, tmp_path):
     monkeypatch.setattr(
         config, "COINTEGRATED_PAIRS_CSV", str(tmp_path / "out.csv")
