@@ -23,7 +23,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | # | Phase | Status | Branch | PR | Gate |
 |---|-------|--------|--------|----|------|
 | — | Planning & docs (PRD/PLAN/CONTEXT/research/ADRs/data) | ✅ | main | — | n/a |
-| 0 | Foundation, docs & skeleton | 🟡 | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | gate verified except full `docker compose up` (disk full — see below) |
+| 0 | Foundation, docs & skeleton | 🟡 | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | ✅ gate fully verified (incl. `docker compose up`) — see below |
 | 1 | Statistical core (correctness anchor) | ⬜ | | | |
 | 2 | Market data + scan → pairs table | ⬜ | | | |
 | 2.5 | Historical data ingest & validation | ⬜ | | | |
@@ -73,4 +73,5 @@ Phase N — <name>
 - **Trading constants** centralised in `backend/config.py` with the four Option-B defaults (entry 1.5 / exit 0.5 / stop 4.0 / half-life cap 72h) — consumed by statcore in Phase 1.
 - **Initial migration** `backend/prisma/migrations/0001_init` committed (enums `Exchange`/`TradingMode` + `BotConfigHistory` skeleton). Domain models added per phase.
 - **Heads-up for next session:** the local Docker `postgres_data` volume previously held the *prototype's* full schema; Phase 0 reset `public` to apply our clean migration. If you see stale tables, `docker compose down -v` to wipe.
-- **Gate verification (Phase 0):** backend `pytest` 4/4 ✓ · `prisma migrate deploy` creates `BotConfigHistory` ✓ · `next build` compiles all routes+middleware ✓ · Playwright smoke (redirect→login, wrong-passcode reject, login→dashboard) 3/3 ✓ · `docker compose config` valid ✓.
+- **Gate verification (Phase 0) — FULLY PASSED:** backend `pytest` 4/4 ✓ · `next build` compiles all routes+middleware ✓ · **`docker compose up --build` boots all 3 services** (postgres healthy, api + ui up) ✓ · migration runs in-container (`BotConfigHistory` created) ✓ · authed `/api/system/health` reports `database: connected`, missing key → 401 ✓ · full UI→proxy→API→DB chain verified via JWT login cookie (login 200; proxy with cookie → `connected`; without cookie → 401) ✓ · Playwright smoke (redirect→login, wrong-passcode reject, login→dashboard) 3/3 against the **containerized** UI ✓.
+- **Docker recovery note:** the earlier disk-full crash corrupted Docker Desktop's containerd content store (`meta.db` + image blobs → I/O errors), wedging the daemon. Fixed by deleting the VM disk (`~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw`) and restarting Docker clean. Added `ui/.dockerignore` + `backend/.dockerignore` so build contexts stay small (the missing ui ignore was shipping `node_modules` + the 92MB Playwright browser into the image and helped exhaust the disk).
