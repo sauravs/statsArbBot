@@ -10,9 +10,9 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** Phase 0 — Foundation, docs & skeleton (branch `phase-0-foundation`; gate verified, awaiting PR review + merge).
+- **Phase in progress:** Phase 1 — Statistical core (branch `phase-1-statcore`; gate passed locally, awaiting PR review + merge). Phase 0 merged (PR #1).
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action:** merge the Phase 0 PR, then Phase 1 — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 1."
+- **Next action:** open the Phase 1 PR, run `/code-review ultra`, merge. Then Phase 2 — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 2."
 
 ---
 
@@ -23,8 +23,8 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | # | Phase | Status | Branch | PR | Gate |
 |---|-------|--------|--------|----|------|
 | — | Planning & docs (PRD/PLAN/CONTEXT/research/ADRs/data) | ✅ | main | — | n/a |
-| 0 | Foundation, docs & skeleton | 🟡 | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | ✅ gate fully verified (incl. `docker compose up`) — see below |
-| 1 | Statistical core (correctness anchor) | ⬜ | | | |
+| 0 | Foundation, docs & skeleton | ✅ | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | ✅ gate fully verified (incl. `docker compose up`) — merged |
+| 1 | Statistical core (correctness anchor) | 🟡 | phase-1-statcore | | ✅ gate passed locally (29/29 pytest; parity to ~1e-9) — see below |
 | 2 | Market data + scan → pairs table | ⬜ | | | |
 | 2.5 | Historical data ingest & validation | ⬜ | | | |
 | 3 | Pair detail + 3-panel charts | ⬜ | | | |
@@ -61,6 +61,7 @@ Phase N — <name>
 - ADR-0004 — Exchange-registry + approval-gate abstractions
 - ADR-0005 — Single driver agent per phase; manual model switch (`/clear` + `/model`)
 - ADR-0006 — Reuse historical data; ingest `dydx` + `dydx_extended` into gitignored `data/` with validation
+- ADR-0007 — statcore parity validated in legacy mode against committed reference fixtures; Option-B asserted separately
 
 ## Carry-Over Notes / Open Items
 - ✅ `gh` authenticated (account `sauravs`, scopes incl. `repo`+`workflow`) — issues/PRs ready.
@@ -75,3 +76,9 @@ Phase N — <name>
 - **Heads-up for next session:** the local Docker `postgres_data` volume previously held the *prototype's* full schema; Phase 0 reset `public` to apply our clean migration. If you see stale tables, `docker compose down -v` to wipe.
 - **Gate verification (Phase 0) — FULLY PASSED:** backend `pytest` 4/4 ✓ · `next build` compiles all routes+middleware ✓ · **`docker compose up --build` boots all 3 services** (postgres healthy, api + ui up) ✓ · migration runs in-container (`BotConfigHistory` created) ✓ · authed `/api/system/health` reports `database: connected`, missing key → 401 ✓ · full UI→proxy→API→DB chain verified via JWT login cookie (login 200; proxy with cookie → `connected`; without cookie → 401) ✓ · Playwright smoke (redirect→login, wrong-passcode reject, login→dashboard) 3/3 against the **containerized** UI ✓.
 - **Docker recovery note:** the earlier disk-full crash corrupted Docker Desktop's containerd content store (`meta.db` + image blobs → I/O errors), wedging the daemon. Fixed by deleting the VM disk (`~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw`) and restarting Docker clean. Added `ui/.dockerignore` + `backend/.dockerignore` so build contexts stay small (the missing ui ignore was shipping `node_modules` + the 92MB Playwright browser into the image and helped exhaust the disk).
+
+### Phase 1 outcomes / decisions
+- **`backend/statcore/` package** — pure statistical engine, no DB/exchange/I/O. Modules: `cointegration.py` (Engle-Granger via `statsmodels.coint`, OLS hedge ratio **with intercept** by default, `analyze_pair` orchestrator), `spread.py` (`compute_spread` = S1−β·S2−α, `zero_crossings`), `halflife.py` (OU half-life), `zscore.py` (`rolling_zscore` + `latest_zscore`, sample std ddof=1, fixes the prototype's `0.02` approximation), `signals.py` (`evaluate_entry`/`evaluate_exit` with Option-B stop/exit/time-stop). Public API re-exported from `statcore/__init__.py`.
+- **Parity strategy (ADR-0007):** validated in **legacy mode** (no intercept, β rounded to 1.29) against the MATIC/STX reference, reproducing the `Spread` and `ZScore` columns to ~1e-9 and matching coint t/p/crit, hedge ratio, and zero_crossings (43); half-life locked at 3.0. The four Option-B changes are asserted in **separate** tests. Reference CSVs committed as hermetic fixtures under `backend/tests/fixtures/` (the `Old Reference Resources/` tree is gitignored).
+- **Edge cases:** half-life returns `nan` for non-mean-reverting series (slope `b ≥ −1e-9`, incl. fp-noise trends) and constant spreads (`add_constant(has_constant="add")`); `latest_zscore` returns `nan` on insufficient data / zero-variance windows.
+- **Gate (Phase 1) — PASSED locally:** `pytest` 29/29 ✓ (25 statcore + 4 Phase-0 smoke, no regression). Isolated by design — no integration/UI this phase. Note: `np`/`pandas`/`statsmodels` numerics are version-sensitive; parity tests are the early-warning signal (local env: statsmodels 0.14.6, pandas 3.0.3, numpy 2.4.6).
