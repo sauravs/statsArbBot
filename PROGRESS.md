@@ -63,6 +63,6 @@ Phase N — <name>
 - ADR-0006 — Reuse historical data; ingest `dydx` + `dydx_extended` into gitignored `data/` with validation
 
 ## Carry-Over Notes / Open Items
-- `gh auth login` must be completed before opening issues/PRs.
+- ✅ `gh` authenticated (account `sauravs`, scopes incl. `repo`+`workflow`) — issues/PRs ready.
 - Rotate the exposed secrets from the old reference `.env` files before wiring a fresh `.env` (Phase 0).
 - Data ingest (Phase 2.5): existing data has flat / zero-volume candles needing cleaning; `data/dydx` and `data/dydx_extended` are disjoint (~41 markets, no dedup needed).
