@@ -39,3 +39,7 @@ ui/playwright-browsers/
 
 # macOS
 .DS_Store
+
+# TS incremental build info
+ui/tsconfig.tsbuildinfo
+*.tsbuildinfo

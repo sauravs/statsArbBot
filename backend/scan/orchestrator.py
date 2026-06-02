@@ -137,14 +137,9 @@ async def run_scan(
 
     own_client = client is None
     if own_client:
-        if config.SCAN_DATA_SOURCE == "fake":
-            from exchanges.demo import DemoDataClient
+        from exchanges import make_data_client
 
-            client = DemoDataClient()
-        else:
-            from exchanges.dydx.client import DydxDataClient
-
-            client = DydxDataClient()
+        client = make_data_client()
 
     try:
         # Pin one anchor for the whole run so every market's candle windows align
