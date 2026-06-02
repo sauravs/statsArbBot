@@ -147,6 +147,14 @@ statsArbBot/
 - PR bodies end with the Claude Code attribution line.
 - Mid-phase defects tracked as GitHub issues, referenced in the fixing commit/PR.
 
+### 6.1 Code-review findings → issue tracking
+Every phase ends with a code review (`/code-review` or `/code-review ultra`). For each finding **we accept**:
+- **Accepted but *deferred*** (not fixed in the current PR) → **open a GitHub issue** (label `code-review`), titled with the defect and referencing the source PR/commit. This is the durable, cross-session record — a fresh session should check open `code-review` issues before starting a phase. Close the issue from the commit/PR that fixes it.
+- **Accepted and *fixed in the same PR*** → no separate issue required; record it in the PR description/comment and the fixing commit message (the merge commit is the permanent trail). Optionally file a *closed* `code-review` issue if a searchable audit entry is wanted.
+- **Refuted / rejected** findings need no issue.
+
+Rationale: open issues track outstanding work future sessions must find; already-fixed findings live in the PR history. (See PR #1 for the Phase 0 example: six findings, all fixed in-PR and recorded in the PR comment rather than as issues.)
+
 ---
 
 ## 7. Session / Context Notes
