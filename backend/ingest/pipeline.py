@@ -76,7 +76,7 @@ def _funding_rows(df: pd.DataFrame, *, exchange: str, market: str) -> list[dict]
 async def run_ingest(
     data_dirs: list[str] | list[Path],
     *,
-    repo: CacheRepository,
+    repo: CacheRepository | None,
     exchange: str = "dydx",
     resolution: str = "1HOUR",
     min_coverage_rows: int,
@@ -90,8 +90,12 @@ async def run_ingest(
     Run the full ingest over ``data_dirs`` and return the validation report.
 
     When ``dry_run`` is True the cleaning/coverage logic runs and the report is
-    built exactly as for a real run, but nothing is written to the cache.
+    built exactly as for a real run, but nothing is written to the cache (and
+    ``repo`` may be ``None``); a real run requires a repository.
     """
+    if not dry_run and repo is None:
+        raise ValueError("run_ingest requires a repo unless dry_run=True")
+
     paths = iter_ohlcv_paths(data_dirs)
     total = len(paths)
     report = IngestReport(
@@ -166,7 +170,7 @@ async def run_ingest(
             stats.clean_rows,
             stats.raw_rows,
             "included" if included else f"excluded:{reason}",
-            f" → cached {cached}" if cached else "",
+            f" → cached {cached}" if (included and not dry_run) else "",
         )
 
         # Funding: ingest only for markets we keep, so the cache stays coherent.
