@@ -24,6 +24,8 @@ export default function ScanPanel() {
     const res = await getPairs();
     setPairs(res.pairs);
     setScannedAt(res.scanned_at);
+    // Surface a DB read failure rather than showing a misleading empty table.
+    setError(res.error ?? null);
   }, []);
 
   const stopPolling = useCallback(() => {

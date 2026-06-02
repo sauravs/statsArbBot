@@ -147,6 +147,11 @@ async def run_scan(
             client = DydxDataClient()
 
     try:
+        # Pin one anchor for the whole run so every market's candle windows align
+        # (an unpinned per-market datetime.now() drifts across a resolution
+        # boundary and gets dropped by the price-matrix join) and so scanned_at
+        # matches the window the rows were computed over.
+        scan_anchor = now or datetime.now(timezone.utc)
         state.set_phase(2, "Fetching market data…")
 
         def _market_cb(done: int, total: int) -> None:
@@ -154,7 +159,7 @@ async def run_scan(
             state.progress_msg = f"Fetching market data: {done}/{total} markets"
 
         matrix = await build_price_matrix(
-            client, num_pages=pages, progress_callback=_market_cb, now=now
+            client, num_pages=pages, progress_callback=_market_cb, now=scan_anchor
         )
 
         if matrix.is_empty:
@@ -198,7 +203,7 @@ async def run_scan(
         # The DB is the authoritative store /api/pairs reads, so write it first;
         # the CSV (inspection copy) is written only after the DB succeeds so the
         # two halves can never diverge on a DB failure.
-        scanned_at = now or datetime.now(timezone.utc)
+        scanned_at = scan_anchor
         rows = [
             {
                 **row,
@@ -217,9 +222,13 @@ async def run_scan(
             state.fail(f"Scan computed {len(found)} pairs but DB write failed: {exc}")
             return {"found": len(found), "tested": tested, "db_error": str(exc)}
 
-        # Off the event loop — for a large survivor set / slow disk the to_csv
-        # write must not stall concurrent /api/scan/status polls.
-        await asyncio.to_thread(_write_csv, found)
+        # CSV is the inspection copy only; the authoritative DB write already
+        # succeeded, so a CSV failure must NOT flip the run into a reported
+        # failure. Off the loop so a large/slow write can't stall status polls.
+        try:
+            await asyncio.to_thread(_write_csv, found)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("CSV write failed (DB already persisted): %s", exc)
 
         state.finish(
             f"✓ Complete — {len(found)} cointegrated pair(s) "

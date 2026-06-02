@@ -32,9 +32,19 @@ async def get_pairs(
         pairs = await get_scan_repository().get_latest_pairs(
             exchange=exchange, mode=mode
         )
-    except Exception as exc:  # no scan yet / DB unavailable — return empty, not 500
-        logger.warning("get_pairs failed: %s", exc)
-        return {"pairs": [], "count": 0, "scanned_at": None, "exchange": exchange, "mode": mode}
+    except Exception as exc:
+        # Stay 200 so the dashboard renders before the first scan, but surface
+        # the failure via `error` (and log at error level) so a DB outage is not
+        # silently indistinguishable from "no scan run yet".
+        logger.error("get_pairs DB read failed: %s", exc)
+        return {
+            "pairs": [],
+            "count": 0,
+            "scanned_at": None,
+            "exchange": exchange,
+            "mode": mode,
+            "error": "Could not read pairs from the database.",
+        }
 
     scanned_at = pairs[0]["scanned_at"] if pairs else None
     return {
@@ -43,4 +53,5 @@ async def get_pairs(
         "scanned_at": scanned_at,
         "exchange": exchange,
         "mode": mode,
+        "error": None,
     }

@@ -71,6 +71,7 @@ export interface PairsResponse {
   scanned_at: string | null;
   exchange: string;
   mode: string;
+  error?: string | null;
 }
 
 export interface ScanStatus {
