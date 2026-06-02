@@ -16,11 +16,11 @@ before launching this coroutine, so only one scan runs at a time.
 
 from __future__ import annotations
 
+import asyncio
+import itertools
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-
-import asyncio
 
 import numpy as np
 import pandas as pd
@@ -62,14 +62,23 @@ def _analyze_chunk(
         if len(s1) < min_rows:
             continue
 
-        analysis = analyze_pair(
-            s1, s2, pvalue_max=pvalue_max, max_half_life=max_half_life
-        )
-        if not analysis.passes_filter:
+        # A single degenerate series (flat/collinear prices that clear the candle
+        # minimum) can make statsmodels raise inside coint()/OLS. Isolate it per
+        # pair so one bad market never aborts the whole scan (the reference bot
+        # wrapped its equivalent in a bare try/except for the same reason).
+        try:
+            analysis = analyze_pair(
+                s1, s2, pvalue_max=pvalue_max, max_half_life=max_half_life
+            )
+            if not analysis.passes_filter:
+                continue
+
+            spread = compute_spread(s1, s2, analysis.hedge_ratio, analysis.intercept)
+            z = latest_zscore(spread, window=config.ZSCORE_WINDOW)
+        except Exception as exc:  # noqa: BLE001 — skip the pair, keep the scan alive
+            logger.warning("pair %s/%s analysis failed: %s", base, quote, exc)
             continue
 
-        spread = compute_spread(s1, s2, analysis.hedge_ratio, analysis.intercept)
-        z = latest_zscore(spread, window=config.ZSCORE_WINDOW)
         found.append(
             {
                 "base_market": base,
@@ -96,7 +105,11 @@ def _write_csv(found: list[dict]) -> None:
     ]
     df = pd.DataFrame(found, columns=columns)
     if not df.empty:
-        df.sort_values("zero_crossings", ascending=False, inplace=True)
+        # Deterministic, matching the DB read order: best quality first, p-value
+        # as a stable tie-break so CSV and /api/pairs agree on row order.
+        df.sort_values(
+            ["zero_crossings", "p_value"], ascending=[False, True], inplace=True
+        )
     df.to_csv(path, index=False)
 
 
@@ -154,15 +167,16 @@ async def run_scan(
         state.update_pairs(0, total_pairs, 0)
         state.set_phase(3, f"Testing {n} markets ({total_pairs:,} pairs)…")
 
-        all_pairs = [
-            (markets[i], markets[j]) for i in range(n) for j in range(i + 1, n)
-        ]
         min_rows = config.ZSCORE_WINDOW + 10
 
+        # Generate pairs lazily; only one chunk is materialised at a time.
+        pair_iter = itertools.combinations(markets, 2)
         tested = 0
         found: list[dict] = []
-        for start in range(0, len(all_pairs), _CHUNK_SIZE):
-            chunk = all_pairs[start : start + _CHUNK_SIZE]
+        while True:
+            chunk = list(itertools.islice(pair_iter, _CHUNK_SIZE))
+            if not chunk:
+                break
             chunk_tested, chunk_found = await asyncio.to_thread(
                 _analyze_chunk,
                 matrix.df,
@@ -181,8 +195,10 @@ async def run_scan(
             )
 
         # ── dual-write ────────────────────────────────────────────────────────
+        # The DB is the authoritative store /api/pairs reads, so write it first;
+        # the CSV (inspection copy) is written only after the DB succeeds so the
+        # two halves can never diverge on a DB failure.
         scanned_at = now or datetime.now(timezone.utc)
-        _write_csv(found)
         rows = [
             {
                 **row,
@@ -196,10 +212,14 @@ async def run_scan(
         ]
         try:
             await repository.replace_scan_results(rows, exchange=exchange, mode=mode)
-        except Exception as exc:  # CSV already written; surface DB failure clearly
+        except Exception as exc:
             logger.error("DB dual-write failed: %s", exc)
             state.fail(f"Scan computed {len(found)} pairs but DB write failed: {exc}")
             return {"found": len(found), "tested": tested, "db_error": str(exc)}
+
+        # Off the event loop — for a large survivor set / slow disk the to_csv
+        # write must not stall concurrent /api/scan/status polls.
+        await asyncio.to_thread(_write_csv, found)
 
         state.finish(
             f"✓ Complete — {len(found)} cointegrated pair(s) "
@@ -213,4 +233,7 @@ async def run_scan(
         return {"found": 0, "tested": 0, "error": str(exc)}
     finally:
         if own_client:
-            await client.aclose()
+            try:
+                await client.aclose()
+            except Exception as exc:  # must not mask the scan's real outcome
+                logger.warning("data client close failed: %s", exc)

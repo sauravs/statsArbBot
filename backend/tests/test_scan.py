@@ -13,6 +13,7 @@ from tests.conftest import (
     FakeDydxClient,
     FakeScanRepository,
     make_cointegrated_series,
+    make_flat_series,
     make_independent_walk,
 )
 
@@ -84,6 +85,28 @@ async def test_run_scan_finds_pair_and_dual_writes(tmp_path, monkeypatch):
     df = pd.read_csv(csv)
     assert len(df) == result["found"]
     assert "intercept" in df.columns
+
+
+async def test_run_scan_survives_degenerate_market(tmp_path, monkeypatch):
+    """A flat/degenerate market must not abort the scan (per-pair isolation)."""
+    monkeypatch.setattr(config, "COINTEGRATED_PAIRS_CSV", str(tmp_path / "out.csv"))
+
+    s1, s2 = make_cointegrated_series()
+    client = FakeDydxClient(
+        {"AAA-USD": s1, "BBB-USD": s2, "FLAT-USD": make_flat_series()}
+    )
+    repo = FakeScanRepository()
+    state = ScanState()
+    await state.try_begin()
+    result = await run_scan(client=client, repository=repo, state=state)
+
+    # The bad pairs are skipped; the good pair is still found and the scan finishes.
+    assert state.phase == 4
+    assert state.running is False
+    assert state.error is None
+    assert result["found"] >= 1
+    rows = repo.store[("dydx", "forward_test")]
+    assert {"AAA-USD", "BBB-USD"} == {rows[0]["base_market"], rows[0]["quote_market"]}
 
 
 async def test_run_scan_no_data_finishes_cleanly(monkeypatch, tmp_path):

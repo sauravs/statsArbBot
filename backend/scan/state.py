@@ -43,6 +43,15 @@ class ScanState:
 
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
+    def _clear_counters(self) -> None:
+        """Zero the per-run counters (shared by begin/reset so they can't drift)."""
+        self.markets_fetched = 0
+        self.total_markets = 0
+        self.pairs_tested = 0
+        self.pairs_found = 0
+        self.total_pairs = 0
+        self.timed_out = False
+
     # ── start guard ──────────────────────────────────────────────────────────
 
     async def try_begin(self) -> bool:
@@ -59,12 +68,7 @@ class ScanState:
             self.started_at = _now_iso()
             self.completed_at = None
             self.error = None
-            self.markets_fetched = 0
-            self.total_markets = 0
-            self.pairs_tested = 0
-            self.pairs_found = 0
-            self.total_pairs = 0
-            self.timed_out = False
+            self._clear_counters()
             return True
 
     async def reset(self) -> None:
@@ -77,12 +81,7 @@ class ScanState:
             self.started_at = None
             self.completed_at = None
             self.error = None
-            self.markets_fetched = 0
-            self.total_markets = 0
-            self.pairs_tested = 0
-            self.pairs_found = 0
-            self.total_pairs = 0
-            self.timed_out = False
+            self._clear_counters()
 
     # ── progress updates (called only from the running scan task) ─────────────
 
@@ -107,6 +106,7 @@ class ScanState:
         self.progress_msg = msg
 
     def fail(self, error: str) -> None:
+        self.phase = 4  # terminal — a failed scan is not still mid-fetch/mid-test
         self.running = False
         self.error = error
         self.completed_at = _now_iso()

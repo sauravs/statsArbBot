@@ -56,7 +56,9 @@ class PrismaScanRepository:
         db = await get_db()
         records = await db.cointscanresult.find_many(
             where={"exchange": exchange, "mode": mode},
-            order=[{"zero_crossings": "desc"}],
+            # p_value tie-break makes the order deterministic across reads and
+            # matches the CSV half of the dual-write.
+            order=[{"zero_crossings": "desc"}, {"p_value": "asc"}],
         )
         return [self._to_dict(r) for r in records]
 

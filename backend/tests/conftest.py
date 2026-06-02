@@ -37,6 +37,11 @@ def make_independent_walk(n: int = 400, *, seed: int = 99) -> list[float]:
     return (50 + np.cumsum(rng.normal(0, 1, n))).tolist()
 
 
+def make_flat_series(n: int = 400, *, value: float = 100.0) -> list[float]:
+    """A constant series — degenerate input that makes coint()/OLS misbehave."""
+    return [value] * n
+
+
 def closes_to_candles(closes: list[float]) -> list[dict]:
     """Convert a close list into the {datetime, close} shape the client returns."""
     return [
@@ -85,4 +90,5 @@ class FakeScanRepository:
 
     async def get_latest_pairs(self, *, exchange, mode) -> list[dict]:
         rows = self.store.get((exchange, mode), [])
-        return sorted(rows, key=lambda r: r["zero_crossings"], reverse=True)
+        # Mirror PrismaScanRepository: zero_crossings desc, p_value asc tie-break.
+        return sorted(rows, key=lambda r: (-r["zero_crossings"], r["p_value"]))

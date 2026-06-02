@@ -31,7 +31,12 @@ async function proxyPost<T>(path: string, body?: unknown): Promise<T> {
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
-    throw new Error(detail?.detail ?? `API ${path} failed: ${res.status}`);
+    // FastAPI HTTPException → {detail: string}; validation errors → {detail: []}.
+    const msg =
+      typeof detail?.detail === "string"
+        ? detail.detail
+        : `API ${path} failed: ${res.status}`;
+    throw new Error(msg);
   }
   return (await res.json()) as T;
 }
