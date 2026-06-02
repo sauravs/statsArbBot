@@ -10,9 +10,9 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** Phase 5a — Live Trading Engine (execution core) — implemented on `phase-5a-live-engine`; gate passed locally (120 pytest, 99 prior + 21 new: live P&L, BotAgent failsafe/CODE-RED, full live-API entry→exit→P&L lifecycle w/ mocked dYdX; real `PrismaLiveRepository` session→trade→close path verified vs Docker Postgres, P&L=20.0; migration `0005_live_trading` applied). No UI this phase (that's 5b → no Playwright). PR pending.
+- **Last completed:** Phase 5a — Live Trading Engine (execution core) — **merged** ([PR #15](https://github.com/sauravs/statsArbBot/pull/15), merge commit `d39e3c6`). Gate passed locally (123 pytest incl. full live-API entry→exit→P&L lifecycle w/ mocked dYdX; real `PrismaLiveRepository` path verified vs Docker Postgres, P&L=20.0; migration `0005_live_trading` applied). No UI this phase (5b). Local `/code-review high` done (6 fixed in-PR, 4 → issues #16–#19); cloud `ultra` intentionally skipped (operator decision — see Carry-Over). 🔴 **The live dYdX order path is unvalidated against a real exchange — see the pre-production checkpoint in Carry-Over before any mainnet use.**
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action:** open the Phase 5a PR, review (local `/code-review` — cloud `ultrareview` still needs the Claude GitHub app installed), merge. Then Phase 5b — Live Trading UI — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 5b." **Before starting, check open `code-review` issues** (PLAN §6.1): only **#8** (synthetic-data duplication, tech-debt) remains open.
+- **Next action:** Phase 5b — Live Trading UI — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 5b." **Before starting, check open `code-review` issues** (PLAN §6.1): #8 (synthetic-data dup), #16 (wallet.sequence — blocks live trading), #17 (max-open-pairs cap), #18/#19 (tech-debt dedupe) all open.
 
 ---
 
@@ -29,7 +29,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | 2.5 | Historical data ingest & validation | 🟡 | phase-2.5-data-ingest | [#10](https://github.com/sauravs/statsArbBot/pull/10) | gate passed locally (70/70 pytest; real seed `OhlcvCache`=492k / `FundingRateCache`=569k vs Docker Postgres); local code-review fixes in-PR. Merge pending |
 | 3 | Pair detail + 3-panel charts | ✅ | phase-3-pair-charts | [#12](https://github.com/sauravs/statsArbBot/pull/12) | ✅ gate passed (85 pytest · 6/6 Playwright incl. live UI→proxy→API→DB pair-detail) — merged (`a07f11e`). 2 code-review findings fixed in-PR |
 | 4 | Live Manual Trading (new feature) | ✅ | phase-4-manual-trading | [#14](https://github.com/sauravs/statsArbBot/pull/14) | ✅ gate passed (99 pytest · 7/7 Playwright incl. record→close P&L lifecycle vs real Postgres; real Prisma path curl-verified) — merged (`71aea68`) |
-| 5a | Live trading engine (execution core) | 🟡 | phase-5a-live-engine | | gate passed locally (120 pytest incl. live-API entry→exit→P&L lifecycle w/ mocked dYdX; real `PrismaLiveRepository` path verified vs Docker Postgres). No UI/Playwright this phase. PR pending |
+| 5a | Live trading engine (execution core) | ✅ | phase-5a-live-engine | [#15](https://github.com/sauravs/statsArbBot/pull/15) | ✅ gate passed locally (123 pytest incl. live-API entry→exit→P&L lifecycle w/ mocked dYdX; real `PrismaLiveRepository` path verified vs Docker Postgres) — merged (`d39e3c6`). No UI/Playwright this phase. 6 code-review findings fixed in-PR, 4 → issues #16–#19; cloud ultra skipped. 🔴 live order path unvalidated vs real exchange (pre-production checkpoint) |
 | 5b | Live trading UI | ⬜ | | | |
 | 6 | Real-time simulation | ⬜ | | | |
 | 7 | Fast-forward simulation | ⬜ | | | |
