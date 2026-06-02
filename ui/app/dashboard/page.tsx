@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSystemHealth, type SystemHealth } from "@/lib/api";
+import ScanPanel from "@/components/ScanPanel";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -45,17 +46,14 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <section className="flex flex-col items-center justify-center py-32 text-center">
-        <h2 className="text-xl font-semibold text-text">Dashboard</h2>
-        <p className="mt-2 max-w-md text-sm text-muted">
-          Foundation is live. Cointegration scan, pairs table, and trading
-          surfaces arrive in the next phases.
-        </p>
+      <section className="mx-auto max-w-6xl px-6 py-8">
+        <h2 className="mb-4 text-xl font-semibold text-text">Dashboard</h2>
         {error && (
-          <p className="mt-4 text-sm text-red">
+          <p className="mb-4 text-sm text-red">
             Could not reach the API. Is the backend running?
           </p>
         )}
+        <ScanPanel />
       </section>
     </main>
   );
