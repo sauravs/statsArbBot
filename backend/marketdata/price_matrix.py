@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Protocol
+from typing import Callable, Protocol
 
 import pandas as pd
 
@@ -42,6 +43,13 @@ class PriceMatrix:
     df: pd.DataFrame  # columns = tickers, index = ISO timestamps, values = close
     window_start: datetime
     window_end: datetime
+    # Markets that were eligible but did NOT make it into the matrix, mapped to a
+    # reason: "fetch_failed" (issue #7 — indexer 429/error exhaustion), "no_data",
+    # "too_short", or "misaligned" (issue #6 — dropped by the union-timestamp join
+    # because its history didn't cover every shared bar). Surfaced so a scan that
+    # silently loses most of the universe is visible rather than reported as a
+    # clean success.
+    dropped: dict[str, str] = field(default_factory=dict)
 
     @property
     def num_markets(self) -> int:
@@ -50,6 +58,15 @@ class PriceMatrix:
     @property
     def num_rows(self) -> int:
         return self.df.shape[0]
+
+    @property
+    def num_dropped(self) -> int:
+        return len(self.dropped)
+
+    @property
+    def dropped_by_reason(self) -> dict[str, int]:
+        """Excluded-market counts grouped by reason (for logging / status)."""
+        return dict(Counter(self.dropped.values()))
 
     @property
     def is_empty(self) -> bool:
@@ -91,9 +108,10 @@ async def build_price_matrix(
     done = 0
     sem = asyncio.Semaphore(concurrency)
 
-    async def fetch_one(ticker: str) -> tuple[str, list[dict]]:
+    async def fetch_one(ticker: str) -> tuple[str, list[dict], bool]:
         nonlocal done
         async with sem:
+            failed = False
             try:
                 closes = await client.get_historical_closes(
                     ticker, num_pages=num_pages, now=now
@@ -101,35 +119,62 @@ async def build_price_matrix(
             except Exception as exc:  # one bad market must not abort the scan
                 logger.warning("price fetch failed for %s: %s", ticker, exc)
                 closes = []
+                failed = True
             done += 1
             if progress_callback:
                 progress_callback(done, total)
-            return ticker, closes
+            return ticker, closes, failed
 
     results = await asyncio.gather(*(fetch_one(t) for t in markets))
 
     price_data: dict[str, dict[str, float]] = {}
-    for ticker, closes in results:
+    dropped: dict[str, str] = {}
+    for ticker, closes, failed in results:
+        if failed:
+            dropped[ticker] = "fetch_failed"  # issue #7: 429/error exhaustion
+            continue
+        if not closes:
+            dropped[ticker] = "no_data"
+            continue
         if len(closes) < config.MIN_CANDLES_PER_MARKET:
-            if closes:
-                logger.info("Skipping %s: only %d candles", ticker, len(closes))
+            logger.info("Skipping %s: only %d candles", ticker, len(closes))
+            dropped[ticker] = "too_short"
             continue
         price_data[ticker] = {c["datetime"]: c["close"] for c in closes}
 
     epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
     if not price_data:
-        logger.warning("No usable market price data.")
-        return PriceMatrix(df=pd.DataFrame(), window_start=epoch, window_end=epoch)
+        logger.warning("No usable market price data (excluded %d: %s).",
+                       len(dropped), dict(Counter(dropped.values())))
+        return PriceMatrix(
+            df=pd.DataFrame(), window_start=epoch, window_end=epoch, dropped=dropped
+        )
 
     df = pd.DataFrame(price_data)
-    # Drop any market that does not cover every shared timestamp (leaves no gaps).
+    # Drop any market that does not cover every shared timestamp (cointegration
+    # needs aligned series). Unlike before, the dropped columns are recorded as
+    # "misaligned" (issue #6) rather than silently discarded.
+    eligible = set(df.columns)
     df.dropna(axis=1, how="any", inplace=True)
+    for ticker in eligible - set(df.columns):
+        dropped[ticker] = "misaligned"
     df.sort_index(inplace=True)
-    logger.info("Price matrix: %d rows × %d markets", df.shape[0], df.shape[1])
+
+    if dropped:
+        logger.info(
+            "Price matrix: %d rows × %d markets (excluded %d: %s)",
+            df.shape[0], df.shape[1], len(dropped), dict(Counter(dropped.values())),
+        )
+    else:
+        logger.info("Price matrix: %d rows × %d markets", df.shape[0], df.shape[1])
 
     if df.empty:
-        return PriceMatrix(df=df, window_start=epoch, window_end=epoch)
+        return PriceMatrix(
+            df=df, window_start=epoch, window_end=epoch, dropped=dropped
+        )
 
     window_start = _parse_iso(str(df.index.min()))
     window_end = _parse_iso(str(df.index.max()))
-    return PriceMatrix(df=df, window_start=window_start, window_end=window_end)
+    return PriceMatrix(
+        df=df, window_start=window_start, window_end=window_end, dropped=dropped
+    )

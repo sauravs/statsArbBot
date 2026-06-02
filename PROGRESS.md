@@ -10,9 +10,9 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** Phase 2.5 — Historical data ingest & validation — implemented on `phase-2.5-data-ingest` (PR [#10](https://github.com/sauravs/statsArbBot/pull/10)); **gate passed locally** (70/70 pytest incl. 21 new ingest tests; real ingest seeded `OhlcvCache`=492,138 rows / 35 markets + `FundingRateCache`=569,333 rows against Docker Postgres; `data/ingest_report.md` generated). Local `/code-review` fixes applied in-PR; cloud `/code-review ultra` pending (Claude GitHub app not yet installed). Merge pending.
+- **Phase in progress:** none — Phase 2.5 merged (PR [#10](https://github.com/sauravs/statsArbBot/pull/10), `OhlcvCache`=492,138 / `FundingRateCache`=569,333). Follow-up `fix-scan-dropped-markets-6-7` open (closes #6, #7).
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action (after Phase 2.5 merges):** Phase 3 — Pair detail + 3-panel charts — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 3." **Before starting, check open `code-review` issues** (PLAN §6.1): **#7** (429-exhaustion silently dropping a market) and **#8** (synthetic-data duplication) remain open; **#6** (scan union `dropna`) — Phase 2.5 added the ingest-side coverage validation + per-market dropped-bar reporting #6 proposed, but the **live scan's `price_matrix.dropna` is unchanged**, so #6 stays open (revisit when the scan consumes the cleaned cache).
+- **Next action:** Phase 3 — Pair detail + 3-panel charts — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 3." **Before starting, check open `code-review` issues** (PLAN §6.1): after the scan-dropped-markets follow-up merges, only **#8** (synthetic-data duplication, tech-debt) remains open.
 
 ---
 
@@ -67,7 +67,7 @@ Phase N — <name>
 - ✅ `gh` authenticated (account `sauravs`, scopes incl. `repo`+`workflow`) — issues/PRs ready.
 - Secrets: **use the existing `.env` as-is for development** (testnet — low risk; operator's decision). Generate fresh dYdX keys / Telegram token / dashboard password **only before switching to `production` (mainnet) mode**. Phase 0 added `DASHBOARD_JWT_SECRET` (placeholder; rotate before production).
 - Data ingest (Phase 2.5): existing data has flat / zero-volume candles needing cleaning; `data/dydx` and `data/dydx_extended` are disjoint (~41 markets, no dedup needed).
-- **Open `code-review` issues (check before each phase — PLAN §6.1):** [#6](https://github.com/sauravs/statsArbBot/issues/6) union `dropna` drops markets with heterogeneous histories (→ Phase 2.5), [#7](https://github.com/sauravs/statsArbBot/issues/7) 429-exhaustion silently drops a market, [#8](https://github.com/sauravs/statsArbBot/issues/8) synthetic-data recipe duplicated (demo.py vs conftest.py).
+- **Open `code-review` issues (check before each phase — PLAN §6.1):** [#6](https://github.com/sauravs/statsArbBot/issues/6) (union `dropna` drops markets) and [#7](https://github.com/sauravs/statsArbBot/issues/7) (429-exhaustion silently drops a market) — **fixed** in the `fix-scan-dropped-markets-6-7` follow-up (`build_price_matrix` now records every excluded market with a reason — `fetch_failed`/`no_data`/`too_short`/`misaligned` — surfaced in scan status + result; closed on merge). [#8](https://github.com/sauravs/statsArbBot/issues/8) (synthetic-data recipe duplicated, demo.py vs conftest.py) — still open, low-priority tech-debt.
 - **Local dev env (set up during Phase 2, reusable for 2.5):** `prisma` installed in `backend/.venv` + client generated; Docker Postgres (`statsarbbot-postgres-1`) holds migrations `0001`+`0002`. Run `prisma generate` with the venv first on `PATH` (`export PATH="$PWD/.venv/bin:$PATH"`) or it targets a stray interpreter. `SCAN_DATA_SOURCE=fake` gives an offline, deterministic scan.
 
 ### Phase 0 outcomes / decisions
