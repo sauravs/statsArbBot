@@ -10,9 +10,9 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** none — Phase 1 merged (PR #3, merge commit `dbd374c`). Ready to start Phase 2.
+- **Phase in progress:** Phase 2 — implemented on `phase-2-marketdata-scan`; **gate passed locally** (48/48 pytest, 5/5 Playwright incl. scan→render→reload against real Postgres). PR + `/code-review ultra` + merge pending.
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action:** Phase 2 — Market data + scan → pairs table — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 2." Phase 2 brings the first **integration + Playwright E2E** gate (scan from UI → pairs render → survive reload); it is also the first consumer of `statcore`.
+- **Next action (after Phase 2 merges):** Phase 2.5 — Historical data ingest & validation — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 2.5."
 
 ---
 
@@ -25,7 +25,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | — | Planning & docs (PRD/PLAN/CONTEXT/research/ADRs/data) | ✅ | main | — | n/a |
 | 0 | Foundation, docs & skeleton | ✅ | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | ✅ gate fully verified (incl. `docker compose up`) — merged |
 | 1 | Statistical core (correctness anchor) | ✅ | phase-1-statcore | [#3](https://github.com/sauravs/statsArbBot/pull/3) | ✅ gate passed (33/33 pytest; parity to ~1e-9) — merged. Integration/UI n/a (isolated core) |
-| 2 | Market data + scan → pairs table | ⬜ | | | |
+| 2 | Market data + scan → pairs table | 🟡 | phase-2-marketdata-scan | | gate passed locally (48/48 pytest · 5/5 Playwright). PR/review/merge pending |
 | 2.5 | Historical data ingest & validation | ⬜ | | | |
 | 3 | Pair detail + 3-panel charts | ⬜ | | | |
 | 4 | Live Manual Trading (new feature) | ⬜ | | | |
@@ -90,3 +90,14 @@ Phase N — <name>
   5. *(doc)* corrected `zero_crossings` docstring re: exact-on-mean behaviour.
   6. *(altitude)* named the coint 5%-critical-value index (`_CRIT_VALUE_5PCT_INDEX`).
   - **Left as-is (judgment):** `latest_zscore` vs `rolling_zscore` formula duplication (the tail form is the efficient path; guarded by a 1e-12 parity test) and the `half_life` `b >= -1e-9` epsilon (documented; rejects only ~7e8-period non-reversion that the 72h cap would reject anyway).
+
+### Phase 2 outcomes / decisions
+- **Layering:** `exchanges/` (registry + `dydx/client.py` read-only REST data client + `demo.py`), `marketdata/` (`time_windows.py`, `price_matrix.py` — exchange-agnostic, depends on a `PriceSource` Protocol so any client/fake works), `scan/` (`state.py`, `orchestrator.py`), `db/scan_repository.py`, and routers `scan.py`/`pairs.py`/`exchange.py`. The dYdX client talks REST directly (httpx) — the SDK lacks `fromISO/toISO` for paginated candles — with 429 backoff + injectable `data_url`/`transport` for mocking.
+- **Single source of truth honoured:** the scan consumes `statcore.analyze_pair` (+`compute_spread`/`latest_zscore`); no duplicated math (fixes the prototype's separate `func_cointegration` copy).
+- **Race fixed (PRD §7):** scan progress lives in one lock-guarded `ScanState`. `try_begin()` atomically claims the run (concurrent `POST /api/scan/start` → 409); the CPU-bound pair loop is offloaded in chunks via `asyncio.to_thread` but **state is mutated only on the event loop**, never from the worker thread — so there is no cross-thread race (the prototype mutated a shared dict from a `run_in_executor` thread).
+- **Dual-write (PRD §3.1 step 7):** survivors written to CSV *and* `CointScanResult` in one transaction (delete+insert) so the table holds the latest scan per (exchange, mode) and `/api/pairs` reads back a complete set after reload. Added `CointScanResult` model + migration `0002_coint_scan_result` (incl. Option-B `intercept` column + `z_score` at scan time).
+- **Z-score in pairs table:** scan-time `latest_zscore` of the spread (deterministic, no extra fetch). Truly-live z-score refresh is deferred to Phase 4/5 (it's what the manual-trading slider needs).
+- **Test seam / offline mode:** `SCAN_DATA_SOURCE=fake` → `exchanges/demo.py` `DemoDataClient` (deterministic cointegrated + noise markets). Powers offline dev, demos, and a network-free, deterministic Playwright E2E. Default is `dydx` (live mainnet indexer for real liquidity; price data always mainnet even on testnet mode).
+- **DB seam:** `db/scan_repository.py` (`PrismaScanRepository` + `get_scan_repository()` singleton) lets unit/integration tests inject an in-memory repo, so pytest stays hermetic (no Prisma/Postgres needed). Real dual-write verified separately against Docker Postgres.
+- **Gate — PASSED locally:** `pytest` **48/48** (33 prior + 15 new: time-windows, price-matrix, scan-state guard, orchestrator dual-write, TestClient scan→pairs roundtrip w/ mocked dYdX). Real Prisma round-trip + full orchestrator→Postgres path verified by script. **Playwright 5/5** (3 Phase-0 smoke + 2 Phase-2) incl. *scan from UI → pairs render → survive reload* against the real `next start` UI + `uvicorn` API + Docker Postgres.
+- **Heads-up for next session (Prisma local gotcha):** `prisma` is now in the backend venv. `prisma generate` resolves the *target* Python from `PATH` — run it with the venv first on PATH (`export PATH="$PWD/.venv/bin:$PATH"`) or it generates the client into a stray interpreter (it picked Anaconda 3.12 the first time). Migrations: `0001` + `0002` applied; the `postgres_data` Docker volume persists between sessions (`docker compose down -v` to wipe).

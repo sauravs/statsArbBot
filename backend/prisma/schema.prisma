@@ -45,3 +45,32 @@ model BotConfigHistory {
 
   @@index([exchange, mode])
 }
+
+// ── Cointegration scan results (Phase 2) ─────────────────────────────────────
+// One row per cointegrated pair found in a scan run. The CSV half of the
+// dual-write (PRD §3.1 step 7) is for parity/inspection; this table is the
+// authoritative store the pairs table reads from so results survive reload.
+// Every row carries the same `scanned_at` for a given run so the latest scan is
+// a single MAX(scanned_at) lookup per (exchange, mode).
+
+model CointScanResult {
+  id             String      @id @default(cuid())
+  exchange       Exchange
+  mode           TradingMode
+  scanned_at     DateTime    @default(now()) @db.Timestamptz
+  window_start   DateTime    @db.Timestamptz
+  window_end     DateTime    @db.Timestamptz
+  base_market    String
+  quote_market   String
+  hedge_ratio    Float
+  intercept      Float       @default(0) // Option-B #1: spread includes α
+  half_life      Float
+  zero_crossings Int
+  p_value        Float
+  z_score        Float? // latest rolling Z-score of the spread at scan time
+  spread_std     Float?
+
+  @@index([exchange, mode, scanned_at])
+  @@index([base_market, quote_market])
+  @@map("coint_scan_results")
+}
