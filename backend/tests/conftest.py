@@ -92,3 +92,23 @@ class FakeScanRepository:
         rows = self.store.get((exchange, mode), [])
         # Mirror PrismaScanRepository: zero_crossings desc, p_value asc tie-break.
         return sorted(rows, key=lambda r: (-r["zero_crossings"], r["p_value"]))
+
+
+class FakeOhlcvCacheRepository:
+    """In-memory stand-in for PrismaOhlcvCacheRepository (no DB / generated client).
+
+    Replicates the replace-on-write semantics so the ingest pipeline can be
+    driven end-to-end in unit tests without Postgres.
+    """
+
+    def __init__(self) -> None:
+        self.candles: dict[tuple[str, str, str], list[dict]] = {}
+        self.funding: dict[tuple[str, str], list[dict]] = {}
+
+    async def replace_candles(self, market, rows, *, exchange, resolution) -> int:
+        self.candles[(exchange, market, resolution)] = list(rows)
+        return len(rows)
+
+    async def replace_funding(self, market, rows, *, exchange) -> int:
+        self.funding[(exchange, market)] = list(rows)
+        return len(rows)
