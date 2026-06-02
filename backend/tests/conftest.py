@@ -126,6 +126,183 @@ class FakeOhlcvCacheRepository:
         return len(rows)
 
 
+class FakeTradeClient:
+    """In-memory stand-in for a dYdX trade client (Phase 5a).
+
+    Simulates fills by tracking positions, lets tests force submission/close
+    failures and fill timeouts, and serves controllable collateral/equity. Mirrors
+    the ``trading.broker.TradeClient`` protocol so the engine drives it unchanged.
+    """
+
+    def __init__(
+        self,
+        *,
+        prices: dict[str, float] | None = None,
+        free_collateral: float = 10_000.0,
+        equity: float = 10_000.0,
+        fail_open_markets: set[str] | None = None,
+        fail_close_markets: set[str] | None = None,
+        no_fill_markets: set[str] | None = None,
+    ) -> None:
+        from trading.broker import OrderResult, Position
+
+        self._OrderResult = OrderResult
+        self._Position = Position
+        self.prices = prices or {}
+        self.free_collateral = free_collateral
+        self.equity = equity
+        self.fail_open_markets = set(fail_open_markets or [])
+        self.fail_close_markets = set(fail_close_markets or [])
+        self.no_fill_markets = set(no_fill_markets or [])
+        self.positions: dict[str, object] = {}
+        self.orders: list[dict] = []
+        self.cancelled = False
+        self.closed = False
+
+    async def place_market_order(self, *, market, side, size, reduce_only=False):
+        if reduce_only and market in self.fail_close_markets:
+            return None
+        if not reduce_only and market in self.fail_open_markets:
+            return None
+        price = self.prices.get(market, 100.0)
+        self.orders.append(
+            {"market": market, "side": side, "size": size, "reduce_only": reduce_only, "price": price}
+        )
+        if reduce_only:
+            self.positions.pop(market, None)
+        elif market not in self.no_fill_markets:
+            self.positions[market] = self._Position(
+                market=market,
+                side="LONG" if side == "BUY" else "SHORT",
+                size=size,
+                entry_price=price,
+            )
+        return self._OrderResult(
+            market=market, side=side, size=size, price=price, client_id=1, reduce_only=reduce_only
+        )
+
+    async def is_open_position(self, market):
+        return market in self.positions
+
+    async def get_open_positions(self):
+        return dict(self.positions)
+
+    async def get_free_collateral(self):
+        return self.free_collateral
+
+    async def get_account_equity(self):
+        return self.equity
+
+    async def cancel_all_orders(self):
+        self.cancelled = True
+
+    async def aclose(self):
+        self.closed = True
+
+
+class FakeLiveRepository:
+    """In-memory stand-in for PrismaLiveRepository (no DB / generated client)."""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, dict] = {}
+        self.trades: dict[str, dict] = {}
+        self._seq = 0
+
+    @staticmethod
+    def _iso(v):
+        return v.isoformat() if isinstance(v, datetime) else v
+
+    # sessions
+    async def get_active_session(self, *, exchange, mode):
+        actives = [
+            s
+            for s in self.sessions.values()
+            if s["exchange"] == exchange and s["mode"] == mode and s["active"]
+        ]
+        return dict(actives[-1]) if actives else None
+
+    async def start_session(self, *, exchange, mode):
+        existing = await self.get_active_session(exchange=exchange, mode=mode)
+        if existing is not None:
+            return existing
+        self._seq += 1
+        sid = f"ls_{self._seq}"
+        self.sessions[sid] = {
+            "id": sid,
+            "exchange": exchange,
+            "mode": mode,
+            "active": True,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "stopped_at": None,
+        }
+        return dict(self.sessions[sid])
+
+    async def stop_session(self, *, exchange, mode):
+        n = 0
+        for s in self.sessions.values():
+            if s["exchange"] == exchange and s["mode"] == mode and s["active"]:
+                s["active"] = False
+                s["stopped_at"] = datetime.now(timezone.utc).isoformat()
+                n += 1
+        return n
+
+    # trades
+    async def create_trade(self, data):
+        self._seq += 1
+        tid = f"lt_{self._seq}"
+        row = dict(data)
+        row["opened_at"] = self._iso(row.get("opened_at"))
+        row.setdefault("status", "PENDING")
+        row.update(
+            id=tid,
+            exit_z_score=row.get("exit_z_score"),
+            exit_price_leg1=row.get("exit_price_leg1"),
+            exit_price_leg2=row.get("exit_price_leg2"),
+            exit_reason=row.get("exit_reason"),
+            pnl=row.get("pnl"),
+            closed_at=row.get("closed_at"),
+            error=row.get("error"),
+        )
+        self.trades[tid] = row
+        return dict(row)
+
+    async def list_trades(self, *, exchange, mode, status=None):
+        rows = [
+            r
+            for r in self.trades.values()
+            if r["exchange"] == exchange and r["mode"] == mode
+            and (status is None or r["status"] == status)
+        ]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["opened_at"], reverse=True)]
+
+    async def get_open_trades(self, *, exchange, mode):
+        return await self.list_trades(exchange=exchange, mode=mode, status="OPEN")
+
+    async def close_trade(
+        self, trade_id, *, exit_price_leg1, exit_price_leg2, exit_z_score, exit_reason, pnl, closed_at
+    ):
+        row = self.trades.get(trade_id)
+        if row is None:
+            return None
+        row.update(
+            status="CLOSED",
+            exit_price_leg1=exit_price_leg1,
+            exit_price_leg2=exit_price_leg2,
+            exit_z_score=exit_z_score,
+            exit_reason=exit_reason,
+            pnl=pnl,
+            closed_at=self._iso(closed_at),
+        )
+        return dict(row)
+
+    async def mark_error(self, trade_id, *, error):
+        row = self.trades.get(trade_id)
+        if row is None:
+            return None
+        row.update(status="ERROR", error=error)
+        return dict(row)
+
+
 class FakeManualTradeRepository:
     """In-memory stand-in for PrismaManualTradeRepository (no DB / generated client)."""
 

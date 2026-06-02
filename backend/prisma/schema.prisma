@@ -36,6 +36,14 @@ enum ManualTradeStatus {
   CLOSED
 }
 
+// Lifecycle of a live bot trade (Phase 5a).
+enum LiveTradeStatus {
+  PENDING // opening: leg placement in progress
+  OPEN    // both legs filled and live on-exchange
+  CLOSED  // both legs closed; realised P&L recorded
+  ERROR   // open failed mid-flight; failsafe close attempted
+}
+
 // ── Config audit (append-only) ───────────────────────────────────────────────
 // Stable seed model: records every bot-config change for auditing. Present from
 // Phase 0 so migrations exist; extended as config surfaces grow.
@@ -137,6 +145,59 @@ model ManualTrade {
   @@index([exchange, mode, status])
   @@index([recorded_at])
   @@map("manual_trades")
+}
+
+// ── Live Trading (Phase 5a, PRD F5) ──────────────────────────────────────────
+// DB-backed live-bot state (ADR-0003 — no flat bot_agents.json). A LiveSession is
+// one activation of the bot for an (exchange, mode); its LiveTrades are the
+// two-leg pairs it opened. Entry prices/sizes/sides are captured when both legs
+// fill so real per-leg P&L is computable from exit prices on close. The exit
+// manager reconciles OPEN rows against the exchange, so the DB is the source of
+// truth a restart restores from (replacing the prototype's flat-file tracker).
+
+model LiveSession {
+  id         String      @id @default(cuid())
+  exchange   Exchange
+  mode       TradingMode
+  active     Boolean     @default(true)
+  started_at DateTime    @default(now()) @db.Timestamptz
+  stopped_at DateTime?   @db.Timestamptz
+  trades     LiveTrade[]
+
+  @@index([exchange, mode, active])
+  @@map("live_sessions")
+}
+
+model LiveTrade {
+  id               String          @id @default(cuid())
+  session_id       String
+  session          LiveSession     @relation(fields: [session_id], references: [id])
+  exchange         Exchange
+  mode             TradingMode
+  base_market      String
+  quote_market     String
+  base_side        String // BUY | SELL — action on the base leg at entry
+  quote_side       String // BUY | SELL — action on the quote leg at entry
+  base_size        Float // units of base held
+  quote_size       Float // units of quote held
+  hedge_ratio      Float
+  half_life        Float
+  entry_z_score    Float
+  entry_price_leg1 Float // base fill price captured at open
+  entry_price_leg2 Float // quote fill price captured at open
+  status           LiveTradeStatus @default(PENDING)
+  opened_at        DateTime        @default(now()) @db.Timestamptz
+  exit_z_score     Float?
+  exit_price_leg1  Float?
+  exit_price_leg2  Float?
+  exit_reason      String? // ExitReason value: TAKE_PROFIT / STOP_LOSS_ZSCORE / STOP_LOSS_TIME / RECONCILED
+  pnl              Float? // realised per-leg P&L sum, set on close
+  closed_at        DateTime?       @db.Timestamptz
+  error            String? // failure detail when status = ERROR
+
+  @@index([exchange, mode, status])
+  @@index([session_id])
+  @@map("live_trades")
 }
 
 // Historical funding rates, ingested alongside OHLCV so the simulation/backtest
