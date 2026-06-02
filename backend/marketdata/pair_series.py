@@ -17,6 +17,7 @@ it). Pure apart from the price fetch — no DB, no config mutation.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -206,11 +207,12 @@ async def build_pair_series(
     """
     window = window or config.ZSCORE_WINDOW
 
-    base_closes = await client.get_historical_closes(
-        base_market, num_pages=num_pages, now=now
-    )
-    quote_closes = await client.get_historical_closes(
-        quote_market, num_pages=num_pages, now=now
+    # Fetch both legs concurrently — each is several paginated indexer requests,
+    # and they are independent, so awaiting them back-to-back would double the
+    # detail-load latency (the scan path fetches concurrently for the same reason).
+    base_closes, quote_closes = await asyncio.gather(
+        client.get_historical_closes(base_market, num_pages=num_pages, now=now),
+        client.get_historical_closes(quote_market, num_pages=num_pages, now=now),
     )
     if not base_closes or not quote_closes:
         return None

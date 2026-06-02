@@ -34,6 +34,22 @@ function toLine(points: TimePoint[]) {
   return points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
 }
 
+/**
+ * Z-score line data spanning the *full* time axis (taken from the spread series,
+ * which has every bar): the warm-up bars the backend omits become whitespace
+ * points. This keeps the Z-score panel's bar indexing identical to the price /
+ * spread panels, so fitContent and the logical-range sync align all three by
+ * time rather than drifting by the rolling window length.
+ */
+function zLineData(data: PairSeries) {
+  const zByTime = new Map(data.zscore.series.map((p) => [p.time, p.value]));
+  return data.spread.series.map((p) => {
+    const t = p.time as UTCTimestamp;
+    const v = zByTime.get(p.time);
+    return v === undefined ? { time: t } : { time: t, value: v };
+  });
+}
+
 function baseChartOptions() {
   return {
     layout: {
@@ -153,7 +169,7 @@ export default function PairCharts({
       lineWidth: 2,
       title: "Z",
     });
-    zLine.setData(toLine(data.zscore.series));
+    zLine.setData(zLineData(data));
     const zLineAt = (
       price: number,
       color: string,
