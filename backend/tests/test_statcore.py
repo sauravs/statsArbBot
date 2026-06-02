@@ -28,7 +28,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import config
+
 from statcore import (
+    CointegrationTest,
     ExitReason,
     Side,
     analyze_pair,
@@ -272,3 +275,56 @@ def test_evaluate_exit_nan_zscore_allows_time_stop_only():
 def test_evaluate_exit_hold_in_open_band():
     # Between exit (0.5) and stop (4.0), with a fresh position → hold.
     assert evaluate_exit(2.0, position_age_hours=1.0, half_life=10.0) is None
+
+
+# ──────────────────── 4. REVIEW REGRESSIONS (code-review high) ────────────────
+
+
+def test_pvalue_max_is_honoured_above_default(maticusdt_stxusdt):
+    """A loosened p-value cap must actually loosen the gate (not be capped at 0.05)."""
+    # A pair that is t-significant but with p just above 0.05 must be accepted
+    # when pvalue_max is loosened, and rejected at the default — proving the knob
+    # is live and not shadowed by a hardcoded 0.05.
+    borderline = CointegrationTest(
+        p_value=0.07, t_statistic=-3.5, critical_value_5pct=-3.37
+    )
+    assert borderline.is_cointegrated(0.10) is True
+    assert borderline.is_cointegrated(0.05) is False
+    assert borderline.is_significant is False  # standard 5% criterion
+
+    # And the full pipeline consults pvalue_max: tightening it below the pair's
+    # real p-value flips the verdict.
+    s1 = maticusdt_stxusdt["MATICUSDT"].to_numpy(float)
+    s2 = maticusdt_stxusdt["STXUSDT"].to_numpy(float)
+    assert analyze_pair(s1, s2, pvalue_max=0.05).passes_filter
+    assert not analyze_pair(s1, s2, pvalue_max=1e-9).passes_filter
+
+
+def test_take_profit_beats_time_stop_when_reverted():
+    """A reverted spread (|Z| < exit) is a win even when the position is old."""
+    sig = evaluate_exit(0.2, position_age_hours=100.0, half_life=1.0)
+    assert sig.reason is ExitReason.TAKE_PROFIT
+    # Not reverted and aged out → genuine time stop.
+    sig = evaluate_exit(2.0, position_age_hours=100.0, half_life=1.0)
+    assert sig.reason is ExitReason.STOP_LOSS_TIME
+
+
+def test_nan_position_age_does_not_mask_time_stop_preconditions():
+    """A non-finite age is ignored rather than silently suppressing the stop."""
+    # nan age + nan z → cannot decide anything → hold (no spurious signal).
+    assert evaluate_exit(float("nan"), position_age_hours=float("nan"), half_life=1.0) is None
+    # nan age but z reverted → take-profit still fires (age is irrelevant here).
+    assert (
+        evaluate_exit(0.2, position_age_hours=float("nan"), half_life=1.0).reason
+        is ExitReason.TAKE_PROFIT
+    )
+
+
+def test_thresholds_resolved_from_config_at_call_time(monkeypatch):
+    """Changing config after import must affect decisions (defaults not frozen)."""
+    monkeypatch.setattr(config, "ZSCORE_THRESH", 3.0)
+    assert evaluate_entry(2.5) is None        # below the new 3.0 entry threshold
+    assert evaluate_entry(3.0) is not None    # at the new threshold → enter
+
+    monkeypatch.setattr(config, "EXIT_ZSCORE", 1.0)
+    assert evaluate_exit(0.8).reason is ExitReason.TAKE_PROFIT  # 0.8 < new 1.0 exit

@@ -62,7 +62,7 @@ class ExitSignal:
 def evaluate_entry(
     zscore: float,
     *,
-    entry_threshold: float = config.ZSCORE_THRESH,
+    entry_threshold: float | None = None,
 ) -> EntrySignal | None:
     """
     Decide whether to open a position given the current Z-score.
@@ -70,7 +70,13 @@ def evaluate_entry(
     Returns an :class:`EntrySignal` when ``|Z| >= entry_threshold``, otherwise
     ``None``. A ``nan`` Z-score (insufficient data / zero-variance window) never
     triggers an entry.
+
+    ``entry_threshold`` defaults to the live ``config.ZSCORE_THRESH``, resolved at
+    call time (not frozen at import) so a changed threshold — e.g. the manual-trade
+    Z slider in PRD F4.1 — takes effect.
     """
+    if entry_threshold is None:
+        entry_threshold = config.ZSCORE_THRESH
     if math.isnan(zscore) or abs(zscore) < entry_threshold:
         return None
     if zscore < 0:
@@ -85,36 +91,51 @@ def evaluate_exit(
     *,
     position_age_hours: float | None = None,
     half_life: float | None = None,
-    exit_threshold: float = config.EXIT_ZSCORE,
-    stop_threshold: float = config.STOP_LOSS_ZSCORE,
-    time_stop_mult: float = config.TIME_STOP_HALF_LIFE_MULT,
+    exit_threshold: float | None = None,
+    stop_threshold: float | None = None,
+    time_stop_mult: float | None = None,
 ) -> ExitSignal | None:
     """
     Decide whether to close an open position given the current Z-score and age.
 
     Precedence (most urgent first):
-      1. Stop-loss on divergence: ``|Z| >= stop_threshold``.
-      2. Stop-loss on time: ``position_age_hours > time_stop_mult × half_life``
-         (only when both age and a positive, finite half-life are supplied).
-      3. Take-profit: ``|Z| < exit_threshold``.
+      1. Stop-loss on divergence: ``|Z| >= stop_threshold`` — the cointegration
+         is breaking down; cut the loss.
+      2. Take-profit: ``|Z| < exit_threshold`` — the spread has reverted, so the
+         trade thesis succeeded. This is ranked above the time stop: a reverted
+         spread is a win, not a breakdown, even if the position is also old.
+      3. Stop-loss on time: ``position_age_hours > time_stop_mult × half_life``
+         (only when both age and a positive, finite half-life are supplied) — held
+         too long without reverting, a sign of cointegration breakdown.
 
     Returns the triggering :class:`ExitSignal`, or ``None`` to hold. A ``nan``
     Z-score still allows the time stop to fire (data may be momentarily missing
-    while the position has aged out).
+    while the position has aged out); a non-finite ``position_age_hours`` is
+    ignored so a bad clock/timestamp cannot mask the time stop's preconditions.
+
+    Thresholds default to the live ``config`` values, resolved at call time.
     """
+    if exit_threshold is None:
+        exit_threshold = config.EXIT_ZSCORE
+    if stop_threshold is None:
+        stop_threshold = config.STOP_LOSS_ZSCORE
+    if time_stop_mult is None:
+        time_stop_mult = config.TIME_STOP_HALF_LIFE_MULT
+
     if not math.isnan(zscore) and abs(zscore) >= stop_threshold:
         return ExitSignal(reason=ExitReason.STOP_LOSS_ZSCORE, zscore=zscore)
 
+    if not math.isnan(zscore) and abs(zscore) < exit_threshold:
+        return ExitSignal(reason=ExitReason.TAKE_PROFIT, zscore=zscore)
+
     if (
         position_age_hours is not None
+        and math.isfinite(position_age_hours)
         and half_life is not None
         and math.isfinite(half_life)
         and half_life > 0
         and position_age_hours > time_stop_mult * half_life
     ):
         return ExitSignal(reason=ExitReason.STOP_LOSS_TIME, zscore=zscore)
-
-    if not math.isnan(zscore) and abs(zscore) < exit_threshold:
-        return ExitSignal(reason=ExitReason.TAKE_PROFIT, zscore=zscore)
 
     return None

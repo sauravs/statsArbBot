@@ -29,6 +29,9 @@ import config
 from .halflife import half_life
 from .spread import compute_spread, zero_crossings
 
+# statsmodels.tsa.stattools.coint returns critical values ordered [1%, 5%, 10%].
+_CRIT_VALUE_5PCT_INDEX = 1
+
 
 @dataclass(frozen=True)
 class HedgeFit:
@@ -46,10 +49,19 @@ class CointegrationTest:
     t_statistic: float
     critical_value_5pct: float
 
+    def is_cointegrated(self, pvalue_max: float = 0.05) -> bool:
+        """
+        Engle-Granger acceptance criterion at the given p-value cutoff:
+        ``p < pvalue_max`` AND the t-statistic clears the 5% critical value.
+        The p-value gate is the single, caller-controlled threshold — there is no
+        second hardcoded copy to drift out of sync.
+        """
+        return self.p_value < pvalue_max and self.t_statistic < self.critical_value_5pct
+
     @property
     def is_significant(self) -> bool:
-        """Reference criterion: p < 0.05 AND t-stat below the 5% critical value."""
-        return self.p_value < 0.05 and self.t_statistic < self.critical_value_5pct
+        """Convenience for the standard 5% criterion (``is_cointegrated(0.05)``)."""
+        return self.is_cointegrated(0.05)
 
 
 @dataclass(frozen=True)
@@ -115,7 +127,7 @@ def engle_granger(series_1: ArrayLike, series_2: ArrayLike) -> CointegrationTest
     return CointegrationTest(
         p_value=float(p_value),
         t_statistic=float(t_stat),
-        critical_value_5pct=float(crit_values[1]),
+        critical_value_5pct=float(crit_values[_CRIT_VALUE_5PCT_INDEX]),
     )
 
 
@@ -124,8 +136,8 @@ def analyze_pair(
     series_2: ArrayLike,
     *,
     include_intercept: bool = True,
-    max_half_life: float = config.MAX_HALF_LIFE_H,
-    pvalue_max: float = config.PVALUE_MAX,
+    max_half_life: float | None = None,
+    pvalue_max: float | None = None,
 ) -> PairAnalysis:
     """
     Full pair pipeline: cointegration test → hedge ratio → spread → half-life →
@@ -134,14 +146,23 @@ def analyze_pair(
     A pair passes the filter when it is statistically cointegrated
     (``p < pvalue_max`` and the t-stat clears the 5% critical value) **and** its
     spread mean-reverts fast enough (``0 < half_life <= max_half_life``).
+
+    ``max_half_life`` / ``pvalue_max`` default to the live ``config`` values,
+    resolved at call time (not frozen at import) so the configured policy is
+    honoured even if it changes during the process lifetime.
     """
+    if max_half_life is None:
+        max_half_life = config.MAX_HALF_LIFE_H
+    if pvalue_max is None:
+        pvalue_max = config.PVALUE_MAX
+
     test = engle_granger(series_1, series_2)
     fit = fit_hedge_ratio(series_1, series_2, include_intercept=include_intercept)
     spread = compute_spread(series_1, series_2, fit.hedge_ratio, fit.intercept)
     hl = half_life(spread)
     crossings = zero_crossings(spread)
 
-    cointegrated = test.p_value < pvalue_max and test.is_significant
+    cointegrated = test.is_cointegrated(pvalue_max)
     half_life_ok = np.isfinite(hl) and 0 < hl <= max_half_life
     passes = bool(cointegrated and half_life_ok)
 

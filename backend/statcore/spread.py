@@ -54,8 +54,11 @@ def zero_crossings(spread: ArrayLike) -> int:
     between consecutive observations are counted — this reproduces the reference
     bot's ``zero_crossings`` column.
 
-    Zero values are treated as not changing sign (``np.sign(0) == 0``), so a
-    point sitting exactly on the mean does not register a spurious crossing.
+    Note: ``np.sign(0) == 0``, so an observation landing exactly on the mean is
+    counted as two sign changes (into 0, then out of 0). On float price data an
+    exact tie with the mean is effectively never hit, so this matches the
+    reference in practice; the metric is a relative quality heuristic, not an
+    exact crossing count.
     """
     s = np.asarray(spread, dtype=np.float64)
     s = s[~np.isnan(s)]
