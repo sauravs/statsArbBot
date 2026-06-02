@@ -1,0 +1,47 @@
+// Prisma schema — statsArbBot
+//
+// Phase 0 ships a skeleton: the generator, datasource, the cross-cutting enums,
+// and one stable append-only model so `prisma migrate` produces a real initial
+// migration and the DB connectivity gate can be verified. Domain models
+// (CointScanResult, ManualTrade, LiveSession/LiveTrade, Sim*, SavedFFSimulation,
+// Strategy, OhlcvCache, …) are added field-by-field in their respective phases.
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums (every domain model carries `exchange` so Phase-3 AI can JOIN) ──────
+
+enum Exchange {
+  dydx
+  binance
+  hyperliquid
+}
+
+enum TradingMode {
+  forward_test // dYdX testnet
+  simulation   // virtual account, mainnet prices
+  production   // mainnet, real money
+}
+
+// ── Config audit (append-only) ───────────────────────────────────────────────
+// Stable seed model: records every bot-config change for auditing. Present from
+// Phase 0 so migrations exist; extended as config surfaces grow.
+
+model BotConfigHistory {
+  id         String      @id @default(cuid())
+  exchange   Exchange    @default(dydx)
+  mode       TradingMode @default(forward_test)
+  key        String
+  value      String
+  changed_at DateTime    @default(now())
+
+  @@index([exchange, mode])
+}

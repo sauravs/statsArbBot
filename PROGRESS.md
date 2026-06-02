@@ -10,9 +10,9 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** _none — planning complete, implementation not yet started (awaiting go-ahead)_
+- **Phase in progress:** Phase 0 — Foundation, docs & skeleton (branch `phase-0-foundation`; gate verified, awaiting PR review + merge).
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action:** Phase 0 — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 0."
+- **Next action:** merge the Phase 0 PR, then Phase 1 — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 1."
 
 ---
 
@@ -23,7 +23,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | # | Phase | Status | Branch | PR | Gate |
 |---|-------|--------|--------|----|------|
 | — | Planning & docs (PRD/PLAN/CONTEXT/research/ADRs/data) | ✅ | main | — | n/a |
-| 0 | Foundation, docs & skeleton | ⬜ | | | |
+| 0 | Foundation, docs & skeleton | 🟡 | phase-0-foundation | | gate verified (see below) |
 | 1 | Statistical core (correctness anchor) | ⬜ | | | |
 | 2 | Market data + scan → pairs table | ⬜ | | | |
 | 2.5 | Historical data ingest & validation | ⬜ | | | |
@@ -64,5 +64,13 @@ Phase N — <name>
 
 ## Carry-Over Notes / Open Items
 - ✅ `gh` authenticated (account `sauravs`, scopes incl. `repo`+`workflow`) — issues/PRs ready.
-- Secrets: **use the existing `.env` as-is for development** (testnet — low risk; operator's decision). Generate fresh dYdX keys / Telegram token / dashboard password **only before switching to `production` (mainnet) mode**.
+- Secrets: **use the existing `.env` as-is for development** (testnet — low risk; operator's decision). Generate fresh dYdX keys / Telegram token / dashboard password **only before switching to `production` (mainnet) mode**. Phase 0 added `DASHBOARD_JWT_SECRET` (placeholder; rotate before production).
 - Data ingest (Phase 2.5): existing data has flat / zero-volume candles needing cleaning; `data/dydx` and `data/dydx_extended` are disjoint (~41 markets, no dedup needed).
+
+### Phase 0 outcomes / decisions
+- **Scaffold layout:** `backend/` (FastAPI, entrypoint `app:app`) + `ui/` (Next 14) + `docker-compose.yml`. Prisma lives at `backend/prisma/` (not repo root) so it's inside the api Docker build context — pragmatic deviation from the aspirational PLAN §3 tree.
+- **Auth split:** session JWT (signed via `jose`) lives in the Next.js tier — login route mints it, `middleware.ts` + `/api/proxy` + `/api/auth/check` verify it. The browser never calls FastAPI directly; the proxy injects a shared `X-API-Key` that `backend/auth.py:require_api_key` validates. Upgrades the prototype's plain `token==password` cookie to a real signed JWT (PRD F1.2).
+- **Trading constants** centralised in `backend/config.py` with the four Option-B defaults (entry 1.5 / exit 0.5 / stop 4.0 / half-life cap 72h) — consumed by statcore in Phase 1.
+- **Initial migration** `backend/prisma/migrations/0001_init` committed (enums `Exchange`/`TradingMode` + `BotConfigHistory` skeleton). Domain models added per phase.
+- **Heads-up for next session:** the local Docker `postgres_data` volume previously held the *prototype's* full schema; Phase 0 reset `public` to apply our clean migration. If you see stale tables, `docker compose down -v` to wipe.
+- **Gate verification (Phase 0):** backend `pytest` 4/4 ✓ · `prisma migrate deploy` creates `BotConfigHistory` ✓ · `next build` compiles all routes+middleware ✓ · Playwright smoke (redirect→login, wrong-passcode reject, login→dashboard) 3/3 ✓ · `docker compose config` valid ✓.
