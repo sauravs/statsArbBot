@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSystemHealth, type SystemHealth } from "@/lib/api";
 import ScanPanel from "@/components/ScanPanel";
+import ManualTradesPanel from "@/components/ManualTradesPanel";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [error, setError] = useState(false);
+  const [manualRefresh, setManualRefresh] = useState(0);
 
   useEffect(() => {
     getSystemHealth()
@@ -53,7 +55,8 @@ export default function DashboardPage() {
             Could not reach the API. Is the backend running?
           </p>
         )}
-        <ScanPanel />
+        <ScanPanel onManualRecorded={() => setManualRefresh((n) => n + 1)} />
+        <ManualTradesPanel refreshKey={manualRefresh} />
       </section>
     </main>
   );

@@ -142,6 +142,59 @@ export function getPairSeries(
   );
 }
 
+// ── Live Manual Trading (Phase 4, PRD F4) ────────────────────────────────────
+
+export interface ManualTrade {
+  id: string;
+  exchange: string;
+  mode: string;
+  base_market: string;
+  quote_market: string;
+  hedge_ratio: number;
+  half_life: number;
+  z_score: number;
+  spread_value: number;
+  entry_price_leg1: number;
+  entry_price_leg2: number;
+  capital_leg1_usd: number;
+  capital_leg2_usd: number;
+  recorded_at: string;
+  status: "OPEN" | "CLOSED";
+  closed_at: string | null;
+  exit_price_leg1: number | null;
+  exit_price_leg2: number | null;
+  pnl: number | null;
+}
+
+export interface ManualTradesResponse {
+  trades: ManualTrade[];
+  count: number;
+  error?: string | null;
+}
+
+/** Record a manual trade off a scanned pair; entry prices captured server-side. */
+export function recordManualTrade(input: {
+  base_market: string;
+  quote_market: string;
+  capital_leg1_usd: number;
+  capital_leg2_usd: number;
+}): Promise<ManualTrade> {
+  return proxyPost<ManualTrade>("api/manual/record", input);
+}
+
+/** List recorded manual trades (newest first). */
+export function getManualTrades(): Promise<ManualTradesResponse> {
+  return proxyGet<ManualTradesResponse>("api/manual");
+}
+
+/** Mark a manual trade closed with exit prices; server computes & stores P&L. */
+export function closeManualTrade(
+  id: string,
+  input: { exit_price_leg1: number; exit_price_leg2: number },
+): Promise<ManualTrade & { pnl_breakdown: { pnl_leg1: number; pnl_leg2: number; pnl: number; base_is_long: boolean } }> {
+  return proxyPost(`api/manual/${encodeURIComponent(id)}/close`, input);
+}
+
 export function startScan(quick = false): Promise<{ message: string; started: boolean }> {
   return proxyPost("api/scan/start", { quick });
 }

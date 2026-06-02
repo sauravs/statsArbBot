@@ -15,6 +15,11 @@ type SortKey =
 interface Props {
   pairs: PairRecord[];
   threshold: number;
+  onRecord?: (pair: PairRecord) => void;
+}
+
+function isActive(z: number | null, threshold: number): boolean {
+  return z !== null && !Number.isNaN(z) && Math.abs(z) >= threshold;
 }
 
 function signal(
@@ -32,7 +37,7 @@ function num(v: number | null, digits = 2): string {
   return v === null || Number.isNaN(v) ? "—" : v.toFixed(digits);
 }
 
-export default function PairsTable({ pairs, threshold }: Props) {
+export default function PairsTable({ pairs, threshold, onRecord }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("zero_crossings");
   const [asc, setAsc] = useState(false);
 
@@ -96,6 +101,7 @@ export default function PairsTable({ pairs, threshold }: Props) {
               </th>
             ))}
             <th className="px-3 py-2 text-right">Signal</th>
+            <th className="px-3 py-2 text-right">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -134,6 +140,19 @@ export default function PairsTable({ pairs, threshold }: Props) {
                 </td>
                 <td className={`px-3 py-2 text-right font-medium ${sig.className}`}>
                   {sig.label}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {isActive(p.z_score, threshold) && onRecord ? (
+                    <button
+                      onClick={() => onRecord(p)}
+                      data-testid="record-trade-btn"
+                      className="rounded border border-green px-2 py-1 text-xs text-green transition hover:bg-green/10"
+                    >
+                      Record
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted">—</span>
+                  )}
                 </td>
               </tr>
             );

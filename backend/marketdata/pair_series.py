@@ -29,6 +29,7 @@ from statcore import (
     compute_spread,
     evaluate_entry,
     evaluate_exit,
+    latest_zscore,
     rolling_zscore,
 )
 
@@ -115,6 +116,94 @@ class PairSeries:
                 "markers": [m.to_dict() for m in self.markers],
             },
         }
+
+
+@dataclass(frozen=True)
+class PairSnapshot:
+    """Current per-leg prices + spread/Z for a pair, captured at a point in time."""
+
+    base_price: float
+    quote_price: float
+    spread_value: float
+    z_score: float
+
+    def to_dict(self) -> dict:
+        return {
+            "base_price": self.base_price,
+            "quote_price": self.quote_price,
+            "spread_value": self.spread_value,
+            "z_score": self.z_score,
+        }
+
+
+async def _aligned_closes(
+    client: PriceSource,
+    base_market: str,
+    quote_market: str,
+    *,
+    num_pages: int | None,
+    now,
+) -> tuple[list[str], np.ndarray, np.ndarray] | None:
+    """Fetch both legs concurrently and align on shared timestamps.
+
+    Returns ``(sorted_shared_iso, s1, s2)`` or ``None`` if there is no usable
+    overlapping history. Shared by the chart builder and the record snapshot so
+    the fetch/align logic lives in one place.
+    """
+    base_closes, quote_closes = await asyncio.gather(
+        client.get_historical_closes(base_market, num_pages=num_pages, now=now),
+        client.get_historical_closes(quote_market, num_pages=num_pages, now=now),
+    )
+    if not base_closes or not quote_closes:
+        return None
+    base_by_ts = {c["datetime"]: float(c["close"]) for c in base_closes}
+    quote_by_ts = {c["datetime"]: float(c["close"]) for c in quote_closes}
+    shared = sorted(set(base_by_ts) & set(quote_by_ts))
+    if len(shared) < 2:
+        return None
+    s1 = np.array([base_by_ts[ts] for ts in shared], dtype=float)
+    s2 = np.array([quote_by_ts[ts] for ts in shared], dtype=float)
+    return shared, s1, s2
+
+
+async def current_pair_snapshot(
+    client: PriceSource,
+    *,
+    base_market: str,
+    quote_market: str,
+    hedge_ratio: float,
+    intercept: float,
+    window: int | None = None,
+    num_pages: int | None = None,
+    now=None,
+) -> PairSnapshot | None:
+    """
+    The pair's current entry prices, spread, and rolling Z — what a manual trade
+    is recorded against (PRD F4.5).
+
+    Uses the pair's stored β/α so the recorded spread matches the scan. Returns
+    ``None`` if there's no overlapping history or the Z-score is undefined
+    (fewer than ``window`` bars / zero-variance window) — the caller rejects the
+    record in that case, since direction can't be determined.
+    """
+    window = window or config.ZSCORE_WINDOW
+    aligned = await _aligned_closes(
+        client, base_market, quote_market, num_pages=num_pages, now=now
+    )
+    if aligned is None:
+        return None
+    _, s1, s2 = aligned
+
+    spread = compute_spread(s1, s2, hedge_ratio, intercept)
+    z = latest_zscore(spread, window=window)
+    if not np.isfinite(z):
+        return None
+    return PairSnapshot(
+        base_price=float(s1[-1]),
+        quote_price=float(s2[-1]),
+        spread_value=float(spread[-1]),
+        z_score=float(z),
+    )
 
 
 def _to_unix(iso: str) -> int:
@@ -207,26 +296,13 @@ async def build_pair_series(
     """
     window = window or config.ZSCORE_WINDOW
 
-    # Fetch both legs concurrently — each is several paginated indexer requests,
-    # and they are independent, so awaiting them back-to-back would double the
-    # detail-load latency (the scan path fetches concurrently for the same reason).
-    base_closes, quote_closes = await asyncio.gather(
-        client.get_historical_closes(base_market, num_pages=num_pages, now=now),
-        client.get_historical_closes(quote_market, num_pages=num_pages, now=now),
+    aligned = await _aligned_closes(
+        client, base_market, quote_market, num_pages=num_pages, now=now
     )
-    if not base_closes or not quote_closes:
+    if aligned is None:
         return None
-
-    # Align on shared timestamps (cointegration math needs paired observations).
-    base_by_ts = {c["datetime"]: float(c["close"]) for c in base_closes}
-    quote_by_ts = {c["datetime"]: float(c["close"]) for c in quote_closes}
-    shared = sorted(set(base_by_ts) & set(quote_by_ts))
-    if len(shared) < 2:
-        return None
-
+    shared, s1, s2 = aligned
     times = [_to_unix(ts) for ts in shared]
-    s1 = np.array([base_by_ts[ts] for ts in shared], dtype=float)
-    s2 = np.array([quote_by_ts[ts] for ts in shared], dtype=float)
 
     # Normalize each leg to 100 at the window start (the overlay panel).
     base_norm = [
