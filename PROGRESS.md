@@ -23,7 +23,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 | # | Phase | Status | Branch | PR | Gate |
 |---|-------|--------|--------|----|------|
 | — | Planning & docs (PRD/PLAN/CONTEXT/research/ADRs/data) | ✅ | main | — | n/a |
-| 0 | Foundation, docs & skeleton | 🟡 | phase-0-foundation | | gate verified (see below) |
+| 0 | Foundation, docs & skeleton | 🟡 | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | gate verified except full `docker compose up` (disk full — see below) |
 | 1 | Statistical core (correctness anchor) | ⬜ | | | |
 | 2 | Market data + scan → pairs table | ⬜ | | | |
 | 2.5 | Historical data ingest & validation | ⬜ | | | |
