@@ -10,9 +10,9 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 
 ## Current Position
 
-- **Phase in progress:** Phase 1 — Statistical core (branch `phase-1-statcore`; gate passed locally, awaiting PR review + merge). Phase 0 merged (PR #1).
+- **Phase in progress:** none — Phase 1 merged (PR #3, merge commit `dbd374c`). Ready to start Phase 2.
 - **Model:** **Opus 4.8 for all phases** (locked; no switching — see PLAN.md §7.2).
-- **Next action:** open the Phase 1 PR, run `/code-review ultra`, merge. Then Phase 2 — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 2."
+- **Next action:** Phase 2 — Market data + scan → pairs table — `/clear`, `/model opus`, then "Read PRD.md, PLAN.md, PROGRESS.md, research.md, initial-codebase-analysis.md, then execute Phase 2." Phase 2 brings the first **integration + Playwright E2E** gate (scan from UI → pairs render → survive reload); it is also the first consumer of `statcore`.
 
 ---
 
@@ -24,7 +24,7 @@ Companion docs: `PRD.md` (what), `PLAN.md` (how + per-phase model in §7.2), `do
 |---|-------|--------|--------|----|------|
 | — | Planning & docs (PRD/PLAN/CONTEXT/research/ADRs/data) | ✅ | main | — | n/a |
 | 0 | Foundation, docs & skeleton | ✅ | phase-0-foundation | [#1](https://github.com/sauravs/statsArbBot/pull/1) | ✅ gate fully verified (incl. `docker compose up`) — merged |
-| 1 | Statistical core (correctness anchor) | 🟡 | phase-1-statcore | | ✅ gate passed locally (29/29 pytest; parity to ~1e-9) — see below |
+| 1 | Statistical core (correctness anchor) | ✅ | phase-1-statcore | [#3](https://github.com/sauravs/statsArbBot/pull/3) | ✅ gate passed (33/33 pytest; parity to ~1e-9) — merged. Integration/UI n/a (isolated core) |
 | 2 | Market data + scan → pairs table | ⬜ | | | |
 | 2.5 | Historical data ingest & validation | ⬜ | | | |
 | 3 | Pair detail + 3-panel charts | ⬜ | | | |
