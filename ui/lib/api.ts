@@ -98,6 +98,50 @@ export function getScanStatus(): Promise<ScanStatus> {
   return proxyGet<ScanStatus>("api/scan/status");
 }
 
+// ── Pair detail series (Phase 3) ─────────────────────────────────────────────
+
+/** A {time, value} chart point; `time` is UNIX seconds (UTC). */
+export interface TimePoint {
+  time: number;
+  value: number;
+}
+
+export interface PairMarker {
+  time: number;
+  kind: "entry" | "exit";
+  side: string; // "LONG_SPREAD" | "SHORT_SPREAD" on entries, "" on exits
+  reason: string; // "ENTRY" | "TAKE_PROFIT" | "STOP_LOSS_ZSCORE"
+  zscore: number;
+}
+
+export interface PairSeries {
+  base_market: string;
+  quote_market: string;
+  hedge_ratio: number;
+  intercept: number;
+  half_life: number | null;
+  zscore_window: number;
+  entry_threshold: number;
+  exit_threshold: number;
+  stop_threshold: number;
+  window_start: string | null;
+  window_end: string | null;
+  count: number;
+  normalized: { base: TimePoint[]; quote: TimePoint[] };
+  spread: { mean: number; std: number; series: TimePoint[] };
+  zscore: { series: TimePoint[]; markers: PairMarker[] };
+}
+
+/** The 3-panel chart series for one cointegrated pair (PRD F3). */
+export function getPairSeries(
+  base: string,
+  quote: string,
+): Promise<PairSeries> {
+  return proxyGet<PairSeries>(
+    `api/pairs/${encodeURIComponent(base)}/${encodeURIComponent(quote)}/series`,
+  );
+}
+
 export function startScan(quick = false): Promise<{ message: string; started: boolean }> {
   return proxyPost("api/scan/start", { quick });
 }

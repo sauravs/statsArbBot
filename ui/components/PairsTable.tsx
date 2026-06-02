@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { PairRecord } from "@/lib/api";
 
 type SortKey =
@@ -106,9 +107,15 @@ export default function PairsTable({ pairs, threshold }: Props) {
                 className="border-b border-border/50 hover:bg-bg/40"
                 data-testid="pair-row"
               >
-                <td className="px-3 py-2 font-medium text-text">
-                  {p.base_market}
-                  <span className="text-muted"> / {p.quote_market}</span>
+                <td className="px-3 py-2 font-medium">
+                  <Link
+                    href={`/dashboard/pair/${encodeURIComponent(p.base_market)}/${encodeURIComponent(p.quote_market)}`}
+                    className="text-text hover:text-blue hover:underline"
+                    data-testid="pair-link"
+                  >
+                    {p.base_market}
+                    <span className="text-muted"> / {p.quote_market}</span>
+                  </Link>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {num(p.hedge_ratio, 4)}
