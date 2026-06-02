@@ -1,0 +1,69 @@
+# statsArbBot — local development stack
+#
+# Usage:
+#   cp .env.example .env          # fill in secrets (or use the existing dev .env)
+#   docker compose up --build
+#
+# Services:
+#   postgres  — PostgreSQL 16 (statsarb DB)
+#   api       — FastAPI + Prisma (port 8000)
+#   ui        — Next.js dashboard (port 3000)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: statsarb
+      POSTGRES_USER: statsarb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "statsarb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Override host DATABASE_URL to reach the postgres service on the compose network.
+      DATABASE_URL: postgresql://statsarb:${POSTGRES_PASSWORD}@postgres:5432/statsarb
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "prisma generate --schema prisma/schema.prisma &&
+             prisma migrate deploy --schema prisma/schema.prisma &&
+             uvicorn app:app --host 0.0.0.0 --port 8000"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Pass only what the Next.js tier needs — do NOT inject backend secrets
+      # (dYdX key, Telegram token, DATABASE_URL) into the UI container.
+      # Values are interpolated from the project .env by Compose.
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      DASHBOARD_JWT_SECRET: ${DASHBOARD_JWT_SECRET}
+      # Server-side proxy reaches the API service on the compose network.
+      API_URL: http://api:8000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

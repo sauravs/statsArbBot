@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+playwright-browsers
+playwright-report
+test-results
+.env
+.env.local
+npm-debug.log*
+.DS_Store

@@ -1,5 +1,7 @@
 # Credentials — never commit
 .env
+ui/.env
+ui/.env.local
 
 # Reference codebases — local only, not part of the rewrite
 Old Reference Resources/
@@ -25,22 +27,15 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.pytest_cache/
 
-# macOS
-.DS_Store
-
-# Next.js (now inside ui/)
+# Next.js / UI
 ui/.next/
 ui/out/
 ui/node_modules/
-ui/.env.local
-ui/.env
+ui/playwright-report/
+ui/test-results/
+ui/playwright-browsers/
 
-# Bot state (also in Bot_Scripts/)
-Bot_Scripts/bot_agents.json
-Bot_Scripts/cointegrated_pairs.csv
-Bot_Scripts/bot_config.json
-
-# Backtest generated data & results
-backtest/data/
-backtest/results/
+# macOS
+.DS_Store
