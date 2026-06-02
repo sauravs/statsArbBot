@@ -27,7 +27,7 @@ Sub-agents are used **only** where isolation adds clear value:
 
 We do **not** run parallel role-specialized agents (impl/test/review) within a single phase.
 
-**Model selection is manual.** The agent does not (and cannot) auto-switch its own model or auto-clear its own context in the driver session. At each phase start the operator runs `/clear` then `/model <opus|sonnet>` per the recommended-model table in `PLAN.md` §7.2 (Opus 4.8 for correctness-critical phases, Sonnet 4.6 for mechanical ones). Live progress is tracked in `PROGRESS.md`.
+**Model selection is manual, and the chosen model is Opus 4.8 for every phase** (no per-phase switching — locked decision, see `PLAN.md` §7.2). The agent does not (and cannot) auto-switch its own model or auto-clear its own context in the driver session. At each phase start the operator runs `/clear` then `/model opus`, then the orientation prompt. Live progress is tracked in `PROGRESS.md`.
 
 ## Consequences
 

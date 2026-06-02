@@ -156,30 +156,30 @@ statsArbBot/
 ### 7.1 Per-Phase Session Ritual *(manual — the operator performs these; the agent does not auto-switch model or auto-clear context)*
 At the start of each phase:
 1. `/clear` — reset context to a clean window.
-2. `/model <opus|sonnet>` — pick per the table below.
+2. `/model opus` — **decision: Opus 4.8 for all phases** (no per-phase switching; see §7.2).
 3. Prompt: "Read `PRD.md`, `PLAN.md`, `PROGRESS.md`, `research.md`, `initial-codebase-analysis.md`, then execute Phase N."
 At the end: update `PROGRESS.md`, commit on `phase-N-<name>`, open PR via `gh`, run `/code-review ultra`, merge.
 
-### 7.2 Recommended Model per Phase *(guidance, not automation)*
-Opus 4.8 for correctness-critical / architecturally-complex phases; Sonnet 4.6 for well-specified mechanical phases. Reviews use `/code-review ultra` regardless of author model.
+### 7.2 Model Selection
+> **DECISION (locked): use Opus 4.8 for every phase.** No per-phase switching. Rationale: this is a correctness-critical financial system; the per-token premium on mechanical phases is outweighed by fewer bug-fix cycles and a single, simpler ritual. Reviews use `/code-review ultra` regardless.
 
-| Phase | Model | Rationale |
+The table below is retained only as reference for the *relative* risk/complexity of each phase (e.g. where to apply extra care and test depth) — it no longer drives model choice.
+
+| Phase | Relative risk | Rationale |
 |---|---|---|
-| 0 Foundation | Sonnet | Mechanical scaffold/auth |
-| **1 Statistical core** | **Opus 4.8** | Highest-risk math; must match ground truth |
-| **2 Market data + scan** | **Opus 4.8** | Async concurrency, rate limits, dual-write (race-condition zone) |
-| 2.5 Data ingest/validation | Sonnet | Mechanical cleaning rules |
-| 3 Pair detail + charts | Sonnet | Well-specified UI/charting |
-| 4 Live Manual Trading | Sonnet | Straightforward CRUD + UI |
-| **5a Live trading engine** | **Opus 4.8** | Atomic execution, failsafe, real P&L, real money |
-| 5b Live trading UI | Sonnet | Tables, controls, wiring |
-| **6 Real-time simulation** | **Opus 4.8** | Stateless-engine correctness (prototype z-score bug lived here) |
-| 7 Fast-forward sim | Sonnet | Reuses Phase-6 engine; orchestration |
-| 8 Walk-forward backtest | Sonnet | Subprocess orchestration + UI |
-| 9 Telegram | Sonnet (Opus for gate wiring) | Mostly mechanical |
-| 10 Hardening/arch review | **Opus 4.8** | Cross-cutting reasoning + security |
-
-*Single-model fallback: if not switching per phase, default to **Opus 4.8** (safer for correctness-critical work); Sonnet is the cost/speed optimization, not the safe default.*
+| 0 Foundation | Low | Mechanical scaffold/auth |
+| **1 Statistical core** | **High** | Highest-risk math; must match ground truth — extra test depth |
+| **2 Market data + scan** | **High** | Async concurrency, rate limits, dual-write (race-condition zone) |
+| 2.5 Data ingest/validation | Low | Mechanical cleaning rules |
+| 3 Pair detail + charts | Low | Well-specified UI/charting |
+| 4 Live Manual Trading | Low | Straightforward CRUD + UI |
+| **5a Live trading engine** | **High** | Atomic execution, failsafe, real P&L, real money |
+| 5b Live trading UI | Low | Tables, controls, wiring |
+| **6 Real-time simulation** | **High** | Stateless-engine correctness (prototype z-score bug lived here) |
+| 7 Fast-forward sim | Medium | Reuses Phase-6 engine; orchestration |
+| 8 Walk-forward backtest | Medium | Subprocess orchestration + UI |
+| 9 Telegram | Medium | Approval-gate wiring into entry/exit is the delicate part |
+| 10 Hardening/arch review | **High** | Cross-cutting reasoning + security |
 
 ---
 
