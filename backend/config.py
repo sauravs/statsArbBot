@@ -125,10 +125,6 @@ DYDX_SUBACCOUNT_INDEX: int = _env("DYDX_SUBACCOUNT_INDEX", default=0, cast=int)
 DYDX_MAINNET_NODE_URL: str = _env(
     "DYDX_MAINNET_NODE_URL", default="dydx-ops-grpc.kingnodes.com:443"
 )
-# Indexer the trade client queries for the account's positions/collateral.
-DYDX_TRADE_INDEXER: str = (
-    DYDX_MAINNET_INDEXER if ENVIRONMENT == "mainnet" else DYDX_TESTNET_INDEXER
-)
 
 # Market-order execution params (carried from the reference bot's constants.py).
 ORDER_PRICE_BUFFER: float = _env("ORDER_PRICE_BUFFER", default=0.05, cast=float)  # 5%

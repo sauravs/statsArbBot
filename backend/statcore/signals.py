@@ -34,6 +34,16 @@ class Side(str, Enum):
     SELL = "SELL"
 
 
+def opposite_side(side: str) -> str:
+    """The reduce-only close side for a leg opened with ``side`` (BUY↔SELL)."""
+    normalized = getattr(side, "value", side)
+    if normalized == Side.BUY.value:
+        return Side.SELL.value
+    if normalized == Side.SELL.value:
+        return Side.BUY.value
+    raise ValueError(f"side must be BUY or SELL, got {side!r}")
+
+
 class ExitReason(str, Enum):
     """Why a position is being closed."""
 

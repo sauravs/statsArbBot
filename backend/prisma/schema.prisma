@@ -190,7 +190,7 @@ model LiveTrade {
   exit_z_score     Float?
   exit_price_leg1  Float?
   exit_price_leg2  Float?
-  exit_reason      String? // ExitReason value: TAKE_PROFIT / STOP_LOSS_ZSCORE / STOP_LOSS_TIME / RECONCILED
+  exit_reason      String? // TAKE_PROFIT / STOP_LOSS_ZSCORE / STOP_LOSS_TIME (ExitReason) or RECONCILED / ORPHANED / ABORTED (reconciliation/abort)
   pnl              Float? // realised per-leg P&L sum, set on close
   closed_at        DateTime?       @db.Timestamptz
   error            String? // failure detail when status = ERROR

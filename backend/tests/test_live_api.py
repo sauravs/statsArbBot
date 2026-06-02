@@ -214,6 +214,66 @@ def test_no_double_open_same_pair(ctx):
     assert ctx.client.post("/api/live/entry-scan", json={}, headers=AUTH).json()["opened"] == 0
 
 
+def _open_one(ctx):
+    ctx.client.post("/api/live/session/start", json={}, headers=AUTH)
+    _set_snap(ctx, z=2.5)
+    assert ctx.client.post("/api/live/entry-scan", json={}, headers=AUTH).json()["opened"] == 1
+
+
+def test_reconcile_both_legs_gone_records_unknown_pnl(ctx):
+    _open_one(ctx)
+    # Both legs closed outside the bot.
+    ctx.trade_client.positions = {}
+    _set_snap(ctx, z=1.0)
+    r = ctx.client.post("/api/live/exit-manage", json={}, headers=AUTH).json()
+    assert r["closed"] == 1
+    c = ctx.client.get("/api/live/trades", params={"status": "CLOSED"}, headers=AUTH).json()["trades"][0]
+    assert c["exit_reason"] == "RECONCILED"
+    # Fills unknown → P&L not fabricated.
+    assert c["pnl"] is None
+    assert c["exit_price_leg1"] is None and c["exit_price_leg2"] is None
+
+
+def test_orphan_leg_is_closed_and_reconciled(ctx):
+    _open_one(ctx)
+    # Quote leg vanished; base leg still live → orphan.
+    ctx.trade_client.positions.pop("BBB-USD")
+    _set_snap(ctx, z=1.0)
+    r = ctx.client.post("/api/live/exit-manage", json={}, headers=AUTH).json()
+    assert r["closed"] == 1
+    assert ctx.trade_client.positions == {}  # orphan base leg unwound
+    c = ctx.client.get("/api/live/trades", params={"status": "CLOSED"}, headers=AUTH).json()["trades"][0]
+    assert c["exit_reason"] == "ORPHANED"
+    assert c["pnl"] is None
+
+
+def test_orphan_close_failure_keeps_open_and_alerts(ctx, monkeypatch):
+    import trading.alerts as alerts_mod
+
+    class RecordingAlerter:
+        def __init__(self):
+            self.code_reds = []
+
+        async def notify(self, m):
+            pass
+
+        async def code_red(self, m):
+            self.code_reds.append(m)
+
+    recorder = RecordingAlerter()
+    monkeypatch.setattr(alerts_mod, "_alerter", recorder)
+
+    _open_one(ctx)
+    ctx.trade_client.positions.pop("BBB-USD")  # orphan: base still live
+    ctx.trade_client.fail_close_markets = {"AAA-USD"}  # its close will fail
+    _set_snap(ctx, z=1.0)
+    r = ctx.client.post("/api/live/exit-manage", json={}, headers=AUTH).json()
+    assert r["closed"] == 0  # not closed — the naked leg could not be unwound
+    # Trade stays OPEN for the next pass to retry, and CODE RED fired.
+    assert len(ctx.client.get("/api/live/trades", params={"status": "OPEN"}, headers=AUTH).json()["trades"]) == 1
+    assert len(recorder.code_reds) == 1
+
+
 def test_abort_closes_positions_and_marks_trades(ctx):
     ctx.client.post("/api/live/session/start", json={}, headers=AUTH)
     _set_snap(ctx, z=2.5)

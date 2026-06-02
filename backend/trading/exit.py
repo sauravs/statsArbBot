@@ -27,20 +27,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-import config
 from marketdata.pair_series import current_pair_snapshot
-from statcore import evaluate_exit
-from statcore.signals import Side
+from statcore import evaluate_exit, opposite_side
 from trading.alerts import Alerter
 from trading.approval import ApprovalGate
 from trading.broker import TradeClient
 from trading.pnl import compute_live_pnl
 
 logger = logging.getLogger(__name__)
-
-
-def _opposite(side: str) -> str:
-    return Side.SELL.value if side == Side.BUY.value else Side.BUY.value
 
 
 def _age_hours(opened_at: str | None, now: datetime) -> float | None:
@@ -89,10 +83,12 @@ async def manage_exits(
         quote_live = quote in positions
 
         # ── 1. Both legs gone — reconcile out of the DB ──────────────────────
+        # The position closed outside the bot; the actual fill prices are unknown,
+        # so record CLOSED with pnl=None (not a fabricated current-price number).
         if not base_live and not quote_live:
             await _close_in_db(
-                repo, trade, trade_client, data_client, alerter,
-                reason="RECONCILED", exit_z=None, window=window, now=now_dt,
+                repo, trade, alerter,
+                reason="RECONCILED", exit_z=None, now=now_dt,
                 base_fill=None, quote_fill=None,
             )
             closed += 1
@@ -105,12 +101,20 @@ async def manage_exits(
             orphan_side = trade["base_side"] if base_live else trade["quote_side"]
             orphan_size = trade["base_size"] if base_live else trade["quote_size"]
             await alerter.notify(f"Orphaned leg {orphan} on {base}/{quote} — closing reduce-only.")
-            await trade_client.place_market_order(
-                market=orphan, side=_opposite(orphan_side), size=orphan_size, reduce_only=True
+            result = await trade_client.place_market_order(
+                market=orphan, side=opposite_side(orphan_side), size=orphan_size, reduce_only=True
             )
+            if result is None:
+                # The orphan close failed — keep the trade OPEN so the next pass
+                # retries; marking it CLOSED would orphan a naked leg untracked.
+                await alerter.code_red(
+                    f"Orphan close FAILED for {orphan} ({base}/{quote}) — naked leg remains."
+                )
+                outcomes.append({"pair": [base, quote], "action": "orphan_close_failed"})
+                continue
             await _close_in_db(
-                repo, trade, trade_client, data_client, alerter,
-                reason="ORPHANED", exit_z=None, window=window, now=now_dt,
+                repo, trade, alerter,
+                reason="ORPHANED", exit_z=None, now=now_dt,
                 base_fill=None, quote_fill=None,
             )
             closed += 1
@@ -127,7 +131,13 @@ async def manage_exits(
             window=window,
             now=now,
         )
-        z = snap.z_score if snap is not None else float("nan")
+        if snap is None:
+            # No usable live price/Z right now — hold rather than act on a NaN Z
+            # (which would otherwise fabricate an exit and persist NaN). The next
+            # pass retries; the prototype likewise kept the position.
+            outcomes.append({"pair": [base, quote], "action": "held", "reason": "no_price"})
+            continue
+        z = snap.z_score
         age = _age_hours(trade.get("opened_at"), now_dt)
         exit_sig = evaluate_exit(
             z,
@@ -158,12 +168,14 @@ async def manage_exits(
 
         # Close both legs reduce-only.
         r1 = await trade_client.place_market_order(
-            market=base, side=_opposite(trade["base_side"]), size=trade["base_size"], reduce_only=True
+            market=base, side=opposite_side(trade["base_side"]), size=trade["base_size"], reduce_only=True
         )
         r2 = await trade_client.place_market_order(
-            market=quote, side=_opposite(trade["quote_side"]), size=trade["quote_size"], reduce_only=True
+            market=quote, side=opposite_side(trade["quote_side"]), size=trade["quote_size"], reduce_only=True
         )
         if r1 is None or r2 is None:
+            # Keep OPEN and retry next pass. If exactly one leg closed, the next
+            # pass sees it as an orphan and unwinds the remaining naked leg.
             await alerter.notify(
                 f"Close error on {base}/{quote} "
                 f"(base={'OK' if r1 else 'FAIL'}, quote={'OK' if r2 else 'FAIL'}) — will retry next pass."
@@ -172,8 +184,8 @@ async def manage_exits(
             continue
 
         await _close_in_db(
-            repo, trade, trade_client, data_client, alerter,
-            reason=exit_sig.reason.value, exit_z=z, window=window, now=now_dt,
+            repo, trade, alerter,
+            reason=exit_sig.reason.value, exit_z=z, now=now_dt,
             base_fill=r1.price, quote_fill=r2.price,
         )
         closed += 1
@@ -190,55 +202,44 @@ async def manage_exits(
 
 
 async def _close_in_db(
-    repo, trade, trade_client, data_client, alerter,
-    *, reason: str, exit_z: float | None, window, now: datetime,
+    repo, trade, alerter,
+    *, reason: str, exit_z: float | None, now: datetime,
     base_fill: float | None, quote_fill: float | None,
 ) -> None:
-    """Persist a CLOSED trade with real (fill-price) or best-effort (current-price)
-    exit prices, computing realised per-leg P&L."""
-    exit_price_leg1 = base_fill
-    exit_price_leg2 = quote_fill
+    """Persist a CLOSED trade.
 
-    # No fill prices (reconcile/orphan path): use current prices, else fall back
-    # to entry prices (zero P&L) so the row is always closable.
-    if exit_price_leg1 is None or exit_price_leg2 is None:
-        snap = await current_pair_snapshot(
-            data_client,
-            base_market=trade["base_market"],
-            quote_market=trade["quote_market"],
-            hedge_ratio=trade["hedge_ratio"],
-            intercept=0.0,
-            window=window,
+    When both legs were closed by the bot (``base_fill``/``quote_fill`` known),
+    record the real per-leg P&L from those fill prices. When the legs closed
+    outside the bot (reconcile/orphan — fills unknown), record ``pnl=None`` and
+    null exit prices rather than fabricating a number from unrelated current
+    prices.
+    """
+    if base_fill is not None and quote_fill is not None:
+        pnl = compute_live_pnl(
+            base_side=trade["base_side"],
+            quote_side=trade["quote_side"],
+            base_size=trade["base_size"],
+            quote_size=trade["quote_size"],
+            entry_price_leg1=trade["entry_price_leg1"],
+            entry_price_leg2=trade["entry_price_leg2"],
+            exit_price_leg1=base_fill,
+            exit_price_leg2=quote_fill,
         )
-        if snap is not None:
-            exit_price_leg1 = snap.base_price
-            exit_price_leg2 = snap.quote_price
-            if exit_z is None:
-                exit_z = snap.z_score
-        else:
-            exit_price_leg1 = trade["entry_price_leg1"]
-            exit_price_leg2 = trade["entry_price_leg2"]
+        pnl_value: float | None = pnl.pnl
+    else:
+        pnl_value = None  # actual fills unknown — do not fabricate P&L
 
-    pnl = compute_live_pnl(
-        base_side=trade["base_side"],
-        quote_side=trade["quote_side"],
-        base_size=trade["base_size"],
-        quote_size=trade["quote_size"],
-        entry_price_leg1=trade["entry_price_leg1"],
-        entry_price_leg2=trade["entry_price_leg2"],
-        exit_price_leg1=exit_price_leg1,
-        exit_price_leg2=exit_price_leg2,
-    )
     await repo.close_trade(
         trade["id"],
-        exit_price_leg1=exit_price_leg1,
-        exit_price_leg2=exit_price_leg2,
+        exit_price_leg1=base_fill,
+        exit_price_leg2=quote_fill,
         exit_z_score=exit_z,
         exit_reason=reason,
-        pnl=pnl.pnl,
+        pnl=pnl_value,
         closed_at=now,
     )
+    pnl_str = f"${pnl_value:,.2f}" if pnl_value is not None else "unknown"
     await alerter.notify(
         f"Trade closed: {trade['base_market']}/{trade['quote_market']} "
-        f"({reason}) P&L=${pnl.pnl:,.2f}"
+        f"({reason}) P&L={pnl_str}"
     )

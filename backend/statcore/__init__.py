@@ -31,6 +31,7 @@ from .signals import (
     Side,
     evaluate_entry,
     evaluate_exit,
+    opposite_side,
 )
 from .spread import compute_spread, zero_crossings
 from .zscore import latest_zscore, rolling_zscore
@@ -58,4 +59,5 @@ __all__ = [
     "Side",
     "evaluate_entry",
     "evaluate_exit",
+    "opposite_side",
 ]

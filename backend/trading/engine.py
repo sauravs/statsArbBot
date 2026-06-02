@@ -146,6 +146,14 @@ class LiveEngine:
                     )
                     closed.append({"market": market, "ok": r is not None})
 
+                # An emergency close that failed leaves a live position the
+                # operator believes is flat — escalate loudly.
+                failed = [c["market"] for c in closed if not c["ok"]]
+                if failed:
+                    await alerter.code_red(
+                        f"ABORT could not close: {', '.join(failed)} — positions may still be live."
+                    )
+
                 now = datetime.now(timezone.utc)
                 open_trades = await repo.get_open_trades(exchange=exchange, mode=mode)
                 for t in open_trades:

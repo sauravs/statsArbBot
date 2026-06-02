@@ -27,16 +27,11 @@ import asyncio
 import logging
 
 import config
-from statcore.signals import Side
+from statcore.signals import opposite_side
 from trading.alerts import Alerter
 from trading.broker import OrderResult, TradeClient
 
 logger = logging.getLogger(__name__)
-
-
-def _opposite(side: str) -> str:
-    """The reduce-only close side for a leg opened with ``side``."""
-    return Side.SELL.value if side == Side.BUY.value else Side.BUY.value
 
 
 class BotAgent:
@@ -149,7 +144,7 @@ class BotAgent:
         Try to unwind the already-filled leg 1 so no naked position remains.
         Raises a CODE-RED alert if the failsafe close cannot be placed.
         """
-        close_side = _opposite(self.base_side)
+        close_side = opposite_side(self.base_side)
         logger.warning(
             "Failsafe: closing leg 1 %s with reduce-only %s", self.base_market, close_side
         )

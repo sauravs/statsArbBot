@@ -116,6 +116,13 @@ async def scan_for_entries(
             )
             continue
 
+        # Guard against a bad/zero price (the snapshot only rejects a non-finite
+        # Z, not a zero last close) so sizing never divides by zero and one bad
+        # pair can't abort the whole scan.
+        if snap.base_price <= 0 or snap.quote_price <= 0:
+            outcomes.append({"pair": [base, quote], "action": "skipped", "reason": "bad_price"})
+            continue
+
         base_side = signal.base_side.value
         quote_side = signal.quote_side.value
         base_size = usd_per_trade / snap.base_price
