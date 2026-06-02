@@ -53,8 +53,12 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    env_file: .env
     environment:
+      # Pass only what the Next.js tier needs — do NOT inject backend secrets
+      # (dYdX key, Telegram token, DATABASE_URL) into the UI container.
+      # Values are interpolated from the project .env by Compose.
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      DASHBOARD_JWT_SECRET: ${DASHBOARD_JWT_SECRET}
       # Server-side proxy reaches the API service on the compose network.
       API_URL: http://api:8000
       NODE_ENV: production

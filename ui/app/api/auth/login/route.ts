@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   SESSION_COOKIE,
@@ -5,11 +6,19 @@ import {
   signSession,
 } from "@/lib/auth";
 
+/** Constant-time string comparison, for parity with the backend's compare_digest. */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 export async function POST(req: NextRequest) {
   const { password } = await req.json();
   const expected = process.env.DASHBOARD_PASSWORD;
 
-  if (!password || password !== expected) {
+  if (!password || !expected || !safeEqual(password, expected)) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
 

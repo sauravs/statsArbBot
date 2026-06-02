@@ -21,11 +21,19 @@ from decouple import config as _env
 
 # ── Environment / infrastructure ─────────────────────────────────────────────
 DATABASE_URL: str = _env("DATABASE_URL", default="")
-# Shared secret the Next.js proxy injects as `X-API-Key`. Reuses the dashboard
-# passcode so there is a single credential to manage in Phase 0.
-API_KEY: str = _env("DASHBOARD_PASSWORD", default="changeme")
 # testnet (forward_test) | mainnet (production / simulation)
 ENVIRONMENT: str = _env("ENVIRONMENT", default="testnet")
+
+# Shared secret the Next.js proxy injects as `X-API-Key`. Reuses the dashboard
+# passcode so there is a single credential to manage in Phase 0. The weak
+# "changeme" default is tolerated only on testnet; on mainnet an unset passcode
+# is a hard error (otherwise the backend would accept a publicly-known key).
+_DASHBOARD_PASSWORD: str = _env("DASHBOARD_PASSWORD", default="")
+if not _DASHBOARD_PASSWORD and ENVIRONMENT != "testnet":
+    raise RuntimeError(
+        "DASHBOARD_PASSWORD must be set when ENVIRONMENT is not 'testnet'"
+    )
+API_KEY: str = _DASHBOARD_PASSWORD or "changeme"
 
 # ── Signal thresholds (Option-B) ─────────────────────────────────────────────
 ZSCORE_THRESH: float = _env("ZSCORE_THRESH", default=1.5, cast=float)     # entry

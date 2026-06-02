@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/auth"];
+// Only page routes pass through this middleware (the matcher below excludes
+// all /api/*), so /login is the sole public path. API routes do their own auth.
+const PUBLIC_PATHS = ["/login"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
