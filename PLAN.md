@@ -150,8 +150,36 @@ statsArbBot/
 ---
 
 ## 7. Session / Context Notes
-- Authoritative context for any fresh session: `research.md` + `initial-codebase-analysis.md` + `PRD.md` + this `PLAN.md`.
-- Recommended: run each phase (or sub-phase) in its own session to keep context lean; open with "Read PRD.md, PLAN.md, research.md, initial-codebase-analysis.md, then execute Phase N."
+- Authoritative context for any fresh session: `research.md` + `initial-codebase-analysis.md` + `PRD.md` + this `PLAN.md`. Live status lives in `PROGRESS.md` — read it first to see what's done and what's next.
+- Run each phase (or sub-phase) in its own session to keep context lean.
+
+### 7.1 Per-Phase Session Ritual *(manual — the operator performs these; the agent does not auto-switch model or auto-clear context)*
+At the start of each phase:
+1. `/clear` — reset context to a clean window.
+2. `/model <opus|sonnet>` — pick per the table below.
+3. Prompt: "Read `PRD.md`, `PLAN.md`, `PROGRESS.md`, `research.md`, `initial-codebase-analysis.md`, then execute Phase N."
+At the end: update `PROGRESS.md`, commit on `phase-N-<name>`, open PR via `gh`, run `/code-review ultra`, merge.
+
+### 7.2 Recommended Model per Phase *(guidance, not automation)*
+Opus 4.8 for correctness-critical / architecturally-complex phases; Sonnet 4.6 for well-specified mechanical phases. Reviews use `/code-review ultra` regardless of author model.
+
+| Phase | Model | Rationale |
+|---|---|---|
+| 0 Foundation | Sonnet | Mechanical scaffold/auth |
+| **1 Statistical core** | **Opus 4.8** | Highest-risk math; must match ground truth |
+| **2 Market data + scan** | **Opus 4.8** | Async concurrency, rate limits, dual-write (race-condition zone) |
+| 2.5 Data ingest/validation | Sonnet | Mechanical cleaning rules |
+| 3 Pair detail + charts | Sonnet | Well-specified UI/charting |
+| 4 Live Manual Trading | Sonnet | Straightforward CRUD + UI |
+| **5a Live trading engine** | **Opus 4.8** | Atomic execution, failsafe, real P&L, real money |
+| 5b Live trading UI | Sonnet | Tables, controls, wiring |
+| **6 Real-time simulation** | **Opus 4.8** | Stateless-engine correctness (prototype z-score bug lived here) |
+| 7 Fast-forward sim | Sonnet | Reuses Phase-6 engine; orchestration |
+| 8 Walk-forward backtest | Sonnet | Subprocess orchestration + UI |
+| 9 Telegram | Sonnet (Opus for gate wiring) | Mostly mechanical |
+| 10 Hardening/arch review | **Opus 4.8** | Cross-cutting reasoning + security |
+
+*Single-model fallback: if not switching per phase, default to **Opus 4.8** (safer for correctness-critical work); Sonnet is the cost/speed optimization, not the safe default.*
 
 ---
 
