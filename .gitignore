@@ -7,6 +7,9 @@ Old Reference Resources/
 # Local-only Claude Code settings
 .claude/settings.local.json
 
+# Historical market data — large, regenerable, ingested locally
+data/
+
 # Bot state & output
 bot_agents.json
 cointegrated_pairs.csv

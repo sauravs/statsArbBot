@@ -132,7 +132,7 @@ Tables (carried from prototype, plus the new `ManualTrade`):
 - `SavedFFSimulation` — fast-forward saved aggregates.
 - `Strategy` — backtest strategy runs, ranked; supports partial/resume.
 - `BotConfigHistory` — append-only config audit.
-- `OhlcvCache` — cached candles.
+- `OhlcvCache` — cached candles, seeded by ingesting the existing dYdX history (`dydx/` + `dydx_extended/`, 2024–2025 hourly OHLCV + funding) into a gitignored `data/` dir, with a validation/cleaning pass. See ADR-0006 and `PLAN.md` Phase 2.5.
 - Exchange-registry metadata (dYdX integrated; Binance/Hyperliquid stub flags).
 - *(Deferred/empty)* AI tables retained in schema only if zero-cost.
 
@@ -143,6 +143,7 @@ Final field-level schema is defined during Phase 0/4 implementation.
 ## 6. Non-Functional Requirements
 
 - **Correctness:** statistical engine numerically matches reference data within tolerance (Phase 1 gate).
+- **Data quality:** historical candles are validated on ingest (zero-volume/flat candles dropped or flagged, gaps detected, per-market minimum coverage enforced) so backtest/simulation results are trustworthy.
 - **Robustness:** DB-backed live state; proper async concurrency control on shared scan/backtest state; Prisma client generation wired into build + lifespan (no `FieldNotFoundError`/503 class of bugs).
 - **Security:** secrets in `.env` (gitignored); previously-exposed keys rotated; no secrets committed.
 - **Testability:** unit + integration + Playwright E2E per phase; dYdX and Telegram mockable behind interfaces.

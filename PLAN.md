@@ -64,6 +64,7 @@ statsArbBot/
 │   ├── lib/api.ts                  # typed API client
 │   ├── middleware.ts               # auth guard
 │   └── e2e/                        # Playwright specs
+├── data/                           # gitignored — historical CSVs copied from reference (dydx + dydx_extended)
 └── prisma/schema.prisma
 ```
 
@@ -84,6 +85,10 @@ statsArbBot/
 ### Phase 2 — Market Data + Scan → Pairs Table *(first user-visible slice)*
 **Do:** dYdX v4 data layer (markets, candles paginated + 429-retry + concurrency-limited, price matrix, collateral); scan orchestration (background async, progress streaming, **CSV + `CointScanResult` dual-write**, no race conditions); `/api/scan`, `/api/pairs`; PairsTable + scan button + progress UI.
 **Gate:** scan from UI → pairs render; survive reload (DB). Unit + integration + Playwright E2E.
+
+### Phase 2.5 — Historical Data Ingest & Validation *(feeds Phases 7 & 8)*
+**Do:** copy existing dYdX CSVs (`dydx/` + `dydx_extended/`, OHLCV + funding) from the reference folder into the gitignored repo `data/` dir; **validation/cleaning pass** (drop/flag zero-volume & flat candles, detect gaps, enforce per-market minimum coverage); seed `OhlcvCache`. Port the prototype's `01_download_data.py` as a reproducible refresh script (not run now). *(See ADR-0006.)*
+**Gate:** ingest populates `OhlcvCache`; validation report shows cleaned row counts and rejected bars per market; unit tests cover the cleaning rules.
 
 ### Phase 3 — Pair Detail + 3-Panel Charts
 **Do:** pair OHLCV + spread + Z-score series endpoint; pair detail route with 3-panel `lightweight-charts` (normalized overlay / spread+σ bands / Z-score+thresholds + entry/exit markers).
