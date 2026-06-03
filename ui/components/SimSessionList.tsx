@@ -27,7 +27,9 @@ export default function SimSessionList({
       ) : (
         <ul className="space-y-2" data-testid="sim-list">
           {sessions.map((s) => {
-            const pnl = s.current_capital - s.starting_capital;
+            // Realised P&L = Σ closed-trade net_pnl (from the list endpoint), NOT
+            // current − starting capital, which would count top-ups as profit.
+            const pnl = s.realised_pnl ?? 0;
             return (
               <li key={s.id}>
                 <button

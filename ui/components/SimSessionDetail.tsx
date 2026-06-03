@@ -30,6 +30,9 @@ export default function SimSessionDetail({
   const realised = trades.reduce((sum, t) => sum + t.net_pnl, 0);
   const stopped = session.status === "STOPPED";
   const [topup, setTopup] = useState("1000");
+  // Number(topup) <= 0 is NaN-leaky (NaN <= 0 is false), so guard on a finite > 0.
+  const topupNum = Number(topup);
+  const topupValid = Number.isFinite(topupNum) && topupNum > 0;
 
   return (
     <div className="space-y-6" data-testid="sim-detail">
@@ -109,8 +112,8 @@ export default function SimSessionDetail({
               data-testid="sim-topup-input"
             />
             <button
-              onClick={() => onTopUp(Number(topup))}
-              disabled={busy || stopped || Number(topup) <= 0}
+              onClick={() => onTopUp(topupNum)}
+              disabled={busy || stopped || !topupValid}
               className="ctl"
               data-testid="sim-topup-btn"
             >

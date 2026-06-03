@@ -368,6 +368,8 @@ export interface SimSession {
   last_tick_at: string | null;
   created_at: string | null;
   stopped_at: string | null;
+  // Σ closed-trade net P&L — only present on the list endpoint (GET /sessions).
+  realised_pnl?: number;
 }
 
 export interface SimPosition {

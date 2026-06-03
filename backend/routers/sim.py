@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 import config
 from auth import require_api_key
 from exchanges import EXCHANGE_REGISTRY
-from simulation.engine import SimSessionNotFound, get_sim_engine
+from simulation.engine import SimSessionNotFound, SimSessionTerminal, get_sim_engine
 from simulation.scheduler import sim_scheduler
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,8 @@ async def pause_session(session_id: str) -> dict:
         session = await get_sim_engine().set_status(session_id, "PAUSED")
     except SimSessionNotFound:
         raise HTTPException(status_code=404, detail="Simulation session not found.")
+    except SimSessionTerminal:
+        raise HTTPException(status_code=409, detail="A stopped session cannot be paused.")
     except Exception as exc:
         raise _guard_db(exc)
     sim_scheduler.unschedule(session_id)
@@ -116,18 +118,16 @@ async def pause_session(session_id: str) -> dict:
 
 @router.post("/sessions/{session_id}/resume")
 async def resume_session(session_id: str) -> dict:
-    engine = get_sim_engine()
+    # The STOPPED guard is enforced atomically inside set_status (under the engine
+    # lock + a source-state re-read), so a stop that lands between any pre-check
+    # and the write — or a /pause that laundered STOPPED→PAUSED — still can't
+    # revive a terminal session.
     try:
-        current = await engine.get_session(session_id)
-        if current is None:
-            raise SimSessionNotFound(session_id)
-        if current["status"] == "STOPPED":
-            raise HTTPException(status_code=409, detail="A stopped session cannot be resumed.")
-        session = await engine.set_status(session_id, "RUNNING")
+        session = await get_sim_engine().set_status(session_id, "RUNNING")
     except SimSessionNotFound:
         raise HTTPException(status_code=404, detail="Simulation session not found.")
-    except HTTPException:
-        raise
+    except SimSessionTerminal:
+        raise HTTPException(status_code=409, detail="A stopped session cannot be resumed.")
     except Exception as exc:
         raise _guard_db(exc)
     sim_scheduler.schedule(session["id"], session["interval_seconds"])
@@ -152,6 +152,8 @@ async def topup_session(session_id: str, body: TopUpBody) -> dict:
         return await get_sim_engine().top_up(session_id, body.amount)
     except SimSessionNotFound:
         raise HTTPException(status_code=404, detail="Simulation session not found.")
+    except SimSessionTerminal:
+        raise HTTPException(status_code=409, detail="A stopped session cannot be topped up.")
     except Exception as exc:
         raise _guard_db(exc)
 

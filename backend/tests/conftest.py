@@ -358,12 +358,17 @@ class FakeSimRepository:
         return dict(row) if row is not None else None
 
     async def list_sessions(self) -> list[dict]:
-        return [
-            dict(r)
-            for r in sorted(
-                self.sessions.values(), key=lambda r: r["created_at"], reverse=True
+        rows = sorted(
+            self.sessions.values(), key=lambda r: r["created_at"], reverse=True
+        )
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["realised_pnl"] = sum(
+                t["net_pnl"] for t in self.trades.values() if t["session_id"] == r["id"]
             )
-        ]
+            out.append(d)
+        return out
 
     async def list_running_sessions(self) -> list[dict]:
         return [dict(r) for r in self.sessions.values() if r["status"] == "RUNNING"]

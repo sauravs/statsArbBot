@@ -137,6 +137,18 @@ async def test_stop_loss_zscore_exit():
     assert (await repo.list_trades(session["id"]))[0]["exit_reason"] == "STOP_LOSS_ZSCORE"
 
 
+async def test_stop_loss_does_not_reenter_same_tick():
+    # A stop-loss close must NOT be re-opened on the same snapshot (it would churn
+    # stop→reopen→stop on a broken pair). |Z|=4.5 ≥ stop 4.0 closes; the same snap
+    # passes evaluate_entry (no upper bound) but the just-exited guard blocks it.
+    repo = FakeSimRepository()
+    session = await _make_session(repo)
+    session = await _open_one(repo, session)
+    summary = await run_tick(repo, session, [_snap(z=4.5)], now=NOW + timedelta(hours=1))
+    assert summary["exits"] == 1 and summary["entries"] == 0
+    assert await repo.get_open_positions(session["id"]) == []
+
+
 async def test_hold_between_thresholds():
     repo = FakeSimRepository()
     session = await _make_session(repo)

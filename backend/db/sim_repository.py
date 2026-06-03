@@ -54,7 +54,21 @@ class PrismaSimRepository:
 
         db = await get_db()
         records = await db.simsession.find_many(order=[{"created_at": "desc"}])
-        return [self._session_to_dict(r) for r in records]
+        # Attach realised P&L (Σ closed-trade net_pnl) per session in one grouped
+        # query, so the list view shows true profit — NOT current − starting
+        # capital, which also counts top-ups. One aggregate, not N+1.
+        grouped = await db.simtrade.group_by(
+            by=["session_id"], sum={"net_pnl": True}
+        )
+        pnl_by_session = {
+            g["session_id"]: (g.get("_sum") or {}).get("net_pnl") or 0.0 for g in grouped
+        }
+        out = []
+        for r in records:
+            d = self._session_to_dict(r)
+            d["realised_pnl"] = pnl_by_session.get(r.id, 0.0)
+            out.append(d)
+        return out
 
     async def list_running_sessions(self) -> list[dict]:
         """RUNNING sessions — re-registered with the scheduler on API startup."""

@@ -50,6 +50,10 @@ class SimSessionNotFound(Exception):
     """Raised when a tick / control targets a session id that does not exist."""
 
 
+class SimSessionTerminal(Exception):
+    """Raised when a control tries to change a STOPPED (terminal) session."""
+
+
 def _age_hours(entry_time: str | None, now: datetime) -> float | None:
     if not entry_time:
         return None
@@ -136,6 +140,7 @@ async def run_tick(
 
     # ── 2. Exits ─────────────────────────────────────────────────────────────
     still_open: list[dict] = []
+    just_exited: set[tuple[str, str]] = set()
     for pos in open_positions:
         snap = snap_by_pair.get((pos["base_market"], pos["quote_market"]))
         if snap is None:
@@ -156,9 +161,15 @@ async def run_tick(
         current_capital += await _close_position(
             repo, session, pos, snap, exit_sig.reason.value, exit_z=snap.z_score, now=now
         )
+        just_exited.add((pos["base_market"], pos["quote_market"]))
         summary["exits"] += 1
 
     # ── 3. Entries ───────────────────────────────────────────────────────────
+    # A pair closed THIS tick is not re-opened on the same snapshot: a stop-loss
+    # (|Z|≥stop_threshold) would otherwise immediately re-enter at the stopped Z
+    # — evaluate_entry has no upper bound — and churn stop→reopen→stop every tick
+    # on a pair whose cointegration just broke down. It can re-enter on a later
+    # tick once Z is back in the entry band.
     open_pairs = {(p["base_market"], p["quote_market"]) for p in still_open}
     # Track deployed notional so a tick with many simultaneous signals can't
     # over-leverage the paper account: each dollar-neutral pair commits ~one leg's
@@ -170,6 +181,8 @@ async def run_tick(
         if max_active is not None and len(open_pairs) >= max_active:
             break
         if (snap.base_market, snap.quote_market) in open_pairs:
+            continue
+        if (snap.base_market, snap.quote_market) in just_exited:
             continue
         if snap.base_price <= 0 or snap.quote_price <= 0:
             continue
@@ -233,9 +246,18 @@ async def _open_position(repo, session: dict, snap: PairTick, usd_per_trade: flo
 
 
 async def _close_position(
-    repo, session: dict, pos: dict, snap: PairTick, reason: str, *, exit_z: float | None, now
+    repo, session: dict, pos: dict, snap: PairTick, reason: str, *, exit_z: float | None, now,
+    slippage_pct: float | None = None, taker_fee_pct: float | None = None,
 ) -> float:
-    """Close a position into a SimTrade. Returns the realised net P&L (capital delta)."""
+    """Close a position into a SimTrade. Returns the realised net P&L (capital delta).
+
+    ``slippage_pct``/``taker_fee_pct`` default to the session's costs, but a caller
+    closing against *synthetic* prices (the stop fallback when no live price is
+    available) passes 0 so it doesn't charge slippage/fees on a fill that never
+    happened — the only realised cost there is the already-paid entry fee + funding.
+    """
+    slippage_pct = session.get("slippage_pct", 0.05) if slippage_pct is None else slippage_pct
+    taker_fee_pct = session.get("taker_fee_pct", 0.05) if taker_fee_pct is None else taker_fee_pct
     pnl = compute_exit_pnl(
         direction=pos["direction"],
         entry_base_px=pos["entry_base_px"],
@@ -245,8 +267,8 @@ async def _close_position(
         base_size=pos["base_size"],
         quote_size=pos["quote_size"],
         entry_fee=pos["fee_cost"],
-        slippage_pct=session.get("slippage_pct", 0.05),
-        taker_fee_pct=session.get("taker_fee_pct", 0.05),
+        slippage_pct=slippage_pct,
+        taker_fee_pct=taker_fee_pct,
         funding_pnl=pos.get("funding_pnl", 0.0),
     )
     age = _age_hours(pos.get("entry_time"), now) or 0.0
@@ -292,22 +314,34 @@ class SimulationEngine:
         return await get_sim_repository().get_session(session_id)
 
     async def set_status(self, session_id: str, status: str) -> dict:
-        repo = get_sim_repository()
-        session = await repo.get_session(session_id)
-        if session is None:
-            raise SimSessionNotFound(session_id)
-        data: dict = {"status": status}
-        if status == "STOPPED":
-            data["stopped_at"] = datetime.now(timezone.utc)
-        return await repo.update_session(session_id, data)
+        # Under the lock and re-validating the source state: a STOPPED session is
+        # terminal, so neither a stray /pause (which would otherwise launder
+        # STOPPED→PAUSED and let /resume revive it) nor a stop-vs-resume race can
+        # reanimate it. The lock also serialises against tick/stop on the same row.
+        async with self._lock:
+            repo = get_sim_repository()
+            session = await repo.get_session(session_id)
+            if session is None:
+                raise SimSessionNotFound(session_id)
+            if session["status"] == "STOPPED":
+                raise SimSessionTerminal(session_id)
+            data: dict = {"status": status}
+            if status == "STOPPED":
+                data["stopped_at"] = datetime.now(timezone.utc)
+            return await repo.update_session(session_id, data)
 
     async def top_up(self, session_id: str, amount: float) -> dict:
-        repo = get_sim_repository()
-        session = await repo.get_session(session_id)
-        if session is None:
-            raise SimSessionNotFound(session_id)
-        new_capital = session["current_capital"] + amount
-        return await repo.update_session(session_id, {"current_capital": new_capital})
+        # Under the lock + re-read so a scheduled tick that closes a position
+        # between the read and the write can't be clobbered (lost realised P&L).
+        async with self._lock:
+            repo = get_sim_repository()
+            session = await repo.get_session(session_id)
+            if session is None:
+                raise SimSessionNotFound(session_id)
+            if session["status"] == "STOPPED":
+                raise SimSessionTerminal(session_id)
+            new_capital = session["current_capital"] + amount
+            return await repo.update_session(session_id, {"current_capital": new_capital})
 
     # ticking -------------------------------------------------------------------
 
@@ -381,9 +415,12 @@ class SimulationEngine:
                 capital = session["current_capital"]
                 for pos in open_positions:
                     snap = snap_by_pair.get((pos["base_market"], pos["quote_market"]))
-                    if snap is None:
-                        # No price to mark against — close flat (entry prices) so no
-                        # naked virtual position lingers; P&L is just accrued funding.
+                    synthetic = snap is None
+                    if synthetic:
+                        # No live price to mark against — close flat at the entry
+                        # prices so no naked virtual position lingers, and charge no
+                        # slippage/fees (the fill never happened): the only realised
+                        # cost is the already-paid entry fee + accrued funding.
                         snap = PairTick(
                             base_market=pos["base_market"],
                             quote_market=pos["quote_market"],
@@ -395,7 +432,9 @@ class SimulationEngine:
                             spread_value=0.0,
                         )
                     capital += await _close_position(
-                        repo, session, pos, snap, "STOPPED", exit_z=None, now=now
+                        repo, session, pos, snap, "STOPPED", exit_z=None, now=now,
+                        slippage_pct=0.0 if synthetic else None,
+                        taker_fee_pct=0.0 if synthetic else None,
                     )
                     closed += 1
                 await repo.update_session(session_id, {"current_capital": capital})

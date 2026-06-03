@@ -42,15 +42,25 @@ class PairTick:
 
 
 async def _tick_for_pair(client, pair: dict, *, window: int | None, now) -> PairTick | None:
-    snap = await current_pair_snapshot(
-        client,
-        base_market=pair["base_market"],
-        quote_market=pair["quote_market"],
-        hedge_ratio=pair["hedge_ratio"],
-        intercept=pair.get("intercept", 0.0) or 0.0,
-        window=window,
-        now=now,
-    )
+    try:
+        snap = await current_pair_snapshot(
+            client,
+            base_market=pair["base_market"],
+            quote_market=pair["quote_market"],
+            hedge_ratio=pair["hedge_ratio"],
+            intercept=pair.get("intercept", 0.0) or 0.0,
+            window=window,
+            now=now,
+        )
+    except Exception as exc:
+        # One bad pair (malformed candle, missing field, transient parse error)
+        # must not abort the whole tick — drop just this pair, as the docstring
+        # promises. Mirrors marketdata/price_matrix.py's per-market isolation.
+        logger.warning(
+            "sim snapshot failed for %s/%s: %s",
+            pair.get("base_market"), pair.get("quote_market"), exc,
+        )
+        return None
     if snap is None:
         return None
     return PairTick(

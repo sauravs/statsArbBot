@@ -27,6 +27,7 @@ export default function SimulationPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState<string | null>(null);
 
   const refreshList = useCallback(async () => {
     const res = await listSimSessions();
@@ -64,16 +65,36 @@ export default function SimulationPanel() {
 
   const run = useCallback(
     async (label: string, action: () => Promise<string | null>) => {
+      // Capture the selection at click time; the post-action refresh re-checks it
+      // so a mid-flight switch to another session can't overwrite its detail with
+      // this one's (the action and its refresh have independent error slots, so a
+      // transient refresh blip after a successful action reads as "view stale",
+      // not "action failed" — mirrors LiveTradingPanel's Phase-5b fix).
+      const sessionAtClick = selectedId;
       setBusy(true);
       setError(null);
       setMessage(null);
+      setStale(null);
+      let actionMsg: string | null = null;
       try {
-        const msg = await action();
-        setMessage(msg ?? `${label} complete.`);
-        await refreshList();
-        if (selectedId) await refreshDetail(selectedId);
+        actionMsg = await action();
       } catch (e) {
         setError(e instanceof Error ? e.message : `${label} failed`);
+        setBusy(false);
+        return;
+      }
+      setMessage(actionMsg ?? `${label} complete.`);
+      try {
+        await refreshList();
+        if (sessionAtClick && sessionAtClick === selectedId) {
+          await refreshDetail(sessionAtClick);
+        }
+      } catch (e) {
+        setStale(
+          e instanceof Error
+            ? `View refresh failed (${e.message}) — data may be stale.`
+            : "View refresh failed — data may be stale.",
+        );
       } finally {
         setBusy(false);
       }
@@ -91,6 +112,11 @@ export default function SimulationPanel() {
       {error && (
         <p className="text-sm text-red" data-testid="sim-error">
           {error}
+        </p>
+      )}
+      {stale && (
+        <p className="text-sm text-yellow" data-testid="sim-stale">
+          {stale}
         </p>
       )}
 

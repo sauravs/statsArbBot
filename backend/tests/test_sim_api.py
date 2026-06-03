@@ -135,6 +135,45 @@ def test_pause_resume_stop_transitions(ctx):
     assert ctx.client.post(f"/api/sim/sessions/{sid}/resume", headers=AUTH).status_code == 409
 
 
+def test_stopped_session_is_terminal(ctx):
+    # STOPPED is terminal: pause must not launder it to PAUSED (which would let
+    # resume revive it), and topup must not touch a dead session — all 409.
+    s = _create(ctx)
+    sid = s["id"]
+    ctx.client.post(f"/api/sim/sessions/{sid}/stop", headers=AUTH)
+    assert ctx.client.post(f"/api/sim/sessions/{sid}/pause", headers=AUTH).status_code == 409
+    assert ctx.client.post(f"/api/sim/sessions/{sid}/resume", headers=AUTH).status_code == 409
+    assert ctx.client.post(f"/api/sim/sessions/{sid}/topup", json={"amount": 100.0}, headers=AUTH).status_code == 409
+    # Still STOPPED, never re-scheduled.
+    assert ctx.client.get(f"/api/sim/sessions/{sid}", headers=AUTH).json()["session"]["status"] == "STOPPED"
+    assert sid not in ctx.sched.scheduled
+
+
+def test_list_realised_pnl_excludes_topups(ctx):
+    # Top-up inflates capital but is not profit — the list's realised P&L (Σ closed
+    # net_pnl) stays 0 with no trades, even though current_capital rose.
+    s = _create(ctx, starting_capital=10_000.0)
+    ctx.client.post(f"/api/sim/sessions/{s['id']}/topup", json={"amount": 5_000.0}, headers=AUTH)
+    row = ctx.client.get("/api/sim/sessions", headers=AUTH).json()["sessions"][0]
+    assert row["current_capital"] == pytest.approx(15_000.0)
+    assert row["realised_pnl"] == pytest.approx(0.0)
+
+
+def test_synthetic_stop_charges_no_exit_slippage_or_fee(ctx):
+    # Stop with no live price closes flat at entry prices and must NOT charge exit
+    # slippage/fees on a fill that never happened — only the already-paid entry fee
+    # is realised. With 0.05% costs the entry fee is ~0.10; a buggy synthetic close
+    # would deduct ~0.30.
+    s = _create(ctx, slippage_pct=0.05, taker_fee_pct=0.05)
+    sid = s["id"]
+    _set_snaps(ctx, _snap(z=2.5, base_price=100.0, quote_price=50.0))
+    ctx.client.post(f"/api/sim/sessions/{sid}/tick", headers=AUTH)
+    _set_snaps(ctx)  # no live price for the open pair on stop → synthetic close
+    ctx.client.post(f"/api/sim/sessions/{sid}/stop", headers=AUTH)
+    trade = ctx.client.get(f"/api/sim/sessions/{sid}", headers=AUTH).json()["trades"][0]
+    assert trade["net_pnl"] == pytest.approx(-0.10, abs=0.02)
+
+
 def test_topup_increases_capital(ctx):
     s = _create(ctx, starting_capital=1_000.0)
     r = ctx.client.post(f"/api/sim/sessions/{s['id']}/topup", json={"amount": 500.0}, headers=AUTH)
