@@ -82,6 +82,22 @@ class PrismaOhlcvCacheRepository:
             where={"exchange": exchange, "resolution": resolution}
         )
 
+    async def get_markets(self, *, exchange: str, resolution: str) -> list[str]:
+        """Distinct cached market tickers for (exchange, resolution), sorted.
+
+        The walk-forward backtest (Phase 8) needs the universe of markets to scan
+        each window; unlike the live scan there is no exchange ``get_markets`` to
+        call — the universe is whatever the Phase-2.5 ingest seeded.
+        """
+        from db.client import get_db
+
+        db = await get_db()
+        records = await db.ohlcvcache.find_many(
+            where={"exchange": exchange, "resolution": resolution},
+            distinct=["market"],
+        )
+        return sorted({r.market for r in records})
+
     # ── reads (Phase 7 fast-forward replay) ──────────────────────────────────
 
     async def get_candles(

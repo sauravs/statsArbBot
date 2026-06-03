@@ -1,0 +1,194 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  deleteStrategy,
+  getStrategy,
+  listStrategies,
+  pauseStrategy,
+  runStrategy,
+  seedDefaultStrategies,
+  stopStrategy,
+  type Strategy,
+} from "@/lib/api";
+import CreateStrategyForm from "./CreateStrategyForm";
+import StrategyList from "./StrategyList";
+import StrategyDetail from "./StrategyDetail";
+
+// Walk-forward backtest dashboard (PRD F8.4): a create form + ranked strategy
+// comparison on the left, the selected strategy's detail (controls, equity curve,
+// per-window table, per-pair P&L, report) on the right. A RUNNING sweep is polled
+// until terminal so progress + final results appear without a manual refresh.
+export default function BacktestPanel() {
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Strategy | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Run / pause / stop are separate actions from create (unlike the FF replay,
+  // which launches on create), so polling keys off the live RUNNING status rather
+  // than the selection alone — flipping to RUNNING via the Run button re-arms it.
+  const isRunning = detail?.status === "RUNNING";
+
+  const refreshList = useCallback(async () => {
+    const res = await listStrategies();
+    setStrategies(res.strategies);
+    return res.strategies;
+  }, []);
+
+  useEffect(() => {
+    refreshList().catch((e) =>
+      setError(e instanceof Error ? e.message : "Failed to load strategies"),
+    );
+  }, [refreshList]);
+
+  // Load the selected strategy when the selection changes.
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    getStrategy(selectedId)
+      .then((row) => {
+        if (!cancelled) setDetail(row);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load strategy");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  // Poll the selected strategy while its sweep is RUNNING; stop on a terminal state.
+  useEffect(() => {
+    if (!selectedId || !isRunning) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const next = await getStrategy(selectedId);
+        if (cancelled) return;
+        setDetail(next);
+        if (next.status !== "RUNNING") {
+          clearInterval(timer);
+          refreshList().catch(() => {});
+        }
+      } catch {
+        /* transient poll error — keep the last known state */
+      }
+    }, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [selectedId, isRunning, refreshList]);
+
+  // run / pause / stop all return the strategy row. Adopt it as the optimistic
+  // state: run returns status RUNNING (the background sweep persists it a moment
+  // later), so setting it here re-arms the RUNNING-keyed poll immediately — without
+  // it a re-fetch could read a not-yet-updated PENDING row and never start polling.
+  const act = useCallback(
+    async (fn: () => Promise<Strategy>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const row = await fn();
+        setDetail(row);
+        await refreshList();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Action failed");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshList],
+  );
+
+  const onRun = useCallback(() => {
+    if (detail) act(() => runStrategy(detail.id));
+  }, [detail, act]);
+  const onPause = useCallback(() => {
+    if (detail) act(() => pauseStrategy(detail.id));
+  }, [detail, act]);
+  const onStop = useCallback(() => {
+    if (detail) act(() => stopStrategy(detail.id));
+  }, [detail, act]);
+  const onDelete = useCallback(async () => {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteStrategy(detail.id);
+      setSelectedId(null);
+      setDetail(null);
+      await refreshList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }, [detail, refreshList]);
+
+  const onSeed = useCallback(async () => {
+    setSeeding(true);
+    setError(null);
+    try {
+      await seedDefaultStrategies();
+      await refreshList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Seed failed");
+    } finally {
+      setSeeding(false);
+    }
+  }, [refreshList]);
+
+  return (
+    <div className="space-y-6">
+      {error && (
+        <p className="text-sm text-red" data-testid="bt-error">
+          {error}
+        </p>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-[22rem_1fr]">
+        <div className="space-y-6">
+          <CreateStrategyForm
+            onCreated={async (s) => {
+              await refreshList();
+              setSelectedId(s.id);
+            }}
+          />
+          <StrategyList
+            strategies={strategies}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onSeed={onSeed}
+            seeding={seeding}
+          />
+        </div>
+
+        <div>
+          {detail ? (
+            <StrategyDetail
+              strategy={detail}
+              busy={busy}
+              onRun={onRun}
+              onPause={onPause}
+              onStop={onStop}
+              onDelete={onDelete}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-10">
+              <p className="text-sm text-muted" data-testid="bt-no-selection">
+                Select a strategy, or create one to begin.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
