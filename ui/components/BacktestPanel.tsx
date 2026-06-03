@@ -30,7 +30,9 @@ export default function BacktestPanel() {
   // Run / pause / stop are separate actions from create (unlike the FF replay,
   // which launches on create), so polling keys off the live RUNNING status rather
   // than the selection alone — flipping to RUNNING via the Run button re-arms it.
-  const isRunning = detail?.status === "RUNNING";
+  // Also require the loaded detail to match the current selection, so a stale
+  // RUNNING detail from a previous selection can't fire a poll against the new id.
+  const isRunning = detail?.status === "RUNNING" && detail?.id === selectedId;
 
   const refreshList = useCallback(async () => {
     const res = await listStrategies();
@@ -86,36 +88,46 @@ export default function BacktestPanel() {
     };
   }, [selectedId, isRunning, refreshList]);
 
-  // run / pause / stop all return the strategy row. Adopt it as the optimistic
-  // state: run returns status RUNNING (the background sweep persists it a moment
-  // later), so setting it here re-arms the RUNNING-keyed poll immediately — without
-  // it a re-fetch could read a not-yet-updated PENDING row and never start polling.
-  const act = useCallback(
-    async (fn: () => Promise<Strategy>) => {
+  // Run adopts the endpoint's returned RUNNING row as optimistic state: the
+  // background sweep persists RUNNING a moment later, so setting it here re-arms the
+  // RUNNING-keyed poll immediately — without it a re-fetch could read a not-yet-
+  // updated PENDING row and never start polling.
+  const onRun = useCallback(() => {
+    if (!detail) return;
+    const id = detail.id;
+    setBusy(true);
+    setError(null);
+    runStrategy(id)
+      .then((row) => {
+        setDetail(row);
+        return refreshList();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Run failed"))
+      .finally(() => setBusy(false));
+  }, [detail, refreshList]);
+
+  // Pause / stop only set an in-process flag the sweep honours at the next window
+  // boundary; the endpoint returns the still-RUNNING row. Deliberately do NOT adopt
+  // that row — the active poll observes the PAUSED/STOPPED transition, so adopting it
+  // would flicker the controls back to RUNNING for a tick.
+  const control = useCallback(
+    (fn: () => Promise<Strategy>) => {
       setBusy(true);
       setError(null);
-      try {
-        const row = await fn();
-        setDetail(row);
-        await refreshList();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Action failed");
-      } finally {
-        setBusy(false);
-      }
+      fn()
+        .then(() => refreshList())
+        .catch((e) => setError(e instanceof Error ? e.message : "Action failed"))
+        .finally(() => setBusy(false));
     },
     [refreshList],
   );
 
-  const onRun = useCallback(() => {
-    if (detail) act(() => runStrategy(detail.id));
-  }, [detail, act]);
   const onPause = useCallback(() => {
-    if (detail) act(() => pauseStrategy(detail.id));
-  }, [detail, act]);
+    if (detail) control(() => pauseStrategy(detail.id));
+  }, [detail, control]);
   const onStop = useCallback(() => {
-    if (detail) act(() => stopStrategy(detail.id));
-  }, [detail, act]);
+    if (detail) control(() => stopStrategy(detail.id));
+  }, [detail, control]);
   const onDelete = useCallback(async () => {
     if (!detail) return;
     setBusy(true);

@@ -186,6 +186,32 @@ async def test_stop_is_terminal_with_partial_results(ctx):
     assert stopped["rank"] == 1
 
 
+async def test_resume_does_not_refund_zero_capital(ctx):
+    # A paused run whose capital was driven to exactly 0 must resume with 0, not be
+    # silently re-funded back to starting_capital (the `current_capital or starting`
+    # falsy-zero trap).
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params())
+    sid = row["id"]
+    # Simulate a paused run after window 0 with a wiped-out account.
+    await ctx.repo.update(
+        sid,
+        {
+            "status": "PAUSED", "processed_windows": 1, "total_windows": 3,
+            "current_capital": 0.0, "starting_capital": 10_000.0,
+            "equity_curve": [], "per_window": [], "per_pair_pnl": {},
+            "exit_reasons": {}, "total_trades": 0,
+        },
+    )
+    await engine.run(sid)
+    done = await ctx.repo.get(sid)
+    assert done["status"] == "COMPLETED"
+    # With zero carried capital the margin guard blocks every entry, so the run
+    # books no further trades and finishes at ~0 — never re-funded to 10k.
+    assert done["final_capital"] == pytest.approx(0.0, abs=1e-6)
+    assert done["net_pnl"] == pytest.approx(-10_000.0, abs=1e-6)
+
+
 async def test_ranking_orders_by_net_pnl(ctx):
     engine = BacktestEngine()
     a = await ctx.repo.create(_params(name="A", entry_threshold=0.5))

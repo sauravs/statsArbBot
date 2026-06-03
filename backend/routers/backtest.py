@@ -255,6 +255,7 @@ def _default_strategies() -> list[dict]:
 @router.post("/seed-defaults", status_code=201)
 async def seed_defaults() -> dict:
     """Create the S1–S4 baseline strategies (idempotent on name)."""
+    _validate_exchange(config.DEFAULT_EXCHANGE)
     try:
         engine = get_backtest_engine()
         existing = {s["name"] for s in await engine.list()}

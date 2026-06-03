@@ -32,10 +32,14 @@ def build_windows(
     """Tile [start, end] into walk-forward windows.
 
     Window i scans ``[start + i·trade, start + i·trade + scan]`` and trades the
-    following ``trade`` span. Only windows whose **trade** span fits entirely
-    within ``end`` are kept (a partial final test window is dropped — there is no
-    out-of-sample data to score it). Returns ``[]`` when the span is too short to
-    hold even one scan+trade window.
+    following ``trade`` span. Adjacent windows share the formation/test boundary
+    timestamp (``trade_end`` of window i == ``trade_start`` of window i+1); the
+    engine trades strictly *after* ``trade_start`` (see ``engine._run_window``), so
+    every hour after the first formation window is traded exactly once — no overlap,
+    no gap, and no bar is both fit-on and traded-on. Only windows whose **trade**
+    span fits entirely within ``end`` are kept (a partial final test window is
+    dropped — there is no out-of-sample data to score it). Returns ``[]`` when the
+    span is too short to hold even one scan+trade window.
     """
     if scan_days <= 0 or trade_days <= 0 or end <= start:
         return []

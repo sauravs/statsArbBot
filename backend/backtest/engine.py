@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import config
 from backtest.report import build_report
@@ -67,6 +67,10 @@ class BacktestEngine:
     def __init__(self) -> None:
         # strategy_id → "pause" | "stop" — checked at each window boundary.
         self._control: dict[str, str] = {}
+        # strategy_ids with a sweep in flight — guards against a double /run launch
+        # (the router's status check is TOCTOU; this in-memory claim is atomic on
+        # the single event loop because the check+add below has no await between).
+        self._running: set[str] = set()
 
     # ── CRUD ──────────────────────────────────────────────────────────────────
 
@@ -113,6 +117,9 @@ class BacktestEngine:
     async def run(self, strategy_id: str) -> dict | None:
         """Run (or resume) the whole walk-forward sweep for ``strategy_id``."""
         repo = get_strategy_repository()
+        if strategy_id in self._running:
+            return await repo.get(strategy_id)  # a sweep is already in flight
+        self._running.add(strategy_id)
         try:
             row = await repo.get(strategy_id)
             if row is None:
@@ -133,6 +140,7 @@ class BacktestEngine:
             return None
         finally:
             self._control.pop(strategy_id, None)
+            self._running.discard(strategy_id)
 
     async def _sweep(self, repo, row: dict) -> dict:
         strategy_id = row["id"]
@@ -157,7 +165,10 @@ class BacktestEngine:
         resuming = row["status"] == "PAUSED" and row.get("processed_windows", 0) > 0
         if resuming:
             cursor_idx = int(row["processed_windows"])
-            capital = row.get("current_capital") or row["starting_capital"]
+            # Explicit None check — a paused run that drove capital to exactly 0.0
+            # (total loss) must NOT be silently re-funded back to starting_capital.
+            carried = row.get("current_capital")
+            capital = carried if carried is not None else row["starting_capital"]
             acc = _Accumulator.from_row(row)
         else:
             cursor_idx = 0
@@ -185,16 +196,21 @@ class BacktestEngine:
         await repo.update(strategy_id, init)
 
         # One candle/funding fetch for the whole run (every leg of every window).
+        # Pad the load start by the Z-window so the rolling-Z warm-up for the first
+        # replayed window is available from BEFORE its formation window — otherwise a
+        # short scan window (scan_window_days·24 < zscore_window) would starve the
+        # warm-up and silently produce no trades (matches replay.engine's load_start).
         markets = await _universe(exchange)
-        load_start = windows[cursor_idx].scan_start if cursor_idx < total else start
+        load_start = windows[cursor_idx].scan_start - timedelta(hours=zwindow + 2)
         candles_by_market, funding_by_market = await _load_history(
             exchange, markets, load_start, windows[-1].trade_end
         )
         funding = FundingTable(funding_by_market)
 
-        # Budget equity points across the remaining windows.
-        remaining = max(1, total - cursor_idx)
-        pts_per_window = max(2, _MAX_CURVE_POINTS // remaining)
+        # Budget equity points across ALL windows (not just the remaining ones), so a
+        # resumed run doesn't append a second ~_MAX_CURVE_POINTS batch on top of the
+        # points already persisted before the pause.
+        pts_per_window = max(2, _MAX_CURVE_POINTS // total)
 
         session_base = _session_params(row)
         terminal = None
@@ -246,7 +262,15 @@ class BacktestEngine:
         if pairs:
             aligned = align_pairs(pairs, candles_by_market)
             aligned_by_pair = {(ap.base_market, ap.quote_market): ap for ap in aligned}
-            timeline = replay_timeline(aligned, start=w.trade_start, end=w.trade_end)
+            # Trade strictly AFTER the formation/test boundary. The bar at trade_start
+            # (== scan_end) was used to FIT the pairs, and is the previous window's
+            # force-close bar; excluding it keeps the test window out-of-sample (no
+            # one-bar look-ahead) and non-overlapping with the neighbouring window.
+            timeline = [
+                t
+                for t in replay_timeline(aligned, start=w.trade_start, end=w.trade_end)
+                if t > w.trade_start
+            ]
             if timeline:
                 session = {
                     **session_base,
@@ -268,7 +292,9 @@ class BacktestEngine:
                         wrepo, cur_session, snaps,
                         funding_rates=rates or None, now=cur,
                     )
-                    if i % sample_every == 0:
+                    # Skip the final cursor here — it gets one post-close point below,
+                    # so sampling it pre-close too would emit two points at the same t.
+                    if i % sample_every == 0 and i != len(timeline) - 1:
                         equity = await _equity_at(wrepo, aligned_by_pair, cur)
                         acc.add_equity(cur, equity)
                 # Force-close at the final traded bar (END_OF_WINDOW).
