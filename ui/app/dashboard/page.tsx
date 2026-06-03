@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSystemHealth, type SystemHealth } from "@/lib/api";
 import ScanPanel from "@/components/ScanPanel";
@@ -39,6 +40,13 @@ export default function DashboardPage() {
             unknown={!health && !error}
           />
           <StatusDot label="DB" ok={dbConnected} unknown={!health && !error} />
+          <Link
+            href="/dashboard/live"
+            data-testid="nav-live"
+            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+          >
+            Live Bot
+          </Link>
           <button
             onClick={logout}
             className="rounded-lg border border-border px-3 py-1.5 text-muted hover:text-text hover:border-blue/60 transition-colors"

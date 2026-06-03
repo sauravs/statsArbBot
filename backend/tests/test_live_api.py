@@ -103,6 +103,35 @@ def test_invalid_mode_rejected(ctx):
     assert r.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"entry_threshold": 0},      # opens every pair (|Z| >= 0)
+        {"entry_threshold": -1},
+        {"entry_threshold": 5.0},    # above the documented Z range
+        {"stop_threshold": 0},       # |Z| >= 0 always → force-closes the book
+        {"stop_threshold": 0.5},     # below entry — nonsensical
+        {"exit_threshold": 0},       # never takes profit
+        {"exit_threshold": 3.0},
+    ],
+)
+def test_out_of_range_threshold_overrides_rejected(ctx, body):
+    # The trust boundary, not the UI clamp: a forged/curl request can't pass a
+    # degenerate threshold even with a valid session key.
+    r = ctx.client.post("/api/live/entry-scan", json=body, headers=AUTH)
+    assert r.status_code == 422
+    r = ctx.client.post("/api/live/exit-manage", json=body, headers=AUTH)
+    assert r.status_code == 422
+
+
+def test_in_range_threshold_overrides_accepted(ctx):
+    # Boundary-valid overrides pass validation (no session → 409, not 422).
+    r = ctx.client.post(
+        "/api/live/entry-scan", json={"entry_threshold": 0.5}, headers=AUTH
+    )
+    assert r.status_code == 409  # validation passed; rejected only for no session
+
+
 def test_entry_scan_without_session_409(ctx):
     _set_snap(ctx, z=2.5)
     r = ctx.client.post("/api/live/entry-scan", json={}, headers=AUTH)

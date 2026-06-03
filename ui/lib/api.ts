@@ -202,3 +202,142 @@ export function startScan(quick = false): Promise<{ message: string; started: bo
 export function resetScan(): Promise<ScanStatus> {
   return proxyPost("api/scan/reset");
 }
+
+// ── Live Trading Bot (Phase 5, PRD F5) ───────────────────────────────────────
+
+/** The two live trading modes (a virtual sim account is Phase 6, not the bot). */
+export type LiveMode = "forward_test" | "production";
+
+const DEFAULT_EXCHANGE = "dydx";
+
+export interface LiveSession {
+  id: string;
+  exchange: string;
+  mode: string;
+  active: boolean;
+  started_at: string | null;
+  stopped_at: string | null;
+}
+
+export interface LiveSessionResponse {
+  session: LiveSession | null;
+  active: boolean;
+}
+
+export interface LiveTrade {
+  id: string;
+  session_id: string;
+  exchange: string;
+  mode: string;
+  base_market: string;
+  quote_market: string;
+  base_side: string; // "BUY" | "SELL"
+  quote_side: string;
+  base_size: number;
+  quote_size: number;
+  hedge_ratio: number;
+  half_life: number;
+  entry_z_score: number;
+  entry_price_leg1: number;
+  entry_price_leg2: number;
+  status: "OPEN" | "CLOSED" | "ERROR" | "PENDING";
+  opened_at: string | null;
+  exit_z_score: number | null;
+  exit_price_leg1: number | null;
+  exit_price_leg2: number | null;
+  exit_reason: string | null;
+  pnl: number | null;
+  closed_at: string | null;
+  error: string | null;
+}
+
+export interface LiveTradesResponse {
+  trades: LiveTrade[];
+  count: number;
+}
+
+export interface LiveAccount {
+  free_collateral: number;
+  equity: number;
+}
+
+export interface EntryScanResult {
+  opened: number;
+  evaluated: number;
+  free_collateral?: number;
+  collateral_ok?: boolean;
+  message: string;
+  outcomes: unknown[];
+}
+
+export interface ExitManageResult {
+  managed: number;
+  closed: number;
+  message: string;
+  outcomes: unknown[];
+}
+
+export interface AbortResult {
+  positions_closed: { market: string; ok: boolean }[];
+  trades_marked: number;
+}
+
+function scopeQuery(mode: LiveMode): string {
+  return `exchange=${encodeURIComponent(DEFAULT_EXCHANGE)}&mode=${encodeURIComponent(mode)}`;
+}
+
+function scopeBody(mode: LiveMode): { exchange: string; mode: LiveMode } {
+  return { exchange: DEFAULT_EXCHANGE, mode };
+}
+
+/** Current active live session for (dydx, mode), or null. */
+export function getLiveSession(mode: LiveMode): Promise<LiveSessionResponse> {
+  return proxyGet<LiveSessionResponse>(`api/live/session?${scopeQuery(mode)}`);
+}
+
+/** Activate the bot for the mode (idempotent — returns the active session). */
+export function startLiveSession(mode: LiveMode): Promise<LiveSession> {
+  return proxyPost<LiveSession>("api/live/session/start", scopeBody(mode));
+}
+
+/** Deactivate the bot (open trades remain for the exit manager / abort). */
+export function stopLiveSession(
+  mode: LiveMode,
+): Promise<{ stopped_sessions: number }> {
+  return proxyPost("api/live/session/stop", scopeBody(mode));
+}
+
+/** Run one entry-scan pass; optional entry-Z override (defaults to config 1.5). */
+export function runEntryScan(
+  mode: LiveMode,
+  entryThreshold?: number,
+): Promise<EntryScanResult> {
+  return proxyPost<EntryScanResult>("api/live/entry-scan", {
+    ...scopeBody(mode),
+    ...(entryThreshold != null ? { entry_threshold: entryThreshold } : {}),
+  });
+}
+
+/** Run one exit-management pass (take-profit / stop / time-stop). */
+export function runExitManage(mode: LiveMode): Promise<ExitManageResult> {
+  return proxyPost<ExitManageResult>("api/live/exit-manage", scopeBody(mode));
+}
+
+/** Emergency stop: cancel orders, close every position, mark trades ABORTED. */
+export function abortLive(mode: LiveMode): Promise<AbortResult> {
+  return proxyPost<AbortResult>("api/live/abort", scopeBody(mode));
+}
+
+/** List live trades for the mode, optionally filtered by status. */
+export function getLiveTrades(
+  mode: LiveMode,
+  status?: LiveTrade["status"],
+): Promise<LiveTradesResponse> {
+  const q = status ? `${scopeQuery(mode)}&status=${status}` : scopeQuery(mode);
+  return proxyGet<LiveTradesResponse>(`api/live/trades?${q}`);
+}
+
+/** Free collateral + equity from the exchange account. */
+export function getLiveAccount(mode: LiveMode): Promise<LiveAccount> {
+  return proxyGet<LiveAccount>(`api/live/account?${scopeQuery(mode)}`);
+}

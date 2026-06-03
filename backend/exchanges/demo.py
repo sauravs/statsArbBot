@@ -73,3 +73,83 @@ class DemoDataClient:
 
     async def aclose(self) -> None:  # parity with DydxDataClient
         return None
+
+
+# ── Offline trade client (Phase 5b) ──────────────────────────────────────────
+# The live engine builds a *fresh* trade client per pass and closes it in a
+# ``finally`` (engine.py), so per-instance state would not survive between an
+# entry-scan pass and a later abort/exit pass. A real exchange holds positions
+# and collateral between calls; this module-level store mirrors that, giving the
+# offline live-trading UI / E2E coherent state across passes. It persists for the
+# life of the process and starts empty (deterministic) — see ``reset_demo_account``.
+_DEMO_FILL_PRICE = 100.0
+_DEMO_START_COLLATERAL = 10_000.0
+_demo_positions: dict[str, object] = {}
+_demo_account: dict[str, float] = {
+    "free_collateral": _DEMO_START_COLLATERAL,
+    "equity": _DEMO_START_COLLATERAL,
+}
+
+
+def reset_demo_account() -> None:
+    """Clear the in-memory demo positions/collateral (used by tests)."""
+    _demo_positions.clear()
+    _demo_account["free_collateral"] = _DEMO_START_COLLATERAL
+    _demo_account["equity"] = _DEMO_START_COLLATERAL
+
+
+class DemoTradeClient:
+    """A network-free, walletless ``TradeClient`` for offline live trading.
+
+    Activated by ``SCAN_DATA_SOURCE=fake`` (the project's single "offline mode"
+    switch). Simulates immediate fills, tracks positions in the process-level
+    store above, and serves a fixed collateral/equity — so the Phase-5b live UI
+    (BotControls / AccountCard / OpenTradesTable / abort) drives the *real*
+    engine path deterministically, with no SDK, wallet, or network.
+
+    Limitation (offline dev only): the store is a *single* account keyed on market
+    symbol, not on ``(exchange, mode)`` — unlike the real ``DydxTradeClient``,
+    which selects separate testnet/mainnet subaccounts from ``ENVIRONMENT``. So
+    switching the live UI mode tab mid-process can let one mode's demo positions
+    collide with the other's (issue #22). Harmless against a real exchange and
+    untriggered by the 5b E2E (forward_test only); namespacing the store is the
+    proper fix.
+    """
+
+    async def place_market_order(
+        self, *, market: str, side: str, size: float, reduce_only: bool = False
+    ):
+        from trading.broker import OrderResult, Position
+
+        price = _DEMO_FILL_PRICE
+        if reduce_only:
+            _demo_positions.pop(market, None)
+        else:
+            _demo_positions[market] = Position(
+                market=market,
+                side="LONG" if side == "BUY" else "SHORT",
+                size=size,
+                entry_price=price,
+            )
+        return OrderResult(
+            market=market, side=side, size=size, price=price,
+            client_id=1, reduce_only=reduce_only,
+        )
+
+    async def is_open_position(self, market: str) -> bool:
+        return market in _demo_positions
+
+    async def get_open_positions(self) -> dict:
+        return dict(_demo_positions)
+
+    async def get_free_collateral(self) -> float:
+        return _demo_account["free_collateral"]
+
+    async def get_account_equity(self) -> float:
+        return _demo_account["equity"]
+
+    async def cancel_all_orders(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
