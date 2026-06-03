@@ -27,10 +27,12 @@ from datetime import datetime, timezone
 from db.live_repository import get_live_repository
 from db.scan_repository import get_scan_repository
 from exchanges import make_data_client, make_trade_client
+from statcore import opposite_side
 from trading.alerts import get_alerter
 from trading.approval import get_approval_gate
 from trading.entry import scan_for_entries
 from trading.exit import manage_exits
+from trading.pnl import compute_live_pnl
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +171,117 @@ class LiveEngine:
                         closed_at=now,
                     )
                 return {"positions_closed": closed, "trades_marked": len(open_trades)}
+            finally:
+                await _safe_close(trade_client)
+
+    async def close_pair(
+        self, *, exchange: str, mode: str, base_market: str, quote_market: str
+    ) -> dict:
+        """Immediately close one open pair, reduce-only (the Telegram ``/cancel``
+        path). An explicit operator override — no approval gate, like ``abort_all``
+        but scoped to a single pair.
+
+        This is the rewrite's fix for the prototype's ``connect_dydx`` bug: the
+        prototype's ``/cancel`` handler called a function (``create_dydx_connection``)
+        that did not exist (the real one was ``connect_dydx``), raising ``NameError``
+        at runtime. Here ``/cancel`` calls this real, named engine method instead.
+        """
+        async with self._lock:
+            repo = get_live_repository()
+            open_trades = await repo.get_open_trades(exchange=exchange, mode=mode)
+            trade = next(
+                (
+                    t
+                    for t in open_trades
+                    if t["base_market"] == base_market
+                    and t["quote_market"] == quote_market
+                ),
+                None,
+            )
+            if trade is None:
+                return {
+                    "found": False,
+                    "closed": False,
+                    "base_market": base_market,
+                    "quote_market": quote_market,
+                }
+
+            alerter = get_alerter()
+            trade_client = await make_trade_client()
+            try:
+                # Only close legs that are actually live on-exchange (mirrors
+                # abort_all / the exit manager's orphan handling): a leg that
+                # already closed outside the bot needs no order, and firing a
+                # reduce-only at a flat position would falsely report failure.
+                positions = await trade_client.get_open_positions()
+                fills: dict[str, float] = {}  # market → fill price, only for legs we closed
+                failed: list[str] = []
+                for market, side, size in (
+                    (base_market, trade["base_side"], trade["base_size"]),
+                    (quote_market, trade["quote_side"], trade["quote_size"]),
+                ):
+                    if market not in positions:
+                        continue  # already flat — nothing to unwind
+                    r = await trade_client.place_market_order(
+                        market=market, side=opposite_side(side), size=size, reduce_only=True
+                    )
+                    if r is None:
+                        failed.append(market)
+                    else:
+                        fills[market] = r.price
+
+                if failed:
+                    # A reduce-only close failed — keep the trade OPEN so the exit
+                    # manager retries (and unwinds any orphaned naked leg). Escalate.
+                    await alerter.code_red(
+                        f"/cancel could not close {', '.join(failed)} on "
+                        f"{base_market}/{quote_market} — position may still be live."
+                    )
+                    return {
+                        "found": True,
+                        "closed": False,
+                        "base_market": base_market,
+                        "quote_market": quote_market,
+                    }
+
+                # Real P&L only when this call closed BOTH legs (both fills known);
+                # if either leg was already flat its fill is unknown → pnl=None
+                # rather than a fabricated number (same rule as the exit manager's
+                # reconcile/orphan path).
+                if base_market in fills and quote_market in fills:
+                    pnl_value: float | None = compute_live_pnl(
+                        base_side=trade["base_side"],
+                        quote_side=trade["quote_side"],
+                        base_size=trade["base_size"],
+                        quote_size=trade["quote_size"],
+                        entry_price_leg1=trade["entry_price_leg1"],
+                        entry_price_leg2=trade["entry_price_leg2"],
+                        exit_price_leg1=fills[base_market],
+                        exit_price_leg2=fills[quote_market],
+                    ).pnl
+                else:
+                    pnl_value = None
+
+                await repo.close_trade(
+                    trade["id"],
+                    exit_price_leg1=fills.get(base_market),
+                    exit_price_leg2=fills.get(quote_market),
+                    exit_z_score=None,
+                    exit_reason="CANCELLED",
+                    pnl=pnl_value,
+                    closed_at=datetime.now(timezone.utc),
+                )
+                pnl_str = f"${pnl_value:,.2f}" if pnl_value is not None else "unknown"
+                await alerter.notify(
+                    f"/cancel closed {base_market}/{quote_market} — P&L={pnl_str}"
+                )
+                return {
+                    "found": True,
+                    "closed": True,
+                    "base_market": base_market,
+                    "quote_market": quote_market,
+                    "pnl": pnl_value,
+                }
             finally:
                 await _safe_close(trade_client)
 

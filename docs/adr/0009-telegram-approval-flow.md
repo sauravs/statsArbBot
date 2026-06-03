@@ -63,6 +63,27 @@ in Telegram and execute only on ✅, skipping on ❌ or timeout. Phase 9 is spli
   live dYdX order path (Phase 5a pre-production checkpoint).
 - F9.2 commands (`/status`, `/balance`, `/positions`, `/pairs`, `/cancel`,
   `/activate`, `/deactivate`) reuse the same `Application` instance in Phase 9.1.
+
+## Phase 9.1 — Commands (F9.2)
+
+The command handlers follow the same seam discipline as the gate: a
+`telegrambot/commands.py::CommandService` holds all command *logic* (builds the
+reply string for each command over the live `engine` + scan `scan_repo`,
+defensively — each method catches its own errors and returns an operator-facing
+string so a transient failure can never crash the PTB polling loop). `runtime.py`
+registers thin `CommandHandler` wrappers that authorise the chat and reply; they
+stay PTB-bound, the service stays PTB-free and is fully unit-tested with a fake
+engine. Commands act on the operator's default `(DEFAULT_EXCHANGE, DEFAULT_MODE)`.
+
+**`connect_dydx` bug fix (the headline F9.2 item).** The prototype's `/cancel`
+handler called `create_dydx_connection`, a name that did not exist (the real
+function was `connect_dydx`), so `/cancel` raised `NameError` at runtime. The
+rewrite has no such free function — `/cancel` calls a real, named engine method,
+`LiveEngine.close_pair(exchange, mode, base, quote)`: an explicit operator
+override (no approval gate, like `abort_all` but scoped to one pair) that closes
+both legs reduce-only, records real P&L from the fill prices, and marks the trade
+`CLOSED` (`CANCELLED`). A failed reduce-only close keeps the trade `OPEN` (the exit
+manager retries) and escalates via the alerter's CODE-RED, mirroring `manage_exits`.
 - **Known limitation (issue #28):** because the gate's `request` blocks awaiting a
   human tap and the engine calls it *inside* its process lock, a pending entry
   approval blocks `exit-manage` / `abort-all` for the same (exchange, mode) for up
