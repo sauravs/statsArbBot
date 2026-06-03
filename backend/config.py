@@ -132,6 +132,27 @@ ORDER_EXPIRY_BLOCKS: int = _env("ORDER_EXPIRY_BLOCKS", default=10, cast=int)
 MAX_ORDER_WAIT_SECS: float = _env("MAX_ORDER_WAIT_SECS", default=20.0, cast=float)
 ORDER_POLL_INTERVAL: float = _env("ORDER_POLL_INTERVAL", default=3.0, cast=float)
 
+# ── Telegram approval / alerts (Phase 9 — ADR-0009) ──────────────────────────
+# When both a bot token and an operator chat id are set, the live engine's
+# ApprovalGate + Alerter are swapped for the Telegram-backed implementations at
+# startup (see telegrambot/runtime.py). Unset → the AutoApproveGate/LoggingAlerter
+# defaults stay, so every other phase keeps running with no human in the loop.
+TELEGRAM_BOT_TOKEN: str = _env("TELEGRAM_BOT_TOKEN", default="")
+TELEGRAM_CHAT_ID: str = _env("TELEGRAM_CHAT_ID", default="")
+# Minutes to wait for an approve/reject tap before auto-rejecting the signal.
+# 0 → reject immediately (a kill-switch: every signal times out unapproved).
+TELEGRAM_APPROVAL_TIMEOUT_MIN: float = _env(
+    "TELEGRAM_APPROVAL_TIMEOUT_MIN", default=15.0, cast=float
+)
+# Treat the placeholder values shipped in .env.example as "unset" so a half-filled
+# .env doesn't try (and fail) to connect to Telegram on every restart.
+_TG_PLACEHOLDERS = {"", "your_bot_token_here", "your_chat_id_here"}
+TELEGRAM_ENABLED: bool = (
+    TELEGRAM_BOT_TOKEN not in _TG_PLACEHOLDERS
+    and TELEGRAM_CHAT_ID not in _TG_PLACEHOLDERS
+)
+
+
 # ── Historical data ingest (Phase 2.5 — ADR-0006) ────────────────────────────
 # Directories holding the copied dYdX CSVs, ingested into OhlcvCache/FundingRateCache
 # and replayed by Phases 7 (fast-forward) and 8 (backtest). Gitignored, repo-local.

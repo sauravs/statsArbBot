@@ -74,7 +74,24 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("DATABASE_URL not set — running without a database.")
 
+    # Install the Telegram approval gate + alerter (PRD F9.1) if configured;
+    # otherwise the AutoApproveGate/LoggingAlerter defaults stay. Best-effort —
+    # a Telegram failure must not block the API from serving (DB-independent).
+    try:
+        from telegrambot.runtime import start_telegram
+
+        await start_telegram()
+    except Exception as exc:
+        logger.error("Telegram startup failed: %s", exc)
+
     yield
+
+    try:
+        from telegrambot.runtime import stop_telegram
+
+        await stop_telegram()
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Telegram shutdown failed: %s", exc)
 
     try:
         from simulation.scheduler import sim_scheduler
