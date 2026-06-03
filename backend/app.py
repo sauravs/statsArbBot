@@ -60,10 +60,28 @@ async def lifespan(app: FastAPI):
             logger.info("Prisma client connected.")
         except Exception as exc:
             logger.error("DB connect failed: %s", exc)
+
+        # Start the simulation scheduler and re-register any RUNNING sessions so
+        # real-time sims survive an API restart (PRD F6.4). Best-effort: a failure
+        # here must not block the API from serving.
+        try:
+            from simulation.scheduler import reregister_running_sessions, sim_scheduler
+
+            sim_scheduler.start()
+            await reregister_running_sessions()
+        except Exception as exc:
+            logger.error("Simulation scheduler startup failed: %s", exc)
     else:
         logger.warning("DATABASE_URL not set — running without a database.")
 
     yield
+
+    try:
+        from simulation.scheduler import sim_scheduler
+
+        sim_scheduler.stop()
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Simulation scheduler stop failed: %s", exc)
 
     if config.DATABASE_URL:
         try:
@@ -91,6 +109,7 @@ def create_app() -> FastAPI:
     from routers.manual import router as manual_router
     from routers.pairs import router as pairs_router
     from routers.scan import router as scan_router
+    from routers.sim import router as sim_router
     from routers.system import router as system_router
 
     app.include_router(system_router)
@@ -98,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(pairs_router)
     app.include_router(manual_router)
     app.include_router(live_router)
+    app.include_router(sim_router)
     app.include_router(exchange_router)
     return app
 
