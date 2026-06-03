@@ -15,17 +15,10 @@ half-written one).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+
+from db.serde import iso as _iso
 
 logger = logging.getLogger(__name__)
-
-
-def _iso(value) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
 
 
 class PrismaScanRepository:

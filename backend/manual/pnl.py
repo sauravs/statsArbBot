@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from statcore import Side, leg_pnl
+
 
 @dataclass(frozen=True)
 class ManualPnl:
@@ -63,15 +65,20 @@ def compute_manual_pnl(
     if entry_price_leg1 <= 0 or entry_price_leg2 <= 0:
         raise ValueError("entry prices must be positive to size the legs")
 
+    # z < 0 longs the base leg (shorts quote); z ≥ 0 reverses (market-neutral).
     base_is_long = z_score < 0
-    base_sign = 1.0 if base_is_long else -1.0
-    quote_sign = -base_sign  # the legs are always opposite (market-neutral)
+    base_side = Side.BUY if base_is_long else Side.SELL
+    quote_side = Side.SELL if base_is_long else Side.BUY
 
     units_leg1 = capital_leg1_usd / entry_price_leg1
     units_leg2 = capital_leg2_usd / entry_price_leg2
 
-    pnl_leg1 = units_leg1 * (exit_price_leg1 - entry_price_leg1) * base_sign
-    pnl_leg2 = units_leg2 * (exit_price_leg2 - entry_price_leg2) * quote_sign
+    pnl_leg1 = leg_pnl(
+        side=base_side, entry_price=entry_price_leg1, exit_price=exit_price_leg1, size=units_leg1
+    )
+    pnl_leg2 = leg_pnl(
+        side=quote_side, entry_price=entry_price_leg2, exit_price=exit_price_leg2, size=units_leg2
+    )
 
     return ManualPnl(
         pnl_leg1=pnl_leg1,

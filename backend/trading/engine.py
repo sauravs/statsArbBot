@@ -30,9 +30,9 @@ from exchanges import make_data_client, make_trade_client
 from statcore import opposite_side
 from trading.alerts import get_alerter
 from trading.approval import get_approval_gate
+from trading.close import persist_closed_pair
 from trading.entry import scan_for_entries
 from trading.exit import manage_exits
-from trading.pnl import compute_live_pnl
 
 logger = logging.getLogger(__name__)
 
@@ -246,34 +246,15 @@ class LiveEngine:
 
                 # Real P&L only when this call closed BOTH legs (both fills known);
                 # if either leg was already flat its fill is unknown → pnl=None
-                # rather than a fabricated number (same rule as the exit manager's
-                # reconcile/orphan path).
-                if base_market in fills and quote_market in fills:
-                    pnl_value: float | None = compute_live_pnl(
-                        base_side=trade["base_side"],
-                        quote_side=trade["quote_side"],
-                        base_size=trade["base_size"],
-                        quote_size=trade["quote_size"],
-                        entry_price_leg1=trade["entry_price_leg1"],
-                        entry_price_leg2=trade["entry_price_leg2"],
-                        exit_price_leg1=fills[base_market],
-                        exit_price_leg2=fills[quote_market],
-                    ).pnl
-                else:
-                    pnl_value = None
-
-                await repo.close_trade(
-                    trade["id"],
-                    exit_price_leg1=fills.get(base_market),
-                    exit_price_leg2=fills.get(quote_market),
-                    exit_z_score=None,
-                    exit_reason="CANCELLED",
-                    pnl=pnl_value,
-                    closed_at=datetime.now(timezone.utc),
-                )
-                pnl_str = f"${pnl_value:,.2f}" if pnl_value is not None else "unknown"
-                await alerter.notify(
-                    f"/cancel closed {base_market}/{quote_market} — P&L={pnl_str}"
+                # rather than a fabricated number. ``persist_closed_pair`` owns that
+                # rule (shared with the exit manager's reconcile/orphan path).
+                pnl_value = await persist_closed_pair(
+                    repo, trade, alerter,
+                    reason="CANCELLED", exit_z=None,
+                    base_fill=fills.get(base_market),
+                    quote_fill=fills.get(quote_market),
+                    now=datetime.now(timezone.utc),
+                    notice="/cancel closed",
                 )
                 return {
                     "found": True,

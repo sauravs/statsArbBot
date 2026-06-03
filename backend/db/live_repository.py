@@ -15,19 +15,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from db.serde import enum_value as _enum_value
+from db.serde import iso as _iso
+
 logger = logging.getLogger(__name__)
-
-
-def _iso(value) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
-
-
-def _enum_value(value) -> str:
-    return getattr(value, "value", value)
 
 
 class PrismaLiveRepository:

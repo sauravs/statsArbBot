@@ -20,17 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from statcore.signals import Side
-
-
-def _side_sign(side: str) -> float:
-    """+1 for a long (BUY) leg, −1 for a short (SELL) leg."""
-    normalized = getattr(side, "value", side)
-    if normalized == Side.BUY.value:
-        return 1.0
-    if normalized == Side.SELL.value:
-        return -1.0
-    raise ValueError(f"side must be BUY or SELL, got {side!r}")
+from statcore import leg_pnl
 
 
 @dataclass(frozen=True)
@@ -63,10 +53,10 @@ def compute_live_pnl(
     P&L is its price move times its held units, signed by its direction. Raises
     ``ValueError`` on an unrecognised side.
     """
-    base_sign = _side_sign(base_side)
-    quote_sign = _side_sign(quote_side)
-
-    pnl_leg1 = base_size * (exit_price_leg1 - entry_price_leg1) * base_sign
-    pnl_leg2 = quote_size * (exit_price_leg2 - entry_price_leg2) * quote_sign
-
+    pnl_leg1 = leg_pnl(
+        side=base_side, entry_price=entry_price_leg1, exit_price=exit_price_leg1, size=base_size
+    )
+    pnl_leg2 = leg_pnl(
+        side=quote_side, entry_price=entry_price_leg2, exit_price=exit_price_leg2, size=quote_size
+    )
     return LivePnl(pnl_leg1=pnl_leg1, pnl_leg2=pnl_leg2, pnl=pnl_leg1 + pnl_leg2)
