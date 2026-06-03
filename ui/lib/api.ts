@@ -478,3 +478,84 @@ export function topupSim(id: string, amount: number): Promise<SimSession> {
 export function tickSim(id: string): Promise<SimTickResult> {
   return proxyPost<SimTickResult>(`api/sim/sessions/${encodeURIComponent(id)}/tick`);
 }
+
+// ── Fast-Forward Simulation (Phase 7, PRD F7) ────────────────────────────────
+
+export type FFStatus = "RUNNING" | "COMPLETED" | "STOPPED" | "FAILED";
+
+export interface FFEquityPoint {
+  t: number; // UNIX seconds
+  equity: number;
+}
+
+export interface FFPairPnl {
+  net_pnl: number;
+  trades: number;
+  wins: number;
+}
+
+export interface FFSimulation {
+  id: string;
+  exchange: string;
+  label: string | null;
+  status: FFStatus;
+  start_time: string | null;
+  end_time: string | null;
+  speed: number;
+  zscore_window: number;
+  entry_threshold: number;
+  exit_threshold: number;
+  stop_threshold: number;
+  usd_per_trade: number;
+  max_active_pairs: number | null;
+  slippage_pct: number;
+  taker_fee_pct: number;
+  funding_freq_h: number;
+  pairs_count: number;
+  total_ticks: number;
+  processed_ticks: number;
+  progress: number; // 0..1
+  starting_capital: number;
+  final_capital: number | null;
+  realised_pnl: number | null;
+  total_trades: number;
+  equity_curve: FFEquityPoint[] | null;
+  per_pair_pnl: Record<string, FFPairPnl> | null;
+  exit_reasons: Record<string, number> | null;
+  error: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface CreateFFInput {
+  label?: string;
+  start_time?: string; // ISO; optional offline (defaults to demo window)
+  end_time?: string;
+  speed?: number;
+  starting_capital: number;
+  zscore_window?: number;
+  entry_threshold?: number;
+  exit_threshold?: number;
+  stop_threshold?: number;
+  usd_per_trade?: number;
+}
+
+/** Create + launch a fast-forward replay (runs in the background). */
+export function createFFSim(input: CreateFFInput): Promise<FFSimulation> {
+  return proxyPost<FFSimulation>("api/ff/simulations", input);
+}
+
+/** List all fast-forward runs (newest first). */
+export function listFFSims(): Promise<{ simulations: FFSimulation[]; count: number }> {
+  return proxyGet("api/ff/simulations");
+}
+
+/** One run with its saved aggregates. */
+export function getFFSim(id: string): Promise<FFSimulation> {
+  return proxyGet<FFSimulation>(`api/ff/simulations/${encodeURIComponent(id)}`);
+}
+
+/** Cancel a running replay (partial aggregates are saved). */
+export function stopFFSim(id: string): Promise<FFSimulation> {
+  return proxyPost(`api/ff/simulations/${encodeURIComponent(id)}/stop`);
+}

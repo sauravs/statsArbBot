@@ -53,6 +53,22 @@ def _build_series() -> dict[str, list[float]]:
     return series
 
 
+def demo_series() -> dict[str, list[float]]:
+    """The deterministic synthetic close series keyed by market.
+
+    Public accessor so the fast-forward replay's offline candle source (Phase 7)
+    replays the *same* DEMO markets the fake scan/realtime feed use — one synthetic
+    recipe, so a fake-mode scan's β/α match the replayed prices.
+    """
+    return _build_series()
+
+
+# Anchor + bar count of the synthetic history (the demo series span this window
+# of hourly bars from DEMO_ANCHOR). Phase 7's replay maps them onto timestamps.
+DEMO_ANCHOR = _ANCHOR
+DEMO_BARS = _N
+
+
 class DemoDataClient:
     """A network-free PriceSource with deterministic synthetic markets."""
 
