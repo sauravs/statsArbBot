@@ -125,6 +125,24 @@ class FakeOhlcvCacheRepository:
         self.funding[(exchange, market)] = list(rows)
         return len(rows)
 
+    async def get_candles(self, market, *, exchange, resolution, start=None, end=None):
+        rows = self.candles.get((exchange, market, resolution), [])
+        out = [{"timestamp": r["timestamp"], "close": r["close"]} for r in rows]
+        if start is not None:
+            out = [r for r in out if r["timestamp"] >= start]
+        if end is not None:
+            out = [r for r in out if r["timestamp"] <= end]
+        return sorted(out, key=lambda r: r["timestamp"])
+
+    async def get_funding(self, market, *, exchange, start=None, end=None):
+        rows = self.funding.get((exchange, market), [])
+        out = [{"timestamp": r["timestamp"], "funding_rate": r["funding_rate"]} for r in rows]
+        if start is not None:
+            out = [r for r in out if r["timestamp"] >= start]
+        if end is not None:
+            out = [r for r in out if r["timestamp"] <= end]
+        return sorted(out, key=lambda r: r["timestamp"])
+
 
 class FakeTradeClient:
     """In-memory stand-in for a dYdX trade client (Phase 5a).
@@ -421,6 +439,75 @@ class FakeSimRepository:
     async def list_trades(self, session_id: str) -> list[dict]:
         rows = [r for r in self.trades.values() if r["session_id"] == session_id]
         return [dict(r) for r in sorted(rows, key=lambda r: r["exit_time"], reverse=True)]
+
+
+class FakeFFRepository:
+    """In-memory stand-in for PrismaFFRepository (no DB / generated client)."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, dict] = {}
+        self._seq = 0
+
+    @staticmethod
+    def _ser(data: dict) -> dict:
+        row = dict(data)
+        for k in ("start_time", "end_time", "created_at", "completed_at"):
+            v = row.get(k)
+            if isinstance(v, datetime):
+                row[k] = v.isoformat()
+        return row
+
+    _DEFAULTS = {
+        "label": None,
+        "status": "RUNNING",
+        "speed": 3600,
+        "zscore_window": 21,
+        "entry_threshold": 1.5,
+        "exit_threshold": 0.5,
+        "stop_threshold": 4.0,
+        "usd_per_trade": 100.0,
+        "max_active_pairs": None,
+        "slippage_pct": 0.05,
+        "taker_fee_pct": 0.05,
+        "funding_freq_h": 1,
+        "pairs_count": 0,
+        "total_ticks": 0,
+        "processed_ticks": 0,
+        "progress": 0.0,
+        "final_capital": None,
+        "realised_pnl": None,
+        "total_trades": 0,
+        "equity_curve": None,
+        "per_pair_pnl": None,
+        "exit_reasons": None,
+        "error": None,
+        "completed_at": None,
+        "exchange": "dydx",
+    }
+
+    async def create(self, params: dict) -> dict:
+        self._seq += 1
+        fid = f"ff_{self._seq}"
+        row = {**self._DEFAULTS, **self._ser(params)}
+        row["id"] = fid
+        row["created_at"] = datetime.now(timezone.utc).isoformat()
+        self.store[fid] = row
+        return dict(row)
+
+    async def get(self, ff_id: str):
+        row = self.store.get(ff_id)
+        return dict(row) if row is not None else None
+
+    async def list(self) -> list[dict]:
+        rows = sorted(self.store.values(), key=lambda r: r["created_at"], reverse=True)
+        return [dict(r) for r in rows]
+
+    async def update(self, ff_id: str, data: dict):
+        row = self.store.get(ff_id)
+        if row is None:
+            return None
+        row.update(self._ser(data))
+        return dict(row)
 
 
 class FakeManualTradeRepository:

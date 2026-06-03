@@ -57,6 +57,14 @@ enum SimPositionStatus {
   CLOSED
 }
 
+// Lifecycle of a fast-forward replay run (Phase 7).
+enum FFSimStatus {
+  RUNNING   // replay in progress (background task ticking through history)
+  COMPLETED // replay reached the end of the window; aggregates saved
+  STOPPED   // cancelled mid-run; partial aggregates saved
+  FAILED    // replay aborted on an error
+}
+
 // ── Config audit (append-only) ───────────────────────────────────────────────
 // Stable seed model: records every bot-config change for auditing. Present from
 // Phase 0 so migrations exist; extended as config surfaces grow.
@@ -301,6 +309,58 @@ model SimTrade {
   @@index([session_id])
   @@index([exchange, entry_time])
   @@map("sim_trades")
+}
+
+// ── Fast-Forward Simulation (Phase 7, PRD F7) ───────────────────────────────
+// A completed (or in-progress) historical replay. The FastForwardReplayEngine
+// drives the SAME stateless tick core as the real-time sim (simulation.run_tick)
+// but feeds it PairTick snapshots built from OhlcvCache slices at a moving cursor
+// over [start_time, end_time] instead of live prices, accruing funding from
+// FundingRateCache. The intermediate positions/trades live in an in-memory ledger
+// during the run; only the saved aggregates land here (F7.2): the equity curve,
+// per-pair P&L, and exit-reason histogram, plus the run parameters and progress.
+// One row IS the replay — list/detail read it directly, so a finished run renders
+// without recomputation.
+
+model SavedFFSimulation {
+  id               String      @id @default(cuid())
+  exchange         Exchange    @default(dydx)
+  label            String?
+  status           FFSimStatus @default(RUNNING)
+  // Replay window + nominal playback speed (informational — the batch runs at
+  // full compute speed; speed labels the intended N× playback for the UI).
+  start_time       DateTime    @db.Timestamptz
+  end_time         DateTime    @db.Timestamptz
+  speed            Int         @default(3600)
+  // Run parameters (mirror the SimSession knobs — one source of signal/cost truth).
+  zscore_window    Int         @default(21)
+  entry_threshold  Float       @default(1.5)
+  exit_threshold   Float       @default(0.5)
+  stop_threshold   Float       @default(4.0)
+  usd_per_trade    Float       @default(100)
+  max_active_pairs Int?
+  slippage_pct     Float       @default(0.05)
+  taker_fee_pct    Float       @default(0.05)
+  funding_freq_h   Int         @default(1)
+  // Progress + results.
+  pairs_count      Int         @default(0)
+  total_ticks      Int         @default(0)
+  processed_ticks  Int         @default(0)
+  progress         Float       @default(0) // 0..1
+  starting_capital Float
+  final_capital    Float? // null until COMPLETED/STOPPED
+  realised_pnl     Float? // Σ closed-trade net_pnl
+  total_trades     Int         @default(0)
+  equity_curve     Json? // [{t: unix_seconds, equity: float}, …] (downsampled)
+  per_pair_pnl     Json? // {"BASE/QUOTE": {net_pnl, trades, wins}, …}
+  exit_reasons     Json? // {"TAKE_PROFIT": n, "STOP_LOSS_ZSCORE": n, …}
+  error            String?
+  created_at       DateTime    @default(now()) @db.Timestamptz
+  completed_at     DateTime?   @db.Timestamptz
+
+  @@index([exchange, status])
+  @@index([created_at])
+  @@map("saved_ff_simulations")
 }
 
 // Historical funding rates, ingested alongside OHLCV so the simulation/backtest

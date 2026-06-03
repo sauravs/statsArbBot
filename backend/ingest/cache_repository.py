@@ -82,6 +82,58 @@ class PrismaOhlcvCacheRepository:
             where={"exchange": exchange, "resolution": resolution}
         )
 
+    # ── reads (Phase 7 fast-forward replay) ──────────────────────────────────
+
+    async def get_candles(
+        self,
+        market: str,
+        *,
+        exchange: str,
+        resolution: str,
+        start=None,
+        end=None,
+    ) -> list[dict]:
+        """Clean candles for (exchange, market, resolution) in [start, end], ascending.
+
+        Returns ``[{"timestamp": datetime, "close": float}, …]`` — the slice the
+        replay aligns and walks. ``start``/``end`` are tz-aware datetimes (inclusive).
+        """
+        from db.client import get_db
+
+        db = await get_db()
+        where: dict = {"exchange": exchange, "market": market, "resolution": resolution}
+        ts: dict = {}
+        if start is not None:
+            ts["gte"] = start
+        if end is not None:
+            ts["lte"] = end
+        if ts:
+            where["timestamp"] = ts
+        records = await db.ohlcvcache.find_many(
+            where=where, order=[{"timestamp": "asc"}]
+        )
+        return [{"timestamp": r.timestamp, "close": r.close} for r in records]
+
+    async def get_funding(
+        self, market: str, *, exchange: str, start=None, end=None
+    ) -> list[dict]:
+        """Funding rates for (exchange, market) in [start, end], ascending."""
+        from db.client import get_db
+
+        db = await get_db()
+        where: dict = {"exchange": exchange, "market": market}
+        ts: dict = {}
+        if start is not None:
+            ts["gte"] = start
+        if end is not None:
+            ts["lte"] = end
+        if ts:
+            where["timestamp"] = ts
+        records = await db.fundingratecache.find_many(
+            where=where, order=[{"timestamp": "asc"}]
+        )
+        return [{"timestamp": r.timestamp, "funding_rate": r.funding_rate} for r in records]
+
 
 def _chunks(rows: list[dict], size: int):
     for i in range(0, len(rows), size):
