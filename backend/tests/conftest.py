@@ -143,6 +143,11 @@ class FakeOhlcvCacheRepository:
             out = [r for r in out if r["timestamp"] <= end]
         return sorted(out, key=lambda r: r["timestamp"])
 
+    async def get_markets(self, *, exchange, resolution) -> list[str]:
+        return sorted(
+            {m for (ex, m, res) in self.candles if ex == exchange and res == resolution}
+        )
+
 
 class FakeTradeClient:
     """In-memory stand-in for a dYdX trade client (Phase 5a).
@@ -508,6 +513,109 @@ class FakeFFRepository:
             return None
         row.update(self._ser(data))
         return dict(row)
+
+
+class FakeStrategyRepository:
+    """In-memory stand-in for PrismaStrategyRepository (no DB / generated client)."""
+
+    _DEFAULTS = {
+        "description": None,
+        "status": "PENDING",
+        "scan_window_days": 90,
+        "trade_window_days": 30,
+        "zscore_window": 21,
+        "entry_threshold": 1.5,
+        "exit_threshold": 0.5,
+        "stop_threshold": 4.0,
+        "pvalue_max": 0.05,
+        "max_half_life_h": 72.0,
+        "start_time": None,
+        "end_time": None,
+        "starting_capital": 10_000.0,
+        "usd_per_trade": 100.0,
+        "max_active_pairs": None,
+        "slippage_pct": 0.05,
+        "taker_fee_pct": 0.05,
+        "funding_freq_h": 1,
+        "total_windows": 0,
+        "processed_windows": 0,
+        "progress": 0.0,
+        "current_capital": None,
+        "final_capital": None,
+        "net_pnl": None,
+        "total_trades": 0,
+        "win_rate": None,
+        "rank": None,
+        "equity_curve": None,
+        "per_window": None,
+        "per_pair_pnl": None,
+        "exit_reasons": None,
+        "report_md": None,
+        "error": None,
+        "completed_at": None,
+        "exchange": "dydx",
+    }
+
+    def __init__(self) -> None:
+        self.store: dict[str, dict] = {}
+        self._seq = 0
+
+    @staticmethod
+    def _ser(data: dict) -> dict:
+        row = dict(data)
+        for k in ("start_time", "end_time", "created_at", "updated_at", "completed_at"):
+            v = row.get(k)
+            if isinstance(v, datetime):
+                row[k] = v.isoformat()
+        return row
+
+    async def create(self, params: dict) -> dict:
+        self._seq += 1
+        sid = f"strat_{self._seq}"
+        row = {**self._DEFAULTS, **self._ser(params)}
+        now = datetime.now(timezone.utc).isoformat()
+        row["id"] = sid
+        row["created_at"] = now
+        row["updated_at"] = now
+        self.store[sid] = row
+        return dict(row)
+
+    async def get(self, strategy_id: str):
+        row = self.store.get(strategy_id)
+        return dict(row) if row is not None else None
+
+    async def list(self) -> list[dict]:
+        rows = list(self.store.values())
+        ranked = sorted((r for r in rows if r.get("rank")), key=lambda r: r["rank"])
+        unranked = sorted(
+            (r for r in rows if not r.get("rank")),
+            key=lambda r: r.get("created_at") or "",
+            reverse=True,
+        )
+        return [dict(r) for r in (ranked + unranked)]
+
+    async def update(self, strategy_id: str, data: dict):
+        row = self.store.get(strategy_id)
+        if row is None:
+            return None
+        row.update(self._ser(data))
+        row["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return dict(row)
+
+    async def delete(self, strategy_id: str) -> bool:
+        return self.store.pop(strategy_id, None) is not None
+
+    async def recompute_ranks(self) -> None:
+        ranked = sorted(
+            (r for r in self.store.values() if r.get("net_pnl") is not None),
+            key=lambda r: (-r["net_pnl"], r.get("created_at") or ""),
+        )
+        ranked_ids = {r["id"] for r in ranked}
+        for i, r in enumerate(ranked, start=1):
+            r["rank"] = i
+        for r in self.store.values():
+            if r["id"] not in ranked_ids:
+                r["rank"] = None
 
 
 class FakeManualTradeRepository:

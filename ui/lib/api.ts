@@ -559,3 +559,162 @@ export function getFFSim(id: string): Promise<FFSimulation> {
 export function stopFFSim(id: string): Promise<FFSimulation> {
   return proxyPost(`api/ff/simulations/${encodeURIComponent(id)}/stop`);
 }
+
+// ── Walk-Forward Backtest (Phase 8, PRD F8) ──────────────────────────────────
+
+async function proxyPut<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/proxy/${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const msg =
+      typeof detail?.detail === "string" ? detail.detail : `API ${path} failed: ${res.status}`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as T;
+}
+
+async function proxyDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`/api/proxy/${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const msg =
+      typeof detail?.detail === "string" ? detail.detail : `API ${path} failed: ${res.status}`;
+    throw new Error(msg);
+  }
+  return (await res.json()) as T;
+}
+
+export type BacktestStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "PAUSED"
+  | "COMPLETED"
+  | "STOPPED"
+  | "FAILED";
+
+export interface BacktestEquityPoint {
+  t: number;
+  equity: number;
+}
+
+export interface BacktestPairPnl {
+  net_pnl: number;
+  trades: number;
+  wins: number;
+}
+
+export interface BacktestWindow {
+  index: number;
+  scan_start: string;
+  scan_end: string;
+  trade_start: string;
+  trade_end: string;
+  pairs: number;
+  trades: number;
+  net_pnl: number;
+}
+
+export interface Strategy {
+  id: string;
+  exchange: string;
+  name: string;
+  description: string | null;
+  status: BacktestStatus;
+  scan_window_days: number;
+  trade_window_days: number;
+  zscore_window: number;
+  entry_threshold: number;
+  exit_threshold: number;
+  stop_threshold: number;
+  pvalue_max: number;
+  max_half_life_h: number;
+  start_time: string | null;
+  end_time: string | null;
+  starting_capital: number;
+  usd_per_trade: number;
+  max_active_pairs: number | null;
+  slippage_pct: number;
+  taker_fee_pct: number;
+  funding_freq_h: number;
+  total_windows: number;
+  processed_windows: number;
+  progress: number;
+  current_capital: number | null;
+  final_capital: number | null;
+  net_pnl: number | null;
+  total_trades: number;
+  win_rate: number | null;
+  rank: number | null;
+  equity_curve: BacktestEquityPoint[] | null;
+  per_window: BacktestWindow[] | null;
+  per_pair_pnl: Record<string, BacktestPairPnl> | null;
+  exit_reasons: Record<string, number> | null;
+  report_md: string | null;
+  error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  completed_at: string | null;
+}
+
+export interface CreateStrategyInput {
+  name: string;
+  description?: string;
+  scan_window_days?: number;
+  trade_window_days?: number;
+  zscore_window?: number;
+  entry_threshold?: number;
+  exit_threshold?: number;
+  stop_threshold?: number;
+  start_time?: string;
+  end_time?: string;
+  starting_capital?: number;
+}
+
+/** List strategies, ranked by net P&L (best first). */
+export function listStrategies(): Promise<{ strategies: Strategy[]; count: number }> {
+  return proxyGet("api/backtest/strategies");
+}
+
+/** One strategy + its latest backtest result. */
+export function getStrategy(id: string): Promise<Strategy> {
+  return proxyGet<Strategy>(`api/backtest/strategies/${encodeURIComponent(id)}`);
+}
+
+/** Create a strategy (CRUD). */
+export function createStrategy(input: CreateStrategyInput): Promise<Strategy> {
+  return proxyPost<Strategy>("api/backtest/strategies", input);
+}
+
+/** Edit a strategy's parameters (CRUD). */
+export function updateStrategy(id: string, input: Partial<CreateStrategyInput>): Promise<Strategy> {
+  return proxyPut<Strategy>(`api/backtest/strategies/${encodeURIComponent(id)}`, input);
+}
+
+/** Delete a strategy (re-ranks the rest). */
+export function deleteStrategy(id: string): Promise<{ deleted: string }> {
+  return proxyDelete(`api/backtest/strategies/${encodeURIComponent(id)}`);
+}
+
+/** Run (or resume) the walk-forward sweep (runs in the background). */
+export function runStrategy(id: string): Promise<Strategy> {
+  return proxyPost<Strategy>(`api/backtest/strategies/${encodeURIComponent(id)}/run`);
+}
+
+/** Pause a running sweep (resumable). */
+export function pauseStrategy(id: string): Promise<Strategy> {
+  return proxyPost<Strategy>(`api/backtest/strategies/${encodeURIComponent(id)}/pause`);
+}
+
+/** Stop a running sweep (terminal; partial results saved). */
+export function stopStrategy(id: string): Promise<Strategy> {
+  return proxyPost<Strategy>(`api/backtest/strategies/${encodeURIComponent(id)}/stop`);
+}
+
+/** Seed the S1–S4 baseline strategies. */
+export function seedDefaultStrategies(): Promise<{ created: Strategy[]; count: number }> {
+  return proxyPost("api/backtest/seed-defaults");
+}

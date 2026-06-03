@@ -55,6 +55,13 @@ export default function DashboardPage() {
             Fast-Forward
           </Link>
           <Link
+            href="/dashboard/backtest"
+            data-testid="nav-backtest"
+            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+          >
+            Backtest
+          </Link>
+          <Link
             href="/dashboard/live"
             data-testid="nav-live"
             className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"

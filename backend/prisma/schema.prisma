@@ -65,6 +65,16 @@ enum FFSimStatus {
   FAILED    // replay aborted on an error
 }
 
+// Lifecycle of a walk-forward backtest run (Phase 8).
+enum BacktestStatus {
+  PENDING   // strategy created, never run
+  RUNNING   // walk-forward in progress (background task sweeping windows)
+  PAUSED    // paused at a window boundary; partial results saved, resumable
+  COMPLETED // every window processed; results + report saved, rank assigned
+  STOPPED   // stopped early (terminal); partial results saved
+  FAILED    // backtest aborted on an error
+}
+
 // ── Config audit (append-only) ───────────────────────────────────────────────
 // Stable seed model: records every bot-config change for auditing. Present from
 // Phase 0 so migrations exist; extended as config surfaces grow.
@@ -377,4 +387,79 @@ model FundingRateCache {
   @@unique([exchange, market, timestamp])
   @@index([exchange, market, timestamp])
   @@map("funding_rate_cache")
+}
+
+// ── Walk-Forward Backtest (Phase 8, PRD F8) ─────────────────────────────────
+// A Strategy is a parameter set (the varied Z-threshold / window of S1–S4, plus
+// the cost model and walk-forward window lengths). Running its backtest sweeps
+// sliding scan/trade windows over the historical cache: in each window it re-runs
+// the SAME statcore cointegration scan over [scan_start, scan_end] to select pairs,
+// then trades them over the following [trade_start, trade_end] through the SAME
+// stateless tick core (simulation.run_tick) the live bot / sim / fast-forward use —
+// carrying capital forward and force-closing at each boundary (the next window may
+// pick different pairs). One row IS the strategy AND its latest result: progress +
+// resume cursor (processed_windows / current_capital), the saved aggregates (equity
+// curve, per-window summary, per-pair P&L, exit-reason histogram), the generated
+// markdown report, and the cross-strategy rank by net P&L. Partial results are
+// persisted at every window boundary so a PAUSED/STOPPED run resumes from the next
+// unprocessed window (F8.2).
+
+model Strategy {
+  id          String         @id @default(cuid())
+  exchange    Exchange       @default(dydx)
+  name        String // S1..S4 or a user-given label
+  description String?
+  status      BacktestStatus @default(PENDING)
+
+  // Walk-forward window lengths (PRD F8.1 default 90d scan / 30d trade; configurable
+  // so the offline demo can use short windows over the synthetic history).
+  scan_window_days  Int @default(90)
+  trade_window_days Int @default(30)
+
+  // Signal parameters — the knobs S1–S4 vary.
+  zscore_window   Int   @default(21)
+  entry_threshold Float @default(1.5)
+  exit_threshold  Float @default(0.5)
+  stop_threshold  Float @default(4.0)
+  pvalue_max      Float @default(0.05)
+  max_half_life_h Float @default(72)
+
+  // Historical span to walk (optional offline: defaults to the demo window).
+  start_time DateTime? @db.Timestamptz
+  end_time   DateTime? @db.Timestamptz
+
+  // Cost model (mirrors the SimSession / SavedFFSimulation knobs).
+  starting_capital Float @default(10000)
+  usd_per_trade    Float @default(100)
+  max_active_pairs Int?
+  slippage_pct     Float @default(0.05)
+  taker_fee_pct    Float @default(0.05)
+  funding_freq_h   Int   @default(1)
+
+  // Progress + resume state.
+  total_windows     Int    @default(0)
+  processed_windows Int    @default(0) // resume cursor
+  progress          Float  @default(0) // 0..1
+  current_capital   Float? // carried capital between windows (null ⇒ use starting)
+
+  // Results.
+  final_capital Float?
+  net_pnl       Float? // Σ closed-trade net_pnl across all windows
+  total_trades  Int     @default(0)
+  win_rate      Float? // fraction of trades with net_pnl > 0
+  rank          Int? // 1 = best net_pnl among COMPLETED strategies
+  equity_curve  Json? // [{t: unix_seconds, equity: float}, …] (downsampled)
+  per_window    Json? // [{index, scan_start, scan_end, trade_start, trade_end, pairs, trades, net_pnl}]
+  per_pair_pnl  Json? // {"BASE/QUOTE": {net_pnl, trades, wins}, …}
+  exit_reasons  Json? // {"TAKE_PROFIT": n, …}
+  report_md     String? // generated markdown report (F8.3)
+  error         String?
+
+  created_at   DateTime  @default(now()) @db.Timestamptz
+  updated_at   DateTime  @updatedAt @db.Timestamptz
+  completed_at DateTime? @db.Timestamptz
+
+  @@index([exchange, status])
+  @@index([rank])
+  @@map("strategies")
 }

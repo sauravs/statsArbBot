@@ -53,6 +53,13 @@ class OhlcvCacheSource:
             market, exchange=self.exchange, start=start, end=end
         )
 
+    async def available_markets(self) -> list[str]:
+        from ingest.cache_repository import get_ohlcv_cache_repository
+
+        return await get_ohlcv_cache_repository().get_markets(
+            exchange=self.exchange, resolution=self.resolution
+        )
+
 
 class DemoCandleSource:
     """Deterministic offline candle source over the synthetic DEMO markets.
@@ -87,6 +94,9 @@ class DemoCandleSource:
         self, market: str, *, start: datetime, end: datetime
     ) -> list[dict]:
         return []
+
+    async def available_markets(self) -> list[str]:
+        return sorted(self._series.keys())
 
 
 def make_candle_source(*, exchange: str | None = None) -> OhlcvCacheSource | DemoCandleSource:

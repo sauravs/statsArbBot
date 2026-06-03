@@ -104,6 +104,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from routers.backtest import router as backtest_router
     from routers.exchange import router as exchange_router
     from routers.ff import router as ff_router
     from routers.live import router as live_router
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(live_router)
     app.include_router(sim_router)
     app.include_router(ff_router)
+    app.include_router(backtest_router)
     app.include_router(exchange_router)
     return app
 
