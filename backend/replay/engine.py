@@ -19,6 +19,7 @@ and real-time-sim trading — one source of truth (PLAN §1). Funding accrual fr
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -116,19 +117,23 @@ class FastForwardReplayEngine:
             raise RuntimeError("No cointegrated pairs in the latest scan — run a scan first.")
 
         # 2. Load history for every leg (+ warm-up bars before the window so the
-        #    rolling Z is defined from the very first trading cursor).
+        #    rolling Z is defined as early as possible; assumes hourly bars, the
+        #    project's only resolution). Candle/funding fetches are independent per
+        #    market → batch them rather than 2N sequential DB round-trips.
         markets = {p["base_market"] for p in pairs} | {p["quote_market"] for p in pairs}
+        market_list = list(markets)
         load_start = start - timedelta(hours=window + 2)
         source = make_candle_source(exchange=exchange)
-        candles_by_market: dict[str, list[dict]] = {}
-        funding_by_market: dict[str, list[dict]] = {}
-        for market in markets:
-            candles_by_market[market] = await source.get_candles(
-                market, start=load_start, end=end
-            )
-            funding_by_market[market] = await source.get_funding(
-                market, start=load_start, end=end
-            )
+        candle_results, funding_results = await asyncio.gather(
+            asyncio.gather(
+                *(source.get_candles(m, start=load_start, end=end) for m in market_list)
+            ),
+            asyncio.gather(
+                *(source.get_funding(m, start=load_start, end=end) for m in market_list)
+            ),
+        )
+        candles_by_market = dict(zip(market_list, candle_results))
+        funding_by_market = dict(zip(market_list, funding_results))
 
         aligned = align_pairs(pairs, candles_by_market)
         timeline = replay_timeline(aligned, start=start, end=end)
@@ -187,9 +192,14 @@ class FastForwardReplayEngine:
                 )
 
         # 5. Force-close whatever is still open at the final cursor, then aggregate.
+        # Ticks 0..i-1 ran before a cancel break at i, so `processed = i`; an
+        # uncancelled run completed every bar through i, so `processed = i + 1`.
         final_cursor = timeline[len(timeline) - 1] if not cancelled else timeline[i]
         await self._close_remaining(wrepo, aligned, final_cursor, window)
-        return await self._finalise(repo, ff_id, wrepo, equity_curve, cancelled, total, i + 1)
+        processed = i if cancelled else i + 1
+        return await self._finalise(
+            repo, ff_id, wrepo, equity_curve, cancelled, total, processed, final_cursor
+        )
 
     async def _close_remaining(
         self, wrepo: WorkingSimRepository, aligned, cursor: datetime, window: int
@@ -232,7 +242,7 @@ class FastForwardReplayEngine:
         await wrepo.update_session(session["id"], {"current_capital": capital})
 
     async def _finalise(
-        self, repo, ff_id, wrepo, equity_curve, cancelled, total, processed
+        self, repo, ff_id, wrepo, equity_curve, cancelled, total, processed, final_cursor
     ) -> dict:
         trades = await wrepo.list_trades(ff_id)
         realised = round(sum(t["net_pnl"] for t in trades), 6)
@@ -247,6 +257,15 @@ class FastForwardReplayEngine:
                 bucket["wins"] += 1
             exit_reasons[t["exit_reason"]] = exit_reasons.get(t["exit_reason"], 0) + 1
         final_capital = (await wrepo.get_session(ff_id))["current_capital"]
+        # Terminate the curve at the realised final capital (post force-close) so the
+        # chart's last point matches the reported final_capital — the in-loop sample
+        # at the final cursor is pre-close (capital + unrealised), which differs when
+        # positions were still open at the end.
+        terminal = {"t": int(final_cursor.timestamp()), "equity": round(final_capital, 2)}
+        if equity_curve and equity_curve[-1]["t"] == terminal["t"]:
+            equity_curve[-1] = terminal
+        else:
+            equity_curve.append(terminal)
         updated = await repo.update(
             ff_id,
             {

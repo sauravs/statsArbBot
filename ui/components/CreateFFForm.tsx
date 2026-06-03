@@ -27,8 +27,11 @@ export default function CreateFFForm({
         label: label.trim() || undefined,
         starting_capital: Number(capital),
         entry_threshold: Number(entryZ),
-        start_time: start ? new Date(start).toISOString() : undefined,
-        end_time: end ? new Date(end).toISOString() : undefined,
+        // Interpret the datetime-local wall-clock value as UTC (append "Z") so the
+        // range matches the UTC-anchored historical data and the detail view's UTC
+        // date display, regardless of the browser's timezone.
+        start_time: start ? new Date(`${start}Z`).toISOString() : undefined,
+        end_time: end ? new Date(`${end}Z`).toISOString() : undefined,
       });
       onCreated(sim);
       setLabel("");

@@ -128,6 +128,8 @@ async def test_replay_completes_with_aggregates(ctx):
     assert row["final_capital"] is not None
     # Aggregates are populated and viewable.
     assert row["equity_curve"] and all("equity" in p and "t" in p for p in row["equity_curve"])
+    # The curve terminates at the realised final capital (post force-close).
+    assert row["equity_curve"][-1]["equity"] == pytest.approx(round(row["final_capital"], 2))
     assert "AAA-USD/BBB-USD" in row["per_pair_pnl"]
     assert sum(row["exit_reasons"].values()) == row["total_trades"]
     # realised_pnl is the Σ of per-pair net P&L.
