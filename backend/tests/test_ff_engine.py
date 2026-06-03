@@ -186,12 +186,54 @@ async def test_end_of_replay_close_uses_historical_time():
         "entry_time": entry, "fee_cost": 0.0, "funding_pnl": 0.0, "status": "OPEN",
     })
     engine = FastForwardReplayEngine()
-    # No aligned data → synthetic close at the final cursor.
-    await engine._close_remaining(wrepo, [], cursor, _WINDOW)
+    # No aligned data (empty pair map) → synthetic close at the final cursor.
+    await engine._close_remaining(wrepo, {}, cursor, _WINDOW)
     trades = await wrepo.list_trades("ff_x")
     assert len(trades) == 1
     assert trades[0]["exit_reason"] == "END_OF_REPLAY"
     assert trades[0]["hold_hours"] == pytest.approx(30.0, abs=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_end_of_replay_closes_at_real_prices_when_z_undefined():
+    # The final window is flat (zero-variance → rolling Z undefined, so tick_at
+    # returns None) but the bar prices moved away from entry. The force-close must
+    # book the *real* bar prices, not fall back to a flat close at entry prices.
+    from replay.historical_feed import align_pairs
+    from replay.working_repo import WorkingSimRepository
+
+    base = [100, 101, 102, 103, 104, 105, 106, 110, 110, 110, 110, 110]
+    quote = [50] * 12
+    candles = {"AAA-USD": _candles(base), "BBB-USD": _candles(quote)}
+    aligned = align_pairs(
+        [{"base_market": "AAA-USD", "quote_market": "BBB-USD",
+          "hedge_ratio": 2.0, "intercept": 0.0, "half_life": 2.0}],
+        candles,
+    )
+    apbp = {(ap.base_market, ap.quote_market): ap for ap in aligned}
+    final_cursor = _ANCHOR + timedelta(hours=11)
+    # Precondition: no signal (flat window) but a real price exists at the cursor.
+    assert aligned[0].tick_at(final_cursor, window=5) is None
+    assert aligned[0].price_at(final_cursor) == (110.0, 50.0)
+
+    session = {"id": "ff_y", "exchange": "dydx", "current_capital": 10_000.0,
+               "slippage_pct": 0.0, "taker_fee_pct": 0.0}
+    wrepo = WorkingSimRepository(session)
+    await wrepo.create_position({
+        "session_id": "ff_y", "exchange": "dydx",
+        "base_market": "AAA-USD", "quote_market": "BBB-USD", "direction": "LONG_BASE",
+        "base_size": 1.0, "quote_size": 2.0, "hedge_ratio": 2.0, "half_life": 2.0,
+        "entry_z": -1.0, "entry_base_px": 100.0, "entry_quote_px": 50.0,
+        "entry_time": _ANCHOR, "fee_cost": 0.0, "funding_pnl": 0.0, "status": "OPEN",
+    })
+    engine = FastForwardReplayEngine()
+    await engine._close_remaining(wrepo, apbp, final_cursor, 5)
+    trades = await wrepo.list_trades("ff_y")
+    assert len(trades) == 1
+    # LONG_BASE: BUY base (+ (110−100)·1 = 10), SELL quote (50 unchanged → 0) ⇒ 10,
+    # NOT the 0 a flat close at entry (100/50) would have booked.
+    assert trades[0]["gross_pnl"] == pytest.approx(10.0)
+    assert trades[0]["exit_reason"] == "END_OF_REPLAY"
 
 
 @pytest.mark.asyncio

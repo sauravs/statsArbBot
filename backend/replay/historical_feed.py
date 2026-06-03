@@ -36,6 +36,19 @@ class AlignedPair:
     s2: np.ndarray                      # quote closes
     _index: dict[datetime, int]         # timestamp → position
 
+    def price_at(self, cursor: datetime) -> tuple[float, float] | None:
+        """The (base, quote) close prices at ``cursor``, or None if there's no bar.
+
+        Unlike :meth:`tick_at` this does **not** require a defined rolling Z — a
+        zero-variance window yields no signal but the bar's prices still exist, and
+        marking-to-market / force-closing need only prices. Returns None only when
+        the pair genuinely has no bar at this cursor.
+        """
+        j = self._index.get(cursor)
+        if j is None:
+            return None
+        return float(self.s1[j]), float(self.s2[j])
+
     def tick_at(self, cursor: datetime, *, window: int) -> PairTick | None:
         """Build a :class:`PairTick` for this pair at ``cursor`` (or None).
 

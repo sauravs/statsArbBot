@@ -36,6 +36,7 @@ from replay.historical_feed import (
 from replay.working_repo import WorkingSimRepository
 from simulation.costs import compute_unrealized_pnl
 from simulation.engine import _close_position, run_tick
+from simulation.feed import PairTick
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,9 @@ class FastForwardReplayEngine:
         }
         wrepo = WorkingSimRepository(session)
 
-        # 4. Walk the cursor.
+        # 4. Walk the cursor. (Marking/closing only need bar prices, not a defined
+        #    Z, so keep the aligned pairs keyed for a price lookup.)
+        aligned_by_pair = {(ap.base_market, ap.quote_market): ap for ap in aligned}
         sample_every = max(1, total // _MAX_CURVE_POINTS)
         progress_every = max(1, total // _PROGRESS_STEPS)
         equity_curve: list[dict] = []
@@ -174,14 +177,13 @@ class FastForwardReplayEngine:
                 cancelled = True
                 break
             snaps = snapshots_at(aligned, cursor, window=window)
-            snap_by_pair = {(s.base_market, s.quote_market): s for s in snaps}
             rates = funding.rates_at(cursor, markets) if not funding.empty else {}
             cur_session = await wrepo.get_session(ff_id)
             await run_tick(
                 wrepo, cur_session, snaps, funding_rates=rates or None, now=cursor
             )
             if i % sample_every == 0 or i == total - 1:
-                equity = await _equity_at(wrepo, snap_by_pair)
+                equity = await _equity_at(wrepo, aligned_by_pair, cursor)
                 equity_curve.append(
                     {"t": int(cursor.timestamp()), "equity": round(equity, 2)}
                 )
@@ -195,47 +197,55 @@ class FastForwardReplayEngine:
         # Ticks 0..i-1 ran before a cancel break at i, so `processed = i`; an
         # uncancelled run completed every bar through i, so `processed = i + 1`.
         final_cursor = timeline[len(timeline) - 1] if not cancelled else timeline[i]
-        await self._close_remaining(wrepo, aligned, final_cursor, window)
+        await self._close_remaining(wrepo, aligned_by_pair, final_cursor, window)
         processed = i if cancelled else i + 1
         return await self._finalise(
             repo, ff_id, wrepo, equity_curve, cancelled, total, processed, final_cursor
         )
 
     async def _close_remaining(
-        self, wrepo: WorkingSimRepository, aligned, cursor: datetime, window: int
+        self, wrepo: WorkingSimRepository, aligned_by_pair: dict, cursor: datetime, window: int
     ) -> None:
-        """Mark every still-open position to the final bar and book it (END_OF_REPLAY)."""
+        """Mark every still-open position to the final bar and book it (END_OF_REPLAY).
+
+        Closes at the bar's **real** close prices whenever the pair has a bar at the
+        cursor — even if its rolling Z is undefined there (a flat/zero-variance
+        window yields no signal but the prices still moved). Only when the pair has
+        no bar at all do we fall back to a synthetic flat close at the entry prices
+        (no slippage/fees, since that fill never happened).
+        """
         open_positions = await wrepo.get_open_positions(wrepo.session_id)
         if not open_positions:
             return
-        snap_by_pair = {
-            (s.base_market, s.quote_market): s
-            for s in snapshots_at(aligned, cursor, window=window)
-        }
         session = await wrepo.get_session(wrepo.session_id)
         capital = session["current_capital"]
         # Close at the final *historical* cursor (not wall-clock) so the trade's
         # exit_time and hold_hours stay on the replay's timeline.
         now = cursor
         for pos in open_positions:
-            snap = snap_by_pair.get((pos["base_market"], pos["quote_market"]))
-            synthetic = snap is None
+            ap = aligned_by_pair.get((pos["base_market"], pos["quote_market"]))
+            prices = ap.price_at(cursor) if ap is not None else None
+            synthetic = prices is None
             if synthetic:
-                from simulation.feed import PairTick
-
-                snap = PairTick(
-                    base_market=pos["base_market"],
-                    quote_market=pos["quote_market"],
-                    hedge_ratio=pos["hedge_ratio"],
-                    half_life=pos["half_life"],
-                    base_price=pos["entry_base_px"],
-                    quote_price=pos["entry_quote_px"],
-                    z_score=pos["entry_z"],
-                    spread_value=0.0,
-                )
+                base_px, quote_px = pos["entry_base_px"], pos["entry_quote_px"]
+                exit_z = None
+            else:
+                base_px, quote_px = prices
+                tick = ap.tick_at(cursor, window=window)  # Z only if defined this bar
+                exit_z = tick.z_score if tick is not None else None
+            snap = PairTick(
+                base_market=pos["base_market"],
+                quote_market=pos["quote_market"],
+                hedge_ratio=pos["hedge_ratio"],
+                half_life=pos["half_life"],
+                base_price=base_px,
+                quote_price=quote_px,
+                z_score=exit_z if exit_z is not None else pos["entry_z"],
+                spread_value=0.0,
+            )
             capital += await _close_position(
                 wrepo, session, pos, snap, "END_OF_REPLAY",
-                exit_z=None if synthetic else snap.z_score, now=now,
+                exit_z=exit_z, now=now,
                 slippage_pct=0.0 if synthetic else None,
                 taker_fee_pct=0.0 if synthetic else None,
             )
@@ -289,20 +299,30 @@ class FastForwardReplayEngine:
         return updated
 
 
-async def _equity_at(wrepo: WorkingSimRepository, snap_by_pair: dict) -> float:
-    """Capital + Σ mark-to-market unrealised at the current bar (matches engine.overview)."""
+async def _equity_at(
+    wrepo: WorkingSimRepository, aligned_by_pair: dict, cursor: datetime
+) -> float:
+    """Capital + Σ mark-to-market unrealised at the current bar.
+
+    Marks each open position at its pair's **real** close prices for this cursor,
+    independent of whether the rolling Z is defined (a flat window has no signal but
+    a valid price). A position is only dropped from the mark when its pair has no
+    bar at the cursor at all — otherwise the curve would sag spuriously on quiet bars.
+    """
     session = await wrepo.get_session(wrepo.session_id)
     unrealised = 0.0
     for pos in await wrepo.get_open_positions(session["id"]):
-        snap = snap_by_pair.get((pos["base_market"], pos["quote_market"]))
-        if snap is None:
+        ap = aligned_by_pair.get((pos["base_market"], pos["quote_market"]))
+        prices = ap.price_at(cursor) if ap is not None else None
+        if prices is None:
             continue
+        base_px, quote_px = prices
         gross = compute_unrealized_pnl(
             direction=pos["direction"],
             entry_base_px=pos["entry_base_px"],
             entry_quote_px=pos["entry_quote_px"],
-            base_price=snap.base_price,
-            quote_price=snap.quote_price,
+            base_price=base_px,
+            quote_price=quote_px,
             base_size=pos["base_size"],
             quote_size=pos["quote_size"],
         )
