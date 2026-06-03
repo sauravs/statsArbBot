@@ -341,3 +341,138 @@ export function getLiveTrades(
 export function getLiveAccount(mode: LiveMode): Promise<LiveAccount> {
   return proxyGet<LiveAccount>(`api/live/account?${scopeQuery(mode)}`);
 }
+
+// ── Real-Time Simulation (Phase 6, PRD F6) ───────────────────────────────────
+
+export type SimStatus = "RUNNING" | "PAUSED" | "STOPPED";
+
+export interface SimSession {
+  id: string;
+  exchange: string;
+  mode: string;
+  label: string | null;
+  status: SimStatus;
+  starting_capital: number;
+  current_capital: number;
+  interval_seconds: number;
+  zscore_window: number;
+  entry_threshold: number;
+  exit_threshold: number;
+  stop_threshold: number;
+  usd_per_trade: number;
+  max_active_pairs: number | null;
+  slippage_pct: number;
+  taker_fee_pct: number;
+  funding_freq_h: number;
+  tick_count: number;
+  last_tick_at: string | null;
+  created_at: string | null;
+  stopped_at: string | null;
+}
+
+export interface SimPosition {
+  id: string;
+  base_market: string;
+  quote_market: string;
+  direction: string; // "LONG_BASE" | "SHORT_BASE"
+  base_size: number;
+  quote_size: number;
+  hedge_ratio: number;
+  entry_z: number;
+  entry_base_px: number;
+  entry_quote_px: number;
+  entry_time: string | null;
+  fee_cost: number;
+  funding_pnl: number;
+  unrealized_pnl: number | null;
+  current_z: number | null;
+}
+
+export interface SimTrade {
+  id: string;
+  base_market: string;
+  quote_market: string;
+  direction: string;
+  entry_time: string | null;
+  exit_time: string | null;
+  hold_hours: number;
+  entry_z: number;
+  exit_z: number | null;
+  exit_reason: string;
+  notional_usd: number;
+  gross_pnl: number;
+  fee_cost: number;
+  funding_pnl: number;
+  net_pnl: number;
+}
+
+export interface SimOverview {
+  session: SimSession;
+  positions: SimPosition[];
+  trades: SimTrade[];
+  equity: number;
+  unrealized_pnl: number;
+  open_count: number;
+  closed_count: number;
+}
+
+export interface CreateSimInput {
+  label?: string;
+  starting_capital: number;
+  interval_seconds: number;
+  entry_threshold?: number;
+  exit_threshold?: number;
+  stop_threshold?: number;
+  zscore_window?: number;
+  usd_per_trade?: number;
+  max_active_pairs?: number | null;
+  slippage_pct?: number;
+  taker_fee_pct?: number;
+}
+
+export interface SimTickResult {
+  entries?: number;
+  exits?: number;
+  evaluated?: number;
+  funding_accrued?: number;
+  current_capital?: number;
+  skipped?: boolean;
+  reason?: string;
+  message?: string;
+}
+
+/** Create a real-time simulation session (starts ticking on its interval). */
+export function createSimSession(input: CreateSimInput): Promise<SimSession> {
+  return proxyPost<SimSession>("api/sim/sessions", input);
+}
+
+/** List all simulation sessions (newest first). */
+export function listSimSessions(): Promise<{ sessions: SimSession[]; count: number }> {
+  return proxyGet("api/sim/sessions");
+}
+
+/** Session + open positions (marked to market) + trade history + equity. */
+export function getSimSession(id: string): Promise<SimOverview> {
+  return proxyGet<SimOverview>(`api/sim/sessions/${encodeURIComponent(id)}`);
+}
+
+export function pauseSim(id: string): Promise<SimSession> {
+  return proxyPost(`api/sim/sessions/${encodeURIComponent(id)}/pause`);
+}
+
+export function resumeSim(id: string): Promise<SimSession> {
+  return proxyPost(`api/sim/sessions/${encodeURIComponent(id)}/resume`);
+}
+
+export function stopSim(id: string): Promise<{ session: SimSession; positions_closed: number }> {
+  return proxyPost(`api/sim/sessions/${encodeURIComponent(id)}/stop`);
+}
+
+export function topupSim(id: string, amount: number): Promise<SimSession> {
+  return proxyPost(`api/sim/sessions/${encodeURIComponent(id)}/topup`, { amount });
+}
+
+/** Run one tick now (manual / deterministic driver; otherwise the scheduler ticks). */
+export function tickSim(id: string): Promise<SimTickResult> {
+  return proxyPost<SimTickResult>(`api/sim/sessions/${encodeURIComponent(id)}/tick`);
+}

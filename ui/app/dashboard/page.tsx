@@ -41,6 +41,13 @@ export default function DashboardPage() {
           />
           <StatusDot label="DB" ok={dbConnected} unknown={!health && !error} />
           <Link
+            href="/dashboard/sim"
+            data-testid="nav-sim"
+            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+          >
+            Simulation
+          </Link>
+          <Link
             href="/dashboard/live"
             data-testid="nav-live"
             className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"

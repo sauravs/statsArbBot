@@ -44,6 +44,19 @@ enum LiveTradeStatus {
   ERROR   // open failed mid-flight; failsafe close attempted
 }
 
+// Lifecycle of a real-time simulation session (Phase 6).
+enum SimSessionStatus {
+  RUNNING // ticking on its APScheduler interval
+  PAUSED  // registered but not ticking (resumable)
+  STOPPED // ended; positions force-closed, no further ticks
+}
+
+// Status of a virtual simulation position (Phase 6).
+enum SimPositionStatus {
+  OPEN
+  CLOSED
+}
+
 // ── Config audit (append-only) ───────────────────────────────────────────────
 // Stable seed model: records every bot-config change for auditing. Present from
 // Phase 0 so migrations exist; extended as config surfaces grow.
@@ -198,6 +211,96 @@ model LiveTrade {
   @@index([exchange, mode, status])
   @@index([session_id])
   @@map("live_trades")
+}
+
+// ── Real-Time Simulation (Phase 6, PRD F6) ──────────────────────────────────
+// DB-backed virtual trading (ADR-0003). A SimSession is a paper-trading account
+// that ticks on an APScheduler interval (F6.4): each tick recomputes a *proper*
+// rolling Z-score from live mainnet prices (F6.2 — fixes the prototype's 0.02-std
+// approximation) via the same statcore path the live bot uses, then opens/closes
+// virtual SimPositions on real signals, applying a slippage/fee/funding cost
+// model (F6.3). The engine is stateless across ticks: every tick reloads open
+// positions from the DB, so a session restored after an API restart resumes
+// exactly where it left off (F6.1). Closed positions become SimTrade rows (the
+// realised-P&L ledger that drives the equity curve).
+
+model SimSession {
+  id               String           @id @default(cuid())
+  exchange         Exchange         @default(dydx)
+  mode             TradingMode      @default(simulation)
+  label            String? // optional user-provided name
+  status           SimSessionStatus @default(RUNNING)
+  starting_capital Float
+  current_capital  Float // starting capital + realised net P&L − fees
+  interval_seconds Int              @default(60) // tick cadence
+  zscore_window    Int              @default(21)
+  entry_threshold  Float            @default(1.5) // |Z| ≥ → open
+  exit_threshold   Float            @default(0.5) // |Z| < → take-profit
+  stop_threshold   Float            @default(4.0) // |Z| ≥ → stop-loss
+  usd_per_trade    Float            @default(100) // notional per leg
+  max_active_pairs Int? // cap on concurrent open pairs (null = no cap)
+  slippage_pct     Float            @default(0.05) // per-leg, percent
+  taker_fee_pct    Float            @default(0.05) // per-leg, percent
+  funding_freq_h   Int              @default(1) // hours between funding accruals
+  tick_count       Int              @default(0)
+  last_tick_at     DateTime?        @db.Timestamptz
+  created_at       DateTime         @default(now()) @db.Timestamptz
+  stopped_at       DateTime?        @db.Timestamptz
+
+  positions SimPosition[]
+  trades    SimTrade[]
+
+  @@index([exchange, mode, status])
+  @@map("sim_sessions")
+}
+
+model SimPosition {
+  id             String            @id @default(cuid())
+  session_id     String
+  session        SimSession        @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  exchange       Exchange
+  base_market    String
+  quote_market   String
+  direction      String // LONG_BASE | SHORT_BASE
+  base_size      Float
+  quote_size     Float
+  hedge_ratio    Float
+  half_life      Float // carried so the tick can apply the 3×half-life time-stop
+  entry_z        Float
+  entry_base_px  Float
+  entry_quote_px Float
+  entry_time     DateTime          @db.Timestamptz
+  fee_cost       Float // entry fees (both legs)
+  funding_pnl    Float             @default(0) // accrued funding so far
+  status         SimPositionStatus @default(OPEN)
+
+  @@index([session_id, status])
+  @@map("sim_positions")
+}
+
+model SimTrade {
+  id           String     @id @default(cuid())
+  session_id   String
+  session      SimSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  exchange     Exchange
+  base_market  String
+  quote_market String
+  direction    String
+  entry_time   DateTime   @db.Timestamptz
+  exit_time    DateTime   @db.Timestamptz
+  hold_hours   Float
+  entry_z      Float
+  exit_z       Float?
+  exit_reason  String // TAKE_PROFIT | STOP_LOSS_ZSCORE | STOP_LOSS_TIME | STOPPED
+  notional_usd Float
+  gross_pnl    Float
+  fee_cost     Float // entry + exit fees
+  funding_pnl  Float
+  net_pnl      Float // gross − fees + funding
+
+  @@index([session_id])
+  @@index([exchange, entry_time])
+  @@map("sim_trades")
 }
 
 // Historical funding rates, ingested alongside OHLCV so the simulation/backtest

@@ -303,6 +303,121 @@ class FakeLiveRepository:
         return dict(row)
 
 
+class FakeSimRepository:
+    """In-memory stand-in for PrismaSimRepository (no DB / generated client)."""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, dict] = {}
+        self.positions: dict[str, dict] = {}
+        self.trades: dict[str, dict] = {}
+        self._seq = 0
+
+    @staticmethod
+    def _iso(v):
+        return v.isoformat() if isinstance(v, datetime) else v
+
+    def _ser_dt(self, row: dict, keys) -> dict:
+        out = dict(row)
+        for k in keys:
+            out[k] = self._iso(out.get(k))
+        return out
+
+    # sessions
+    _SESSION_DEFAULTS = {
+        "label": None,
+        "status": "RUNNING",
+        "interval_seconds": 60,
+        "zscore_window": 21,
+        "entry_threshold": 1.5,
+        "exit_threshold": 0.5,
+        "stop_threshold": 4.0,
+        "usd_per_trade": 100.0,
+        "max_active_pairs": None,
+        "slippage_pct": 0.05,
+        "taker_fee_pct": 0.05,
+        "funding_freq_h": 1,
+        "tick_count": 0,
+        "last_tick_at": None,
+        "stopped_at": None,
+        "mode": "simulation",
+        "exchange": "dydx",
+    }
+
+    async def create_session(self, params: dict) -> dict:
+        self._seq += 1
+        sid = f"ss_{self._seq}"
+        row = {**self._SESSION_DEFAULTS, **params}
+        row.setdefault("current_capital", row.get("starting_capital"))
+        row["id"] = sid
+        row["created_at"] = datetime.now(timezone.utc).isoformat()
+        self.sessions[sid] = self._ser_dt(row, ("last_tick_at", "stopped_at"))
+        return dict(self.sessions[sid])
+
+    async def get_session(self, session_id: str):
+        row = self.sessions.get(session_id)
+        return dict(row) if row is not None else None
+
+    async def list_sessions(self) -> list[dict]:
+        return [
+            dict(r)
+            for r in sorted(
+                self.sessions.values(), key=lambda r: r["created_at"], reverse=True
+            )
+        ]
+
+    async def list_running_sessions(self) -> list[dict]:
+        return [dict(r) for r in self.sessions.values() if r["status"] == "RUNNING"]
+
+    async def update_session(self, session_id: str, data: dict):
+        row = self.sessions.get(session_id)
+        if row is None:
+            return None
+        row.update(self._ser_dt(data, ("last_tick_at", "stopped_at")))
+        return dict(row)
+
+    # positions
+    async def create_position(self, data: dict) -> dict:
+        self._seq += 1
+        pid = f"sp_{self._seq}"
+        row = self._ser_dt(data, ("entry_time",))
+        row["id"] = pid
+        row.setdefault("status", "OPEN")
+        row.setdefault("funding_pnl", 0.0)
+        self.positions[pid] = row
+        return dict(row)
+
+    async def get_open_positions(self, session_id: str) -> list[dict]:
+        rows = [
+            r
+            for r in self.positions.values()
+            if r["session_id"] == session_id and r["status"] == "OPEN"
+        ]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["entry_time"])]
+
+    async def update_position(self, position_id: str, data: dict):
+        row = self.positions.get(position_id)
+        if row is None:
+            return None
+        row.update(data)
+        return dict(row)
+
+    async def close_position(self, position_id: str):
+        return await self.update_position(position_id, {"status": "CLOSED"})
+
+    # trades
+    async def create_trade(self, data: dict) -> dict:
+        self._seq += 1
+        tid = f"st_{self._seq}"
+        row = self._ser_dt(data, ("entry_time", "exit_time"))
+        row["id"] = tid
+        self.trades[tid] = row
+        return dict(row)
+
+    async def list_trades(self, session_id: str) -> list[dict]:
+        rows = [r for r in self.trades.values() if r["session_id"] == session_id]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["exit_time"], reverse=True)]
+
+
 class FakeManualTradeRepository:
     """In-memory stand-in for PrismaManualTradeRepository (no DB / generated client)."""
 
