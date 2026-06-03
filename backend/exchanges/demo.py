@@ -106,6 +106,14 @@ class DemoTradeClient:
     store above, and serves a fixed collateral/equity — so the Phase-5b live UI
     (BotControls / AccountCard / OpenTradesTable / abort) drives the *real*
     engine path deterministically, with no SDK, wallet, or network.
+
+    Limitation (offline dev only): the store is a *single* account keyed on market
+    symbol, not on ``(exchange, mode)`` — unlike the real ``DydxTradeClient``,
+    which selects separate testnet/mainnet subaccounts from ``ENVIRONMENT``. So
+    switching the live UI mode tab mid-process can let one mode's demo positions
+    collide with the other's (issue #22). Harmless against a real exchange and
+    untriggered by the 5b E2E (forward_test only); namespacing the store is the
+    proper fix.
     """
 
     async def place_market_order(

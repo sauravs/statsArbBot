@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import config
 from auth import require_api_key
@@ -55,10 +55,14 @@ class ScopeBody(BaseModel):
 
 
 class PassBody(ScopeBody):
-    # Optional per-pass overrides (mainly for tests / tuning); None → config default.
-    entry_threshold: float | None = None
-    exit_threshold: float | None = None
-    stop_threshold: float | None = None
+    # Optional per-pass threshold overrides; None → config default. Bounded HERE at
+    # the trust boundary (not just in the UI) so a forged/curl request with the same
+    # session can't pass a degenerate value: entry_threshold=0 opens every pair, and
+    # stop_threshold=0 makes |Z|>=0 always fire → the next exit pass force-closes the
+    # whole book. Out-of-range (and NaN/Infinity) → Pydantic 422 automatically.
+    entry_threshold: float | None = Field(default=None, ge=0.5, le=4.0)
+    exit_threshold: float | None = Field(default=None, gt=0.0, le=2.0)
+    stop_threshold: float | None = Field(default=None, ge=1.0, le=10.0)
 
 
 def _guard_db(exc: Exception) -> HTTPException:

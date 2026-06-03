@@ -8,7 +8,13 @@ export default function PortfolioStatus({ trades }: { trades: LiveTrade[] }) {
   const open = trades.filter((t) => t.status === "OPEN").length;
   const closed = trades.filter((t) => t.status === "CLOSED");
   const errored = trades.filter((t) => t.status === "ERROR").length;
-  const realisedPnl = closed.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+  // Reconcile/orphan closes carry pnl=null by design (real fills unknown — the
+  // engine deliberately doesn't fabricate P&L). Sum only known P&L and surface the
+  // unknown count rather than silently coercing those to $0 (which would understate
+  // a potentially large loss). The value is shown as ≈ when any P&L is unknown.
+  const withPnl = closed.filter((t) => t.pnl != null);
+  const unknownPnl = closed.length - withPnl.length;
+  const realisedPnl = withPnl.reduce((sum, t) => sum + (t.pnl as number), 0);
 
   return (
     <div className="rounded-xl border border-border bg-card p-5" data-testid="portfolio-status">
@@ -18,8 +24,8 @@ export default function PortfolioStatus({ trades }: { trades: LiveTrade[] }) {
         <Metric label="Closed" value={String(closed.length)} testid="portfolio-closed" />
         <Metric label="Errors" value={String(errored)} testid="portfolio-errors" />
         <Metric
-          label="Realised P&L"
-          value={fmtUsd(realisedPnl)}
+          label={unknownPnl > 0 ? `Realised P&L (${unknownPnl} unknown)` : "Realised P&L"}
+          value={`${unknownPnl > 0 ? "≈ " : ""}${fmtUsd(realisedPnl)}`}
           tone={realisedPnl >= 0 ? "green" : "red"}
           testid="portfolio-pnl"
         />

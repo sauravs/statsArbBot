@@ -117,6 +117,12 @@ export default function BotControls({
             max="4"
             value={entryZ}
             onChange={(e) => setEntryZ(e.target.value)}
+            onBlur={(e) => {
+              // Snap the displayed value to the clamped range so what the operator
+              // sees matches what the backend receives (no silent rewrite at click).
+              const clamped = parseEntryZ(e.target.value);
+              if (clamped != null) setEntryZ(String(clamped));
+            }}
             data-testid="entry-z-input"
             className="w-16 rounded border border-border bg-bg px-2 py-1 text-right tabular-nums text-text"
           />
