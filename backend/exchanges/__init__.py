@@ -34,13 +34,24 @@ def make_data_client():
 
 async def make_trade_client():
     """
-    Connect and return a live trade-execution client (Phase 5a).
+    Connect and return a live trade-execution client (Phase 5a/5b).
 
-    dYdX is the only integrated exchange; account/order operations follow
-    ``ENVIRONMENT`` (testnet for forward_test, mainnet for production). Imports are
-    deferred so importing the registry never pulls in ``dydx-v4-client``. Returns
-    an object satisfying the ``trading.broker.TradeClient`` protocol.
+    ``SCAN_DATA_SOURCE=fake`` → the deterministic, network-free
+    :class:`exchanges.demo.DemoTradeClient` (offline dev, demos, the Phase-5b live
+    UI E2E); otherwise the live :class:`exchanges.dydx.trade_client.DydxTradeClient`
+    (testnet for forward_test, mainnet for production per ``ENVIRONMENT``).
+
+    Reuses the one "offline mode" switch the data client uses so a single env var
+    flips the whole stack off the network. Imports are deferred so importing the
+    registry never pulls in ``dydx-v4-client``. Returns an object satisfying the
+    ``trading.broker.TradeClient`` protocol.
     """
+    import config
+
+    if config.SCAN_DATA_SOURCE == "fake":
+        from exchanges.demo import DemoTradeClient
+
+        return DemoTradeClient()
     from exchanges.dydx.trade_client import DydxTradeClient
 
     return await DydxTradeClient.connect()
