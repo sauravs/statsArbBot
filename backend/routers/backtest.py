@@ -98,6 +98,13 @@ def _normalise_span(start: datetime | None, end: datetime | None) -> None:
         raise HTTPException(status_code=422, detail="start_time must be before end_time.")
 
 
+def _parse_dt(value) -> datetime | None:
+    """Coerce a stored ISO-string timestamp (or None) back to a datetime."""
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
+
+
 @router.post("/strategies", status_code=201)
 async def create_strategy(body: StrategyBody) -> dict:
     _validate_exchange(body.exchange)
@@ -133,14 +140,26 @@ async def get_strategy(strategy_id: str) -> dict:
 @router.put("/strategies/{strategy_id}")
 async def update_strategy(strategy_id: str, body: StrategyUpdateBody) -> dict:
     data = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
-    _normalise_span(data.get("start_time"), data.get("end_time"))
     try:
         engine = get_backtest_engine()
         existing = await engine.get(strategy_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Strategy not found.")
-        if existing["status"] == "RUNNING":
-            raise HTTPException(status_code=409, detail="A running strategy cannot be edited.")
+        # A RUNNING or PAUSED strategy is mid-sweep: editing window lengths / span /
+        # capital would desync the persisted resume cursor (processed_windows) from a
+        # freshly-recomputed window list and break the net_pnl identity. Require a
+        # terminal/idle state to edit.
+        if existing["status"] in ("RUNNING", "PAUSED"):
+            raise HTTPException(
+                status_code=409,
+                detail="A running or paused strategy cannot be edited — stop it first.",
+            )
+        # Validate the EFFECTIVE span (a partial edit of only start or only end must
+        # still be checked against the stored counterpart).
+        _normalise_span(
+            data.get("start_time", _parse_dt(existing["start_time"])),
+            data.get("end_time", _parse_dt(existing["end_time"])),
+        )
         updated = await engine.update(strategy_id, data) if data else existing
     except HTTPException:
         raise
@@ -182,7 +201,22 @@ async def run_strategy(strategy_id: str, background: BackgroundTasks) -> dict:
     except Exception as exc:
         raise _guard_db(exc)
     background.add_task(engine.run, strategy_id)
-    return {**row, "status": "RUNNING"}
+    # Optimistic snapshot the UI adopts until the first poll. A PAUSED run resumes
+    # (keep its partial progress/aggregates); any other state starts fresh, so clear
+    # the prior result here too — otherwise a re-run of a COMPLETED strategy would
+    # flash its old equity curve / net P&L at 100% under a RUNNING badge.
+    optimistic = {**row, "status": "RUNNING"}
+    if row["status"] != "PAUSED":
+        optimistic.update(
+            {
+                "progress": 0.0, "processed_windows": 0,
+                "final_capital": None, "net_pnl": None, "total_trades": 0,
+                "win_rate": None, "rank": None, "report_md": None,
+                "equity_curve": [], "per_window": [],
+                "per_pair_pnl": {}, "exit_reasons": {},
+            }
+        )
+    return optimistic
 
 
 @router.post("/strategies/{strategy_id}/pause")

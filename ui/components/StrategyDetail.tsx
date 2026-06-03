@@ -37,6 +37,9 @@ export default function StrategyDetail({
   const perPair = Object.entries(s.per_pair_pnl ?? {}).sort((a, b) => b[1].net_pnl - a[1].net_pnl);
   const exitReasons = Object.entries(s.exit_reasons ?? {}).sort((a, b) => b[1] - a[1]);
   const canResume = s.status === "PAUSED";
+  // Clamp to [0,100] and guard NaN so a transient bad progress value can't render
+  // "NaN%" or an invalid CSS width.
+  const pct = Math.max(0, Math.min(100, Math.round((s.progress || 0) * 100)));
 
   return (
     <div className="space-y-6" data-testid="strategy-detail">
@@ -60,12 +63,12 @@ export default function StrategyDetail({
               <span>
                 {running ? "Sweeping…" : "Paused at"} {s.processed_windows}/{s.total_windows} windows
               </span>
-              <span className="tabular-nums">{Math.round(s.progress * 100)}%</span>
+              <span className="tabular-nums">{pct}%</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-bg">
               <div
                 className="h-full bg-blue transition-all"
-                style={{ width: `${Math.round(s.progress * 100)}%` }}
+                style={{ width: `${pct}%` }}
               />
             </div>
           </div>

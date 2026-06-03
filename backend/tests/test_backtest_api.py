@@ -134,6 +134,23 @@ def test_crud_lifecycle(ctx):
     assert ctx.client.get(f"/api/backtest/strategies/{sid}", headers=AUTH).status_code == 404
 
 
+async def test_cannot_edit_paused_strategy(ctx):
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    # A mid-sweep (PAUSED) strategy must not be editable — it would desync the resume.
+    await ctx.repo.update(sid, {"status": "PAUSED", "processed_windows": 1, "total_windows": 3})
+    r = ctx.client.put(f"/api/backtest/strategies/{sid}", json={"scan_window_days": 180}, headers=AUTH)
+    assert r.status_code == 409, r.text
+
+
+def test_partial_span_edit_validated_against_stored(ctx):
+    # _CREATE has start < end. Editing ONLY start_time to after the stored end_time
+    # must be rejected (effective-span check), not silently persisted.
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    later = (_ANCHOR + timedelta(hours=_N + 100)).isoformat()
+    r = ctx.client.put(f"/api/backtest/strategies/{sid}", json={"start_time": later}, headers=AUTH)
+    assert r.status_code == 422, r.text
+
+
 def test_get_update_delete_404(ctx):
     assert ctx.client.get("/api/backtest/strategies/nope", headers=AUTH).status_code == 404
     assert ctx.client.put("/api/backtest/strategies/nope", json={"name": "x"}, headers=AUTH).status_code == 404

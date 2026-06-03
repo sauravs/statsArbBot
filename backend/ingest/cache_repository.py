@@ -88,15 +88,20 @@ class PrismaOhlcvCacheRepository:
         The walk-forward backtest (Phase 8) needs the universe of markets to scan
         each window; unlike the live scan there is no exchange ``get_markets`` to
         call — the universe is whatever the Phase-2.5 ingest seeded.
+
+        Uses a SQL-side ``GROUP BY market`` rather than ``find_many(distinct=…)``:
+        prisma-client-py applies ``distinct`` *client-side* after fetching every
+        matching row, which over a fully-seeded cache (~17k bars × dozens of markets)
+        would pull hundreds of thousands of rows just to list a few dozen tickers.
         """
         from db.client import get_db
 
         db = await get_db()
-        records = await db.ohlcvcache.find_many(
+        groups = await db.ohlcvcache.group_by(
+            by=["market"],
             where={"exchange": exchange, "resolution": resolution},
-            distinct=["market"],
         )
-        return sorted({r.market for r in records})
+        return sorted(g["market"] for g in groups)
 
     # ── reads (Phase 7 fast-forward replay) ──────────────────────────────────
 
