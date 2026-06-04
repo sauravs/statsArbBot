@@ -92,6 +92,22 @@ class PrismaManualTradeRepository:
         # prisma-client-py returns None from update() when no row matched.
         return self._to_dict(record) if record is not None else None
 
+    async def delete(self, trade_id: str) -> bool:
+        """Hard-delete a manual trade (issue #55).
+
+        Returns ``True`` if a row was removed, ``False`` if the id did not exist.
+        """
+        from db.client import get_db
+        from prisma.errors import RecordNotFoundError
+
+        db = await get_db()
+        try:
+            record = await db.manualtrade.delete(where={"id": trade_id})
+        except RecordNotFoundError:
+            return False
+        # prisma-client-py returns None from delete() when no row matched.
+        return record is not None
+
     @staticmethod
     def _to_dict(r) -> dict:
         return {

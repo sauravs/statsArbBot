@@ -8,6 +8,7 @@ import {
   type ManualTrade,
 } from "@/lib/api";
 import CloseManualTradeModal from "./CloseManualTradeModal";
+import DeleteManualTradeModal from "./DeleteManualTradeModal";
 import InfoTip from "./InfoTip";
 
 // Mark-to-market refreshes on a slow interval so a real dydx-mode price fetch
@@ -30,6 +31,7 @@ export default function ManualTradesPanel({
   const [portfolio, setPortfolio] = useState<ManualPortfolio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<ManualTrade | null>(null);
+  const [deleting, setDeleting] = useState<ManualTrade | null>(null);
 
   // Best-effort mark-to-market; a failure keeps the last summary.
   const refreshPortfolio = useCallback(async () => {
@@ -185,17 +187,24 @@ export default function ManualTradesPanel({
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {t.status === "OPEN" ? (
+                    <div className="flex justify-end gap-2">
+                      {t.status === "OPEN" && (
+                        <button
+                          onClick={() => setClosing(t)}
+                          data-testid="close-trade-btn"
+                          className="rounded border border-yellow px-2 py-1 text-xs text-yellow hover:bg-yellow/10"
+                        >
+                          Mark closed
+                        </button>
+                      )}
                       <button
-                        onClick={() => setClosing(t)}
-                        data-testid="close-trade-btn"
-                        className="rounded border border-yellow px-2 py-1 text-xs text-yellow hover:bg-yellow/10"
+                        onClick={() => setDeleting(t)}
+                        data-testid="delete-trade-btn"
+                        className="rounded border border-red px-2 py-1 text-xs text-red hover:bg-red/10"
                       >
-                        Mark closed
+                        Delete
                       </button>
-                    ) : (
-                      <span className="text-xs text-muted">—</span>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -209,6 +218,14 @@ export default function ManualTradesPanel({
           trade={closing}
           onClose={() => setClosing(null)}
           onClosed={refresh}
+        />
+      )}
+
+      {deleting && (
+        <DeleteManualTradeModal
+          trade={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={refresh}
         />
       )}
     </div>

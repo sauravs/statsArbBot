@@ -678,3 +678,6 @@ class FakeManualTradeRepository:
             closed_at=closed_at.isoformat() if isinstance(closed_at, datetime) else closed_at,
         )
         return dict(row)
+
+    async def delete(self, trade_id) -> bool:
+        return self.store.pop(trade_id, None) is not None

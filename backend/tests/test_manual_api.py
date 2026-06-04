@@ -194,6 +194,47 @@ def test_close_unknown_trade_404(client):
     assert r.status_code == 404
 
 
+# --- issue #55: hard delete a manual trade (OPEN or CLOSED) -------------------
+
+
+def test_delete_requires_auth(client):
+    assert client.delete("/api/manual/some-id").status_code == 401
+
+
+def test_delete_open_trade(client):
+    _scan(client)
+    tid = _record(client).json()["id"]
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 1
+
+    r = client.delete(f"/api/manual/{tid}", headers=AUTH)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"deleted": tid}
+    # Gone from the list and the counts.
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 0
+    # A second delete now 404s (the row is permanently removed).
+    assert client.delete(f"/api/manual/{tid}", headers=AUTH).status_code == 404
+
+
+def test_delete_closed_trade(client):
+    _scan(client)
+    trade = _record(client).json()
+    tid = trade["id"]
+    client.post(
+        f"/api/manual/{tid}/close",
+        json={"exit_price_leg1": 10.0, "exit_price_leg2": 10.0},
+        headers=AUTH,
+    )
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 1
+
+    r = client.delete(f"/api/manual/{tid}", headers=AUTH)
+    assert r.status_code == 200, r.text
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 0
+
+
+def test_delete_unknown_trade_404(client):
+    assert client.delete("/api/manual/nope", headers=AUTH).status_code == 404
+
+
 # --- issue #37 PR-2: current prices + portfolio -----------------------------
 
 

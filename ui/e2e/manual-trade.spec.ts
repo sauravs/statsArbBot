@@ -115,6 +115,70 @@ test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
   });
 });
 
+test.describe("Manual Trading — Delete Record (#55)", () => {
+  // Deletes every manual row (covers OPEN and CLOSED — prior tests leave a
+  // CLOSED trade), asserting the warning + that each delete drops the count by
+  // one. Self-cleaning: it leaves the manual table empty, so later tests start
+  // from a known state (the shared E2E DB isn't truncated between tests).
+  test("record → delete each row with confirm warning → list empties", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    // Ensure at least one OPEN trade exists to delete.
+    await setThreshold(page, "0.5");
+    await page.getByTestId("record-trade-btn").first().click();
+    await expect(page.getByTestId("record-modal")).toBeVisible();
+    await page.getByTestId("capital-leg1").fill("100");
+    await page.getByTestId("capital-leg2").fill("100");
+    await page.getByTestId("record-confirm").click();
+
+    // Wait for the just-recorded OPEN trade to actually render before counting,
+    // so a late record-refresh can't re-add a row mid-delete (there are no OPEN
+    // trades before this test — prior tests close theirs).
+    await expect(
+      page.getByTestId("manual-status").filter({ hasText: "OPEN" }).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const rows = page.getByTestId("manual-row");
+    await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+
+    // Delete rows one at a time until none remain. Each iteration waits for the
+    // actual DELETE response so sequential deletes never overlap (an in-flight
+    // list refresh from a prior delete could otherwise restore a row).
+    let first = true;
+    for (let guard = 0; guard < 20; guard++) {
+      const count = await rows.count();
+      if (count === 0) break;
+
+      await rows.first().getByTestId("delete-trade-btn").click();
+      await expect(page.getByTestId("delete-modal")).toBeVisible();
+      if (first) {
+        // The destructive-action warning is shown before anything is deleted.
+        await expect(page.getByTestId("delete-warning")).toContainText(
+          "Warning! This will permanently delete the record from the database. Proceed with caution.",
+        );
+        first = false;
+      }
+      await Promise.all([
+        page.waitForResponse(
+          (r) =>
+            /\/api\/proxy\/api\/manual\//.test(r.url()) &&
+            r.request().method() === "DELETE",
+        ),
+        page.getByTestId("delete-confirm").click(),
+      ]);
+      await expect(page.getByTestId("delete-modal")).toBeHidden();
+      // The list drops by exactly one.
+      await expect(rows).toHaveCount(count - 1, { timeout: 10_000 });
+    }
+
+    // The table is now empty (the deleted records are gone permanently).
+    await expect(page.getByTestId("manual-empty")).toBeVisible();
+  });
+});
+
 test.describe("Manual Trading — PR-2 live prices + portfolio (#37)", () => {
   test("pairs table shows current prices; portfolio card summarizes an OPEN trade", async ({
     page,

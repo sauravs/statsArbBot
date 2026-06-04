@@ -262,3 +262,17 @@ async def close_manual_trade(trade_id: str, body: CloseBody) -> dict:
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Manual trade {trade_id} not found.")
     return {**updated, "pnl_breakdown": pnl.to_dict()}
+
+
+@router.delete("/{trade_id}")
+async def delete_manual_trade(trade_id: str) -> dict:
+    """Hard-delete a manual trade (issue #55) — OPEN or CLOSED, any data source.
+
+    Permanently removes the row from the database (the operator confirms a
+    destructive-action warning in the UI first). 404 if the id does not exist.
+    Mirrors the strategy-delete shape (``{"deleted": id}``).
+    """
+    deleted = await get_manual_trade_repository().delete(trade_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Manual trade {trade_id} not found.")
+    return {"deleted": trade_id}
