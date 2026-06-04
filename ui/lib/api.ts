@@ -172,6 +172,7 @@ export interface ManualTrade {
   id: string;
   exchange: string;
   mode: string;
+  data_source?: string;
   base_market: string;
   quote_market: string;
   hedge_ratio: number;

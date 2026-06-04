@@ -37,12 +37,17 @@ class PrismaManualTradeRepository:
         record = await db.manualtrade.create(data=data)
         return self._to_dict(record)
 
-    async def list(self, *, exchange: str, mode: str) -> list[dict]:
+    async def list(
+        self, *, exchange: str, mode: str, data_source: str | None = None
+    ) -> list[dict]:
         from db.client import get_db
 
         db = await get_db()
+        where: dict = {"exchange": exchange, "mode": mode}
+        if data_source is not None:
+            where["data_source"] = data_source
         records = await db.manualtrade.find_many(
-            where={"exchange": exchange, "mode": mode},
+            where=where,
             order=[{"recorded_at": "desc"}],
         )
         return [self._to_dict(r) for r in records]
@@ -93,6 +98,7 @@ class PrismaManualTradeRepository:
             "id": r.id,
             "exchange": _enum_value(r.exchange),
             "mode": _enum_value(r.mode),
+            "data_source": r.data_source,
             "base_market": r.base_market,
             "quote_market": r.quote_market,
             "hedge_ratio": r.hedge_ratio,
