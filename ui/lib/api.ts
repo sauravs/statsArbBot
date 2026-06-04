@@ -235,6 +235,11 @@ export function closeManualTrade(
   return proxyPost(`api/manual/${encodeURIComponent(id)}/close`, input);
 }
 
+/** Hard-delete a manual trade (OPEN or CLOSED) — permanent (issue #55). */
+export function deleteManualTrade(id: string): Promise<{ deleted: string }> {
+  return proxyDelete(`api/manual/${encodeURIComponent(id)}`);
+}
+
 export function startScan(quick = false): Promise<{ message: string; started: boolean }> {
   return proxyPost("api/scan/start", { quick });
 }
