@@ -104,3 +104,42 @@ test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
     await expect(closedRow.getByTestId("manual-pnl")).not.toHaveText("—");
   });
 });
+
+test.describe("Manual Trading — PR-2 live prices + portfolio (#37)", () => {
+  test("pairs table shows current prices; portfolio card summarizes an OPEN trade", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    // Pairs table shows a current price for at least one pair (fake data source
+    // → prices populate after the scan). Format is "<base> / <quote>".
+    const priceCell = page.getByTestId("pair-price").first();
+    await expect(priceCell).toBeVisible();
+    await expect(priceCell).toHaveText(/\d+\.\d{2}\s*\/\s*\d+\.\d{2}/, {
+      timeout: 10_000,
+    });
+
+    // Record an OPEN trade ($150 + $150 = $300 allocated).
+    await setThreshold(page, "0.5");
+    await page.getByTestId("record-trade-btn").first().click();
+    await expect(page.getByTestId("record-modal")).toBeVisible();
+    await page.getByTestId("capital-leg1").fill("150");
+    await page.getByTestId("capital-leg2").fill("150");
+    await page.getByTestId("record-confirm").click();
+    await expect(page.getByTestId("manual-row").first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Portfolio summary card reflects the OPEN trade.
+    const summary = page.getByTestId("portfolio-summary");
+    await expect(summary).toBeVisible();
+    await expect(page.getByTestId("portfolio-allocated")).toHaveText("$300.00");
+    // One OPEN trade (this test's); closed count may be non-zero from prior tests.
+    await expect(page.getByTestId("portfolio-counts")).toHaveText(/^1 \/ \d+$/);
+    // Marked to market → a $ figure (or "—" if unpriced), never empty.
+    await expect(page.getByTestId("portfolio-unrealized")).toHaveText(
+      /^(-?\$\d+\.\d{2}|—)$/,
+    );
+  });
+});

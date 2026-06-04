@@ -24,7 +24,7 @@ from db.scan_repository import get_scan_repository
 from exchanges import EXCHANGE_REGISTRY, make_data_client
 from manual.pnl import compute_manual_pnl
 from manual.repository import get_manual_trade_repository
-from marketdata.pair_series import current_pair_snapshot
+from marketdata.pair_series import current_pair_snapshot, current_prices
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,90 @@ async def list_manual_trades(
         logger.error("list_manual_trades DB read failed: %s", exc)
         return {"trades": [], "count": 0, "error": "Could not read manual trades."}
     return {"trades": trades, "count": len(trades), "error": None}
+
+
+@router.get("/portfolio")
+async def manual_portfolio(
+    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    mode: str = Query(default=config.DEFAULT_MODE),
+) -> dict:
+    """
+    Portfolio summary for manual trades (issue #37 PR-2).
+
+    - ``allocated_capital`` — Σ(capital_leg1 + capital_leg2) over OPEN trades.
+    - ``unrealized_pnl`` — OPEN trades marked to market: each leg's current price
+      used as the exit in the same ``compute_manual_pnl`` formula. ``None`` if no
+      OPEN trade could be priced (so the UI shows "—" rather than a misleading 0).
+    - ``realized_pnl`` — Σ stored P&L over CLOSED trades.
+    - ``open_count`` / ``closed_count`` — lifecycle counts.
+
+    Stays 200 with an ``error`` string on a DB/fetch failure so the panel renders.
+    """
+    _validate_market_scope(exchange, mode)
+    try:
+        trades = await get_manual_trade_repository().list(exchange=exchange, mode=mode)
+    except Exception as exc:
+        logger.error("manual_portfolio DB read failed: %s", exc)
+        return {
+            "allocated_capital": 0.0,
+            "unrealized_pnl": None,
+            "realized_pnl": 0.0,
+            "open_count": 0,
+            "closed_count": 0,
+            "error": "Could not read manual trades.",
+        }
+
+    open_trades = [t for t in trades if t["status"] == "OPEN"]
+    closed_trades = [t for t in trades if t["status"] == "CLOSED"]
+    allocated = sum(t["capital_leg1_usd"] + t["capital_leg2_usd"] for t in open_trades)
+    realized = sum(t["pnl"] for t in closed_trades if t["pnl"] is not None)
+
+    unrealized: float | None = None
+    error: str | None = None
+    if open_trades:
+        markets = [m for t in open_trades for m in (t["base_market"], t["quote_market"])]
+        client = make_data_client()
+        try:
+            prices = await current_prices(client, markets)
+        except Exception as exc:
+            logger.error("manual_portfolio price fetch failed: %s", exc)
+            prices = {}
+            error = "Could not fetch current prices."
+        finally:
+            try:
+                await client.aclose()
+            except Exception as exc:  # must not mask a real result/error
+                logger.warning("data client close failed: %s", exc)
+
+        priced_total = 0.0
+        any_priced = False
+        for t in open_trades:
+            base_price = prices.get(t["base_market"])
+            quote_price = prices.get(t["quote_market"])
+            if base_price is None or quote_price is None:
+                continue
+            pnl = compute_manual_pnl(
+                z_score=t["z_score"],
+                entry_price_leg1=t["entry_price_leg1"],
+                entry_price_leg2=t["entry_price_leg2"],
+                exit_price_leg1=base_price,
+                exit_price_leg2=quote_price,
+                capital_leg1_usd=t["capital_leg1_usd"],
+                capital_leg2_usd=t["capital_leg2_usd"],
+            )
+            priced_total += pnl.pnl
+            any_priced = True
+        if any_priced:
+            unrealized = priced_total
+
+    return {
+        "allocated_capital": allocated,
+        "unrealized_pnl": unrealized,
+        "realized_pnl": realized,
+        "open_count": len(open_trades),
+        "closed_count": len(closed_trades),
+        "error": error,
+    }
 
 
 @router.post("/{trade_id}/close")

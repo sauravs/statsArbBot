@@ -206,6 +206,38 @@ async def current_pair_snapshot(
     )
 
 
+async def current_prices(
+    client: PriceSource,
+    markets: list[str],
+    *,
+    num_pages: int | None = 1,
+    now=None,
+) -> dict[str, float]:
+    """
+    Latest close per market — a *light* price read for the pairs table and the
+    manual-trade mark-to-market (PRD F4 / issue #37 PR-2).
+
+    Fetches each *unique* market once, concurrently, taking the most recent
+    candle's close (max timestamp). ``num_pages=1`` keeps it to a single candle
+    page per market so it stays cheap even against the live dYdX indexer. The
+    "current price" is therefore the last closed hourly candle — the same data
+    source the charts and the record snapshot use (there is no live ticker).
+
+    Markets with no data are omitted from the result (the caller renders "—").
+    """
+    unique = list(dict.fromkeys(markets))  # de-dupe, preserve order
+
+    async def _one(market: str) -> tuple[str, float] | None:
+        closes = await client.get_historical_closes(market, num_pages=num_pages, now=now)
+        if not closes:
+            return None
+        latest = max(closes, key=lambda c: c["datetime"])
+        return market, float(latest["close"])
+
+    results = await asyncio.gather(*(_one(m) for m in unique))
+    return {market: price for r in results if r is not None for (market, price) in (r,)}
+
+
 def _to_unix(iso: str) -> int:
     """dYdX ISO timestamp (``…Z``) → UNIX seconds (UTC)."""
     dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc)

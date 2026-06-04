@@ -172,3 +172,73 @@ def test_close_unknown_trade_404(client):
         headers=AUTH,
     )
     assert r.status_code == 404
+
+
+# --- issue #37 PR-2: current prices + portfolio -----------------------------
+
+
+def test_pair_prices_after_scan(client):
+    _scan(client)
+    r = client.get("/api/pairs/prices", headers=AUTH)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["error"] is None
+    # Both legs of the scanned AAA/BBB pair are priced with positive floats.
+    assert body["prices"]["AAA-USD"] > 0
+    assert body["prices"]["BBB-USD"] > 0
+
+
+def test_pair_prices_before_scan_empty(client):
+    r = client.get("/api/pairs/prices", headers=AUTH)
+    assert r.status_code == 200
+    assert r.json() == {"prices": {}, "error": None}
+
+
+def test_portfolio_open_trade_marked_to_market(client):
+    _scan(client)
+    _record(client, c1=120.0, c2=80.0)
+
+    p = client.get("/api/manual/portfolio", headers=AUTH).json()
+    assert p["error"] is None
+    assert p["open_count"] == 1 and p["closed_count"] == 0
+    assert p["allocated_capital"] == pytest.approx(200.0)  # 120 + 80
+    assert p["realized_pnl"] == pytest.approx(0.0)
+    # Marked to market at the current close, which equals the entry close for the
+    # static fake series → ~0 unrealized P&L (but priced, so not None).
+    assert p["unrealized_pnl"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_portfolio_realized_after_close(client):
+    _scan(client)
+    trade = _record(client, c1=100.0, c2=100.0).json()
+    closed = client.post(
+        f"/api/manual/{trade['id']}/close",
+        json={
+            "exit_price_leg1": trade["entry_price_leg1"] * 1.1,
+            "exit_price_leg2": trade["entry_price_leg2"] * 0.9,
+        },
+        headers=AUTH,
+    ).json()
+
+    p = client.get("/api/manual/portfolio", headers=AUTH).json()
+    assert p["open_count"] == 0 and p["closed_count"] == 1
+    assert p["allocated_capital"] == pytest.approx(0.0)  # no OPEN trades
+    assert p["unrealized_pnl"] is None  # nothing to mark to market
+    assert p["realized_pnl"] == pytest.approx(closed["pnl"])
+
+
+def test_portfolio_empty(client):
+    p = client.get("/api/manual/portfolio", headers=AUTH).json()
+    assert p == {
+        "allocated_capital": 0.0,
+        "unrealized_pnl": None,
+        "realized_pnl": 0.0,
+        "open_count": 0,
+        "closed_count": 0,
+        "error": None,
+    }
+
+
+def test_portfolio_rejects_unknown_mode(client):
+    r = client.get("/api/manual/portfolio", params={"mode": "bogus"}, headers=AUTH)
+    assert r.status_code == 422
