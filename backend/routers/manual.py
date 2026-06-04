@@ -80,12 +80,20 @@ async def record_manual_trade(body: RecordBody) -> dict:
 
     client = make_data_client()
     try:
+        # Fast path (issue #54): the snapshot only needs the latest rolling Z and
+        # the current entry prices, and ``latest_zscore`` is a tail computation
+        # over the last ``ZSCORE_WINDOW`` (~21) bars. Fetching a single candle
+        # page (~100 bars, like ``current_prices``) leaves that recent window
+        # identical to the full-history scan — so the recorded Z/spread matches —
+        # while turning a multi-minute live record (full paginated history per
+        # leg) into a few-second one.
         snap = await current_pair_snapshot(
             client,
             base_market=body.base_market,
             quote_market=body.quote_market,
             hedge_ratio=record["hedge_ratio"],
             intercept=record.get("intercept", 0.0) or 0.0,
+            num_pages=1,
         )
     finally:
         try:
