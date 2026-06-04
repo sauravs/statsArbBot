@@ -48,6 +48,17 @@ export function getSystemHealth(): Promise<SystemHealth> {
   return proxyGet<SystemHealth>("api/system/health");
 }
 
+export interface SetDataSourceResult {
+  data_source: string;
+  previous: string;
+  pairs_cleared: boolean;
+}
+
+/** Switch the app-wide market-data source (synthetic ↔ live dYdX) (issue #43). */
+export function setDataSource(source: string): Promise<SetDataSourceResult> {
+  return proxyPost<SetDataSourceResult>("api/system/data-source", { source });
+}
+
 // ── Cointegration scan & pairs (Phase 2) ─────────────────────────────────────
 
 export interface PairRecord {

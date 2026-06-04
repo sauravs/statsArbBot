@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 import config
 from auth import require_api_key
+from db.scan_repository import get_scan_repository
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +51,43 @@ async def system_health() -> dict:
         # the live indexer). Lets the UI show a DEMO/LIVE data badge (issue #42).
         "data_source": config.SCAN_DATA_SOURCE,
     }
+
+
+class DataSourceBody(BaseModel):
+    source: str
+
+
+@router.post("/api/system/data-source", dependencies=[Depends(require_api_key)])
+async def set_data_source(body: DataSourceBody) -> dict:
+    """
+    Switch the app-wide market-data source at runtime (issue #43).
+
+    "fake" → synthetic demo markets; "dydx" → the live indexer. Takes effect for
+    subsequent requests without a restart (no order placement — a read-only data
+    switch). Resets to the env default on restart.
+
+    Switching **clears the latest scan's pairs** for the default scope, since
+    pairs found under the previous source (e.g. the demo markets) are meaningless
+    under the new one — the UI then prompts a re-scan.
+    """
+    source = body.source.strip().lower()
+    if source not in config.VALID_DATA_SOURCES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"source must be one of {list(config.VALID_DATA_SOURCES)}.",
+        )
+
+    previous = config.SCAN_DATA_SOURCE
+    config.set_scan_data_source(source)
+
+    switched = source != previous
+    if switched:
+        try:
+            await get_scan_repository().replace_scan_results(
+                [], exchange=config.DEFAULT_EXCHANGE, mode=config.DEFAULT_MODE
+            )
+        except Exception as exc:  # don't fail the switch on a clear hiccup
+            logger.warning("clearing pairs after data-source switch failed: %s", exc)
+
+    logger.info("data source set to %s (was %s)", source, previous)
+    return {"data_source": source, "previous": previous, "pairs_cleared": switched}
