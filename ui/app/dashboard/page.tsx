@@ -40,44 +40,47 @@ export default function DashboardPage() {
             unknown={!health && !error}
           />
           <StatusDot label="DB" ok={dbConnected} unknown={!health && !error} />
+          <DataSourceBadge source={health?.data_source} />
+          {/* Active page → highlighted (this nav lives only on the dashboard). */}
           <Link
             href="/dashboard"
             data-testid="nav-manual"
-            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            aria-current="page"
+            className="rounded-lg whitespace-nowrap border border-blue/60 bg-blue/10 px-3 py-1.5 font-medium text-text transition-colors"
           >
             Manual Trading
           </Link>
           <Link
             href="/dashboard/sim"
             data-testid="nav-sim"
-            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
             Simulation
           </Link>
           <Link
             href="/dashboard/ff"
             data-testid="nav-ff"
-            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
             Fast-Forward
           </Link>
           <Link
             href="/dashboard/backtest"
             data-testid="nav-backtest"
-            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
             Backtest
           </Link>
           <Link
             href="/dashboard/live"
             data-testid="nav-live"
-            className="rounded-lg border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
             Live Bot
           </Link>
           <button
             onClick={logout}
-            className="rounded-lg border border-border px-3 py-1.5 text-muted hover:text-text hover:border-blue/60 transition-colors"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted hover:text-text hover:border-blue/60 transition-colors"
           >
             Log out
           </button>
@@ -112,6 +115,30 @@ function StatusDot({
     <span className="flex items-center gap-1.5 text-muted">
       <span className={`h-2 w-2 rounded-full ${color}`} />
       {label}
+    </span>
+  );
+}
+
+// Which market-data source is live: synthetic demo data vs the real dYdX
+// indexer (issue #42). Hidden until the source is known.
+function DataSourceBadge({ source }: { source?: string }) {
+  if (!source) return null;
+  const isDemo = source === "fake";
+  return (
+    <span
+      data-testid="data-source-badge"
+      title={
+        isDemo
+          ? "Synthetic demo data (SCAN_DATA_SOURCE=fake)"
+          : "Live dYdX market data"
+      }
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+        isDemo
+          ? "bg-yellow/20 text-yellow"
+          : "bg-green/20 text-green"
+      }`}
+    >
+      {isDemo ? "DEMO DATA" : "LIVE DATA"}
     </span>
   );
 }

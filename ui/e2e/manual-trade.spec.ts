@@ -36,11 +36,18 @@ test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
     await login(page);
     await ensurePairs(page);
 
-    // Header nav has a "Manual Trading" entry linking home (#37 PR-1).
+    // Header nav has a "Manual Trading" entry linking home (#37 PR-1), shown
+    // active on its own page (#42).
     const navManual = page.getByTestId("nav-manual");
     await expect(navManual).toBeVisible();
     await expect(navManual).toHaveText("Manual Trading");
     await expect(navManual).toHaveAttribute("href", "/dashboard");
+    await expect(navManual).toHaveAttribute("aria-current", "page");
+
+    // Header shows the data-source badge (fake mode → "DEMO DATA") (#42).
+    const badge = page.getByTestId("data-source-badge");
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText("DEMO DATA");
 
     // PAIR column header names base vs quote.
     await expect(

@@ -38,3 +38,9 @@ def test_system_health_accepts_valid_key():
     body = resp.json()
     assert body["status"] == "ok"
     assert "database" in body
+
+
+def test_system_health_reports_data_source():
+    # The UI's DEMO/LIVE data badge reads this field (issue #42).
+    resp = client.get("/api/system/health", headers={"X-API-Key": config.API_KEY})
+    assert resp.json()["data_source"] == config.SCAN_DATA_SOURCE

@@ -125,7 +125,7 @@ export default function ManualTradesPanel({
         <div className="overflow-x-auto">
           <table className="w-full text-sm" data-testid="manual-table">
             <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
+              <tr className="whitespace-nowrap border-b border-border text-xs uppercase tracking-wider text-muted">
                 <th className="px-3 py-2 text-left">Pair</th>
                 <th className="px-3 py-2 text-right">Z @ entry</th>
                 <th className="px-3 py-2 text-right">Capital (1 / 2)</th>
@@ -139,7 +139,7 @@ export default function ManualTradesPanel({
               {trades.map((t) => (
                 <tr
                   key={t.id}
-                  className="border-b border-border/50"
+                  className="whitespace-nowrap border-b border-border/50"
                   data-testid="manual-row"
                 >
                   <td className="px-3 py-2 font-medium text-text">
