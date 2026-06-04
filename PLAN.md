@@ -164,6 +164,12 @@ Phases are complete; from here, work is largely **bug fixes found while running 
 
 Rationale: a durable, labelled issue trail lets future sessions run `gh issue list` and instantly understand the app's known problems, history, and fixes — extending §6.1's mechanism from review findings to runtime bugs.
 
+**Labelling convention (two labels per item — type + area):**
+- **Type label** — `bug` (defect) or `enhancement` (planned improvement). `code-review` stays reserved for §6.1 review findings.
+- **Area label** — `area:<section>` (e.g. `area:manual-trading`, `area:live-bot`, `area:simulation`, `area:fast-forward`, `area:backtest`, `area:scan`), created as each section is reached. So every issue/PR carries *both* (e.g. `enhancement` + `area:manual-trading`), and `gh issue list --label area:<section>` / `gh pr list --label area:<section>` gives a complete per-section view.
+- **Title prefix** `<Section>: …` (e.g. `Manual Trading: …`) and **branch prefix** `fix/<section>-…` or `feat/<section>-…` reinforce the grouping. (No custom IDs — GitHub's `#N` numbering + labels are the source of truth.)
+- **Workflow (post-Phase-10):** validate the app **section by section** (vertical slices, PLAN §1). Per section: test → record findings as labelled issues *as agreed* → fix blocking bugs immediately, batch non-blocking fixes/enhancements into 1–2 PRs at the section's end → merge → next section. Deploy only after all sections are validated locally.
+
 ---
 
 ## 7. Session / Context Notes
