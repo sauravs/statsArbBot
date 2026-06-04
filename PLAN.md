@@ -155,6 +155,15 @@ Every phase ends with a code review (`/code-review` or `/code-review ultra`). Fo
 
 Rationale: open issues track outstanding work future sessions must find; already-fixed findings live in the PR history. (See PR #1 for the Phase 0 example: six findings, all fixed in-PR and recorded in the PR comment rather than as issues.)
 
+### 6.2 Bugs found during testing / operation → issue tracking
+Phases are complete; from here, work is largely **bug fixes found while running the app** (local testing or live). The convention (so a fresh session inherits a complete, searchable bug history via `gh issue list --label bug`):
+1. **Triage, then agree.** The operator describes the behaviour; the agent and operator **mutually confirm it's a real bug** (not expected behaviour, config, or a testnet quirk) before filing — don't file expected behaviour as bugs.
+2. **Open a GitHub issue** with `gh issue create --label bug`, titled with the defect, body containing **repro steps + expected vs actual + affected files**. (The `bug` label exists; `code-review` is reserved for review findings.)
+3. **Fix on its own branch** named `fix-<slug>` (one branch + PR per bug, separate from any phase branch), and reference the issue in the PR/commit so it **auto-closes on merge** (`Closes #NN`).
+4. The agent **always confirms with the operator before opening an issue or a fix PR**; PRs are merged manually by the operator (see PROGRESS "Current Position").
+
+Rationale: a durable, labelled issue trail lets future sessions run `gh issue list` and instantly understand the app's known problems, history, and fixes — extending §6.1's mechanism from review findings to runtime bugs.
+
 ---
 
 ## 7. Session / Context Notes
