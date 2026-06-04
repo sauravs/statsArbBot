@@ -88,7 +88,11 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-6 py-8">
+      {/* Wide container (issue #53) so the Cointegrated Pairs table — incl. the
+          Record/Action column — fits on a maximised window without horizontal
+          scroll. The table keeps overflow-x-auto as the fallback for very narrow
+          windows. */}
+      <section className="mx-auto max-w-screen-2xl px-6 py-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-text">Manual Trading</h2>
           {/* Data-source mode lives with the section it scopes the dashboard to,
