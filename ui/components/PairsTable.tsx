@@ -104,15 +104,17 @@ export default function PairsTable({
               <th
                 key={h.key}
                 onClick={() => toggleSort(h.key)}
-                className={`${h.align} cursor-pointer select-none py-2 px-3 hover:text-text`}
+                className={`${h.align} cursor-pointer select-none whitespace-nowrap py-2 px-3 hover:text-text`}
               >
                 {h.label}
                 {sortKey === h.key && (asc ? " ↑" : " ↓")}
               </th>
             ))}
-            <th className="px-3 py-2 text-right">Price (Base / Quote)</th>
-            <th className="px-3 py-2 text-right">Signal</th>
-            <th className="px-3 py-2 text-right">Action</th>
+            <th className="whitespace-nowrap px-3 py-2 text-right">
+              Price (Base / Quote)
+            </th>
+            <th className="whitespace-nowrap px-3 py-2 text-right">Signal</th>
+            <th className="whitespace-nowrap px-3 py-2 text-right">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -124,7 +126,7 @@ export default function PairsTable({
                 className="border-b border-border/50 hover:bg-bg/40"
                 data-testid="pair-row"
               >
-                <td className="px-3 py-2 font-medium">
+                <td className="whitespace-nowrap px-3 py-2 font-medium">
                   <Link
                     href={`/dashboard/pair/${encodeURIComponent(p.base_market)}/${encodeURIComponent(p.quote_market)}`}
                     className="text-text hover:text-blue hover:underline"
@@ -157,14 +159,16 @@ export default function PairsTable({
                   {num(p.p_value, 4)}
                 </td>
                 <td
-                  className="px-3 py-2 text-right tabular-nums text-muted"
+                  className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted"
                   data-testid="pair-price"
                 >
                   {num(prices[p.base_market] ?? null, 2)}
                   {" / "}
                   {num(prices[p.quote_market] ?? null, 2)}
                 </td>
-                <td className={`px-3 py-2 text-right font-medium ${sig.className}`}>
+                <td
+                  className={`whitespace-nowrap px-3 py-2 text-right font-medium ${sig.className}`}
+                >
                   {sig.label}
                 </td>
                 <td className="px-3 py-2 text-right">

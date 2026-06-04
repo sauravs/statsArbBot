@@ -45,4 +45,7 @@ async def system_health() -> dict:
         "status": "ok",
         "database": db_status,
         "environment": config.ENVIRONMENT,
+        # The active market-data source ("fake" → synthetic demo data, "dydx" →
+        # the live indexer). Lets the UI show a DEMO/LIVE data badge (issue #42).
+        "data_source": config.SCAN_DATA_SOURCE,
     }

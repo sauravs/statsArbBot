@@ -11,6 +11,8 @@ export interface SystemHealth {
   status: string;
   database: string;
   environment: string;
+  /** Active market-data source: "fake" (synthetic demo) or "dydx" (live indexer). */
+  data_source?: string;
 }
 
 async function proxyGet<T>(path: string): Promise<T> {
