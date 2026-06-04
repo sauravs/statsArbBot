@@ -18,6 +18,7 @@ it). Pure apart from the price fetch — no DB, no config mutation.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -32,6 +33,12 @@ from statcore import (
     latest_zscore,
     rolling_zscore,
 )
+
+logger = logging.getLogger(__name__)
+
+# Cap concurrent per-market price fetches so a large pairs set doesn't burst the
+# live indexer into rate-limiting (issue #50).
+_PRICE_FETCH_CONCURRENCY = 8
 
 
 @dataclass(frozen=True)
@@ -224,15 +231,29 @@ async def current_prices(
     source the charts and the record snapshot use (there is no live ticker).
 
     Markets with no data are omitted from the result (the caller renders "—").
+
+    Resilient by design (issue #50): a single market's failure — including a
+    network error — can never blank the whole batch; it is caught and that market
+    is simply omitted, so the others still render. Concurrency is capped so a
+    large pairs set doesn't burst the indexer into rate-limiting right after a
+    scan (a likely cause of an all-"—" column).
     """
     unique = list(dict.fromkeys(markets))  # de-dupe, preserve order
+    sem = asyncio.Semaphore(_PRICE_FETCH_CONCURRENCY)
 
     async def _one(market: str) -> tuple[str, float] | None:
-        closes = await client.get_historical_closes(market, num_pages=num_pages, now=now)
-        if not closes:
+        try:
+            async with sem:
+                closes = await client.get_historical_closes(
+                    market, num_pages=num_pages, now=now
+                )
+            if not closes:
+                return None
+            latest = max(closes, key=lambda c: c["datetime"])
+            return market, float(latest["close"])
+        except Exception as exc:  # one market must never fail the whole batch
+            logger.warning("current price fetch failed for %s: %s", market, exc)
             return None
-        latest = max(closes, key=lambda c: c["datetime"])
-        return market, float(latest["close"])
 
     results = await asyncio.gather(*(_one(m) for m in unique))
     return {market: price for r in results if r is not None for (market, price) in (r,)}

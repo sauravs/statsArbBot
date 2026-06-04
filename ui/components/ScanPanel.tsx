@@ -46,6 +46,23 @@ export default function ScanPanel({
     }
   }, []);
 
+  // After a scan / data-source switch the live indexer can briefly rate-limit
+  // the price fetch, leaving an all-"—" column; retry a few times with short
+  // backoff so a transient miss self-heals in seconds, not at the 20s poll (#50).
+  const refreshPricesRetrying = useCallback(async () => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const res = await getPairPrices();
+        const next = res.prices ?? {};
+        setPrices(next);
+        if (Object.keys(next).length > 0) return;
+      } catch {
+        /* ignore and retry */
+      }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 2500));
+    }
+  }, []);
+
   const refreshPairs = useCallback(async () => {
     const res = await getPairs();
     setPairs(res.pairs);
@@ -70,13 +87,13 @@ export default function ScanPanel({
         if (!s.running) {
           stopPolling();
           await refreshPairs();
-          await refreshPrices();
+          await refreshPricesRetrying();
         }
       } catch {
         stopPolling();
       }
     }, POLL_MS);
-  }, [refreshPairs, refreshPrices, stopPolling]);
+  }, [refreshPairs, refreshPricesRetrying, stopPolling]);
 
   // Initial load: pairs + whether a scan is already running.
   useEffect(() => {
@@ -105,9 +122,9 @@ export default function ScanPanel({
   useEffect(() => {
     if (reloadKey > 0) {
       refreshPairs();
-      refreshPrices();
+      refreshPricesRetrying();
     }
-  }, [reloadKey, refreshPairs, refreshPrices]);
+  }, [reloadKey, refreshPairs, refreshPricesRetrying]);
 
   async function runScan(quick: boolean) {
     setError(null);

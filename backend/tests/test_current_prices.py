@@ -32,3 +32,20 @@ async def test_dedupes_markets_and_omits_missing():
 async def test_empty_markets_returns_empty():
     client = FakeDydxClient({"AAA-USD": [1.0]})
     assert await current_prices(client, []) == {}
+
+
+@pytest.mark.asyncio
+async def test_one_market_raising_does_not_blank_the_batch():
+    # A market whose fetch *raises* (e.g. a network error) must not take down the
+    # whole batch — the others still resolve (issue #50).
+    class FlakyClient(FakeDydxClient):
+        async def get_historical_closes(self, market, *, num_pages=None, now=None):
+            if market == "BOOM-USD":
+                raise RuntimeError("network blip")
+            return await super().get_historical_closes(
+                market, num_pages=num_pages, now=now
+            )
+
+    client = FlakyClient({"AAA-USD": [1.0, 2.0], "BBB-USD": [9.0]})
+    prices = await current_prices(client, ["AAA-USD", "BOOM-USD", "BBB-USD"])
+    assert prices == {"AAA-USD": 2.0, "BBB-USD": 9.0}
