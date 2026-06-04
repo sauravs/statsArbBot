@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getPairs,
+  getPairPrices,
   getScanStatus,
   startScan,
   type PairRecord,
@@ -13,6 +14,9 @@ import ZThresholdSlider from "./ZThresholdSlider";
 import RecordManualTradeModal from "./RecordManualTradeModal";
 
 const POLL_MS = 2000;
+// Current prices are a light, best-effort read; refresh on a slow interval so a
+// real dydx-mode fetch stays cheap (issue #37 PR-2).
+const PRICE_POLL_MS = 20000;
 
 export default function ScanPanel({
   onManualRecorded,
@@ -25,7 +29,19 @@ export default function ScanPanel({
   const [threshold, setThreshold] = useState(1.5);
   const [error, setError] = useState<string | null>(null);
   const [recordPair, setRecordPair] = useState<PairRecord | null>(null);
+  const [prices, setPrices] = useState<Record<string, number>>({});
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Best-effort: prices are supplementary, so a failure leaves the last values
+  // and the table renders "—" for any unpriced leg (no error surfaced).
+  const refreshPrices = useCallback(async () => {
+    try {
+      const res = await getPairPrices();
+      setPrices(res.prices ?? {});
+    } catch {
+      /* keep previous prices */
+    }
+  }, []);
 
   const refreshPairs = useCallback(async () => {
     const res = await getPairs();
@@ -51,18 +67,20 @@ export default function ScanPanel({
         if (!s.running) {
           stopPolling();
           await refreshPairs();
+          await refreshPrices();
         }
       } catch {
         stopPolling();
       }
     }, POLL_MS);
-  }, [refreshPairs, stopPolling]);
+  }, [refreshPairs, refreshPrices, stopPolling]);
 
   // Initial load: pairs + whether a scan is already running.
   useEffect(() => {
     (async () => {
       try {
         await refreshPairs();
+        await refreshPrices();
         const s = await getScanStatus();
         setStatus(s);
         if (s.running) startPolling();
@@ -71,7 +89,13 @@ export default function ScanPanel({
       }
     })();
     return stopPolling;
-  }, [refreshPairs, startPolling, stopPolling]);
+  }, [refreshPairs, refreshPrices, startPolling, stopPolling]);
+
+  // Slow, independent price refresh while the table has rows.
+  useEffect(() => {
+    const id = setInterval(refreshPrices, PRICE_POLL_MS);
+    return () => clearInterval(id);
+  }, [refreshPrices]);
 
   async function runScan(quick: boolean) {
     setError(null);
@@ -152,6 +176,7 @@ export default function ScanPanel({
       <PairsTable
         pairs={pairs}
         threshold={threshold}
+        prices={prices}
         onRecord={(p) => setRecordPair(p)}
       />
 

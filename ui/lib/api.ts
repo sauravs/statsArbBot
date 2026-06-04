@@ -94,6 +94,17 @@ export function getPairs(): Promise<PairsResponse> {
   return proxyGet<PairsResponse>("api/pairs");
 }
 
+/** Current price (latest close) per market across the latest scan's pairs. */
+export interface PairPricesResponse {
+  prices: Record<string, number>;
+  error?: string | null;
+}
+
+/** Light, pollable price read for the pairs table (issue #37 PR-2). */
+export function getPairPrices(): Promise<PairPricesResponse> {
+  return proxyGet<PairPricesResponse>("api/pairs/prices");
+}
+
 export function getScanStatus(): Promise<ScanStatus> {
   return proxyGet<ScanStatus>("api/scan/status");
 }
@@ -185,6 +196,21 @@ export function recordManualTrade(input: {
 /** List recorded manual trades (newest first). */
 export function getManualTrades(): Promise<ManualTradesResponse> {
   return proxyGet<ManualTradesResponse>("api/manual");
+}
+
+/** Portfolio summary across manual trades (issue #37 PR-2). */
+export interface ManualPortfolio {
+  allocated_capital: number;
+  unrealized_pnl: number | null;
+  realized_pnl: number;
+  open_count: number;
+  closed_count: number;
+  error?: string | null;
+}
+
+/** Allocated capital + live mark-to-market over OPEN trades, realized over CLOSED. */
+export function getManualPortfolio(): Promise<ManualPortfolio> {
+  return proxyGet<ManualPortfolio>("api/manual/portfolio");
 }
 
 /** Mark a manual trade closed with exit prices; server computes & stores P&L. */

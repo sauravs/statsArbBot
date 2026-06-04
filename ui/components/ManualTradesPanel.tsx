@@ -1,8 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getManualTrades, type ManualTrade } from "@/lib/api";
+import {
+  getManualPortfolio,
+  getManualTrades,
+  type ManualPortfolio,
+  type ManualTrade,
+} from "@/lib/api";
 import CloseManualTradeModal from "./CloseManualTradeModal";
+
+// Mark-to-market refreshes on a slow interval so a real dydx-mode price fetch
+// stays cheap (issue #37 PR-2).
+const PORTFOLIO_POLL_MS = 20000;
+
+function usd(v: number): string {
+  return `${v < 0 ? "-" : ""}$${Math.abs(v).toFixed(2)}`;
+}
 
 // Separate "Manual Trades" section (PRD F4.6) — not mixed with bot trades.
 // Lists recorded trades with their lifecycle: OPEN trades can be marked closed
@@ -13,8 +26,18 @@ export default function ManualTradesPanel({
   refreshKey: number;
 }) {
   const [trades, setTrades] = useState<ManualTrade[]>([]);
+  const [portfolio, setPortfolio] = useState<ManualPortfolio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<ManualTrade | null>(null);
+
+  // Best-effort mark-to-market; a failure keeps the last summary.
+  const refreshPortfolio = useCallback(async () => {
+    try {
+      setPortfolio(await getManualPortfolio());
+    } catch {
+      /* keep previous summary */
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -24,11 +47,18 @@ export default function ManualTradesPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load manual trades");
     }
-  }, []);
+    await refreshPortfolio();
+  }, [refreshPortfolio]);
 
   useEffect(() => {
     refresh();
   }, [refresh, refreshKey]);
+
+  // Slow, independent mark-to-market refresh.
+  useEffect(() => {
+    const id = setInterval(refreshPortfolio, PORTFOLIO_POLL_MS);
+    return () => clearInterval(id);
+  }, [refreshPortfolio]);
 
   return (
     <div className="mt-6 rounded-xl border border-border bg-card p-5">
@@ -40,6 +70,46 @@ export default function ManualTradesPanel({
           </span>
         </h2>
       </div>
+
+      {portfolio && (portfolio.open_count > 0 || portfolio.closed_count > 0) && (
+        <div
+          className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4"
+          data-testid="portfolio-summary"
+        >
+          <SummaryStat
+            label="Allocated (open)"
+            value={usd(portfolio.allocated_capital)}
+            testid="portfolio-allocated"
+          />
+          <SummaryStat
+            label="Unrealized P&L"
+            value={
+              portfolio.unrealized_pnl == null
+                ? "—"
+                : usd(portfolio.unrealized_pnl)
+            }
+            tone={
+              portfolio.unrealized_pnl == null
+                ? "muted"
+                : portfolio.unrealized_pnl >= 0
+                  ? "green"
+                  : "red"
+            }
+            testid="portfolio-unrealized"
+          />
+          <SummaryStat
+            label="Realized P&L"
+            value={usd(portfolio.realized_pnl)}
+            tone={portfolio.realized_pnl >= 0 ? "green" : "red"}
+            testid="portfolio-realized"
+          />
+          <SummaryStat
+            label="Open / Closed"
+            value={`${portfolio.open_count} / ${portfolio.closed_count}`}
+            testid="portfolio-counts"
+          />
+        </div>
+      )}
 
       {error && <p className="mb-3 text-sm text-red">{error}</p>}
 
@@ -136,6 +206,38 @@ export default function ManualTradesPanel({
           onClosed={refresh}
         />
       )}
+    </div>
+  );
+}
+
+function SummaryStat({
+  label,
+  value,
+  tone = "default",
+  testid,
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "green" | "red" | "muted";
+  testid: string;
+}) {
+  const valueColor =
+    tone === "green"
+      ? "text-green"
+      : tone === "red"
+        ? "text-red"
+        : tone === "muted"
+          ? "text-muted"
+          : "text-text";
+  return (
+    <div className="rounded-lg border border-border bg-bg/40 px-3 py-2">
+      <div className="text-xs uppercase tracking-wider text-muted">{label}</div>
+      <div
+        className={`mt-0.5 text-lg font-semibold tabular-nums ${valueColor}`}
+        data-testid={testid}
+      >
+        {value}
+      </div>
     </div>
   );
 }

@@ -21,7 +21,7 @@ import config
 from auth import require_api_key
 from db.scan_repository import get_scan_repository
 from exchanges import make_data_client
-from marketdata.pair_series import build_pair_series
+from marketdata.pair_series import build_pair_series, current_prices
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,44 @@ async def get_pairs(
         "mode": mode,
         "error": None,
     }
+
+
+@router.get("/api/pairs/prices")
+async def get_pair_prices(
+    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    mode: str = Query(default=config.DEFAULT_MODE),
+) -> dict:
+    """
+    Current price (latest close) for every market in the latest scan's pairs
+    (issue #37 PR-2). A light read — each unique market fetched once — meant to
+    be polled by the dashboard alongside the pairs table.
+
+    Stays 200 with ``prices: {}`` + an ``error`` string on a DB / fetch failure
+    so the table still renders (prices just show "—").
+    """
+    try:
+        pairs = await get_scan_repository().get_latest_pairs(exchange=exchange, mode=mode)
+    except Exception as exc:
+        logger.error("get_pair_prices DB read failed: %s", exc)
+        return {"prices": {}, "error": "Could not read pairs from the database."}
+
+    markets = [m for p in pairs for m in (p["base_market"], p["quote_market"])]
+    if not markets:
+        return {"prices": {}, "error": None}
+
+    client = make_data_client()
+    try:
+        prices = await current_prices(client, markets)
+    except Exception as exc:
+        logger.error("get_pair_prices fetch failed: %s", exc)
+        return {"prices": {}, "error": "Could not fetch current prices."}
+    finally:
+        try:
+            await client.aclose()
+        except Exception as exc:  # must not mask a real result/error
+            logger.warning("data client close failed: %s", exc)
+
+    return {"prices": prices, "error": None}
 
 
 @router.get("/api/pairs/{base}/{quote}/series")

@@ -15,6 +15,8 @@ type SortKey =
 interface Props {
   pairs: PairRecord[];
   threshold: number;
+  /** Current price (latest close) per market; missing markets render "—". */
+  prices?: Record<string, number>;
   onRecord?: (pair: PairRecord) => void;
 }
 
@@ -40,7 +42,12 @@ function num(v: number | null, digits = 2): string {
   return v === null || Number.isNaN(v) ? "—" : v.toFixed(digits);
 }
 
-export default function PairsTable({ pairs, threshold, onRecord }: Props) {
+export default function PairsTable({
+  pairs,
+  threshold,
+  prices = {},
+  onRecord,
+}: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("zero_crossings");
   const [asc, setAsc] = useState(false);
 
@@ -103,6 +110,7 @@ export default function PairsTable({ pairs, threshold, onRecord }: Props) {
                 {sortKey === h.key && (asc ? " ↑" : " ↓")}
               </th>
             ))}
+            <th className="px-3 py-2 text-right">Price (Base / Quote)</th>
             <th className="px-3 py-2 text-right">Signal</th>
             <th className="px-3 py-2 text-right">Action</th>
           </tr>
@@ -147,6 +155,14 @@ export default function PairsTable({ pairs, threshold, onRecord }: Props) {
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {num(p.p_value, 4)}
+                </td>
+                <td
+                  className="px-3 py-2 text-right tabular-nums text-muted"
+                  data-testid="pair-price"
+                >
+                  {num(prices[p.base_market] ?? null, 2)}
+                  {" / "}
+                  {num(prices[p.quote_market] ?? null, 2)}
                 </td>
                 <td className={`px-3 py-2 text-right font-medium ${sig.className}`}>
                   {sig.label}
