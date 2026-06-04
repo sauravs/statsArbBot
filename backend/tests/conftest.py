@@ -649,11 +649,13 @@ class FakeManualTradeRepository:
         self.store[trade_id] = row
         return dict(row)
 
-    async def list(self, *, exchange, mode) -> list[dict]:
+    async def list(self, *, exchange, mode, data_source=None) -> list[dict]:
         rows = [
             r
             for r in self.store.values()
-            if r["exchange"] == exchange and r["mode"] == mode
+            if r["exchange"] == exchange
+            and r["mode"] == mode
+            and (data_source is None or r.get("data_source") == data_source)
         ]
         # Mirror PrismaManualTradeRepository: newest first.
         return [dict(r) for r in sorted(rows, key=lambda r: r["recorded_at"], reverse=True)]

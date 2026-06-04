@@ -105,6 +105,9 @@ export default function DashboardPage() {
               onSwitched={(next) => {
                 setHealth((h) => (h ? { ...h, data_source: next } : h));
                 setDataSourceKey((k) => k + 1);
+                // Manual trades are now filtered by source → re-fetch so the
+                // other source's trades drop out of the view immediately.
+                setManualRefresh((n) => n + 1);
               }}
             />
           </div>

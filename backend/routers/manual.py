@@ -102,6 +102,9 @@ async def record_manual_trade(body: RecordBody) -> dict:
     data = {
         "exchange": body.exchange,
         "mode": body.mode,
+        # Stamp the active data source so demo trades stay separable from live
+        # ones in the dashboard (issue #43 follow-up).
+        "data_source": config.SCAN_DATA_SOURCE,
         "base_market": body.base_market,
         "quote_market": body.quote_market,
         "hedge_ratio": record["hedge_ratio"],
@@ -125,7 +128,11 @@ async def list_manual_trades(
 ) -> dict:
     _validate_market_scope(exchange, mode)
     try:
-        trades = await get_manual_trade_repository().list(exchange=exchange, mode=mode)
+        # Only trades recorded under the active data source — so demo trades
+        # don't bleed into the live view and vice-versa (issue #43 follow-up).
+        trades = await get_manual_trade_repository().list(
+            exchange=exchange, mode=mode, data_source=config.SCAN_DATA_SOURCE
+        )
     except Exception as exc:
         logger.error("list_manual_trades DB read failed: %s", exc)
         return {"trades": [], "count": 0, "error": "Could not read manual trades."}
@@ -151,7 +158,9 @@ async def manual_portfolio(
     """
     _validate_market_scope(exchange, mode)
     try:
-        trades = await get_manual_trade_repository().list(exchange=exchange, mode=mode)
+        trades = await get_manual_trade_repository().list(
+            exchange=exchange, mode=mode, data_source=config.SCAN_DATA_SOURCE
+        )
     except Exception as exc:
         logger.error("manual_portfolio DB read failed: %s", exc)
         return {

@@ -242,3 +242,36 @@ def test_portfolio_empty(client):
 def test_portfolio_rejects_unknown_mode(client):
     r = client.get("/api/manual/portfolio", params={"mode": "bogus"}, headers=AUTH)
     assert r.status_code == 422
+
+
+# --- issue #43 follow-up: manual trades are scoped to the active data source ---
+
+
+def test_trade_stamped_with_active_data_source(client):
+    # The scan/record fixture runs against the live (dydx) source, so the trade
+    # is stamped with whatever source is active at record time.
+    _scan(client)
+    trade = _record(client).json()
+    assert trade["data_source"] == config.SCAN_DATA_SOURCE
+
+
+def test_list_and_portfolio_hide_other_source_trades(client, monkeypatch):
+    _scan(client)
+    _record(client, c1=150.0, c2=150.0)  # stamped with the active source
+    recorded_source = config.SCAN_DATA_SOURCE
+    other = "fake" if recorded_source != "fake" else "dydx"
+
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 1
+    assert client.get("/api/manual/portfolio", headers=AUTH).json()["open_count"] == 1
+
+    # Switch the active source → the trade (recorded under the other) is hidden,
+    # not deleted.
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", other)
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 0
+    portfolio = client.get("/api/manual/portfolio", headers=AUTH).json()
+    assert portfolio["open_count"] == 0
+    assert portfolio["allocated_capital"] == pytest.approx(0.0)
+
+    # Switch back → it reappears.
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", recorded_source)
+    assert client.get("/api/manual", headers=AUTH).json()["count"] == 1

@@ -156,6 +156,10 @@ model ManualTrade {
   id               String            @id @default(cuid())
   exchange         Exchange
   mode             TradingMode
+  // Market-data source the trade was recorded under ("fake" demo vs "dydx"
+  // live). Lets the dashboard separate demo trades from live ones (issue #43
+  // follow-up) without deleting either. Defaults to the live source.
+  data_source      String            @default("dydx")
   base_market      String
   quote_market     String
   hedge_ratio      Float
