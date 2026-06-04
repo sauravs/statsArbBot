@@ -13,24 +13,14 @@ strategies by net P&L (F8.3). Tests inject ``FakeStrategyRepository``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+
+from db.serde import enum_value as _enum_value
+from db.serde import iso as _iso
 
 logger = logging.getLogger(__name__)
 
 # JSON result columns — wrapped in prisma.Json on write, returned parsed on read.
 _JSON_FIELDS = ("equity_curve", "per_window", "per_pair_pnl", "exit_reasons")
-
-
-def _iso(value) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
-
-
-def _enum_value(value) -> str:
-    return getattr(value, "value", value)
 
 
 class PrismaStrategyRepository:

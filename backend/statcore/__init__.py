@@ -24,6 +24,7 @@ from .cointegration import (
     fit_hedge_ratio,
 )
 from .halflife import half_life
+from .pnl import leg_pnl, side_sign
 from .signals import (
     EntrySignal,
     ExitReason,
@@ -52,6 +53,9 @@ __all__ = [
     # zscore
     "rolling_zscore",
     "latest_zscore",
+    # pnl
+    "leg_pnl",
+    "side_sign",
     # signals
     "EntrySignal",
     "ExitSignal",

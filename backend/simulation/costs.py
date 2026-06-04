@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from statcore import leg_pnl
+
 # Position directions (also stored on SimPosition.direction).
 LONG_BASE = "LONG_BASE"
 SHORT_BASE = "SHORT_BASE"
@@ -51,9 +53,8 @@ def apply_slippage(side: str, raw_price: float, slippage_pct: float) -> float:
 
 
 def _leg_pnl(side: str, entry_price: float, exit_price: float, size: float) -> float:
-    """Signed per-leg P&L: +1 for a long (BUY) leg, −1 for a short (SELL) leg."""
-    sign = 1.0 if side == "BUY" else -1.0
-    return sign * (exit_price - entry_price) * size
+    """Signed per-leg P&L (positional adapter over ``statcore.leg_pnl``)."""
+    return leg_pnl(side=side, entry_price=entry_price, exit_price=exit_price, size=size)
 
 
 @dataclass(frozen=True)

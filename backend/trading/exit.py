@@ -32,7 +32,7 @@ from statcore import evaluate_exit, opposite_side
 from trading.alerts import Alerter
 from trading.approval import ApprovalGate
 from trading.broker import TradeClient
-from trading.pnl import compute_live_pnl
+from trading.close import persist_closed_pair
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ async def manage_exits(
         # The position closed outside the bot; the actual fill prices are unknown,
         # so record CLOSED with pnl=None (not a fabricated current-price number).
         if not base_live and not quote_live:
-            await _close_in_db(
+            await persist_closed_pair(
                 repo, trade, alerter,
                 reason="RECONCILED", exit_z=None, now=now_dt,
                 base_fill=None, quote_fill=None,
@@ -112,7 +112,7 @@ async def manage_exits(
                 )
                 outcomes.append({"pair": [base, quote], "action": "orphan_close_failed"})
                 continue
-            await _close_in_db(
+            await persist_closed_pair(
                 repo, trade, alerter,
                 reason="ORPHANED", exit_z=None, now=now_dt,
                 base_fill=None, quote_fill=None,
@@ -183,7 +183,7 @@ async def manage_exits(
             outcomes.append({"pair": [base, quote], "action": "close_failed"})
             continue
 
-        await _close_in_db(
+        await persist_closed_pair(
             repo, trade, alerter,
             reason=exit_sig.reason.value, exit_z=z, now=now_dt,
             base_fill=r1.price, quote_fill=r2.price,
@@ -199,47 +199,3 @@ async def manage_exits(
         "message": f"Exit management complete — {closed}/{len(open_trades)} closed.",
         "outcomes": outcomes,
     }
-
-
-async def _close_in_db(
-    repo, trade, alerter,
-    *, reason: str, exit_z: float | None, now: datetime,
-    base_fill: float | None, quote_fill: float | None,
-) -> None:
-    """Persist a CLOSED trade.
-
-    When both legs were closed by the bot (``base_fill``/``quote_fill`` known),
-    record the real per-leg P&L from those fill prices. When the legs closed
-    outside the bot (reconcile/orphan — fills unknown), record ``pnl=None`` and
-    null exit prices rather than fabricating a number from unrelated current
-    prices.
-    """
-    if base_fill is not None and quote_fill is not None:
-        pnl = compute_live_pnl(
-            base_side=trade["base_side"],
-            quote_side=trade["quote_side"],
-            base_size=trade["base_size"],
-            quote_size=trade["quote_size"],
-            entry_price_leg1=trade["entry_price_leg1"],
-            entry_price_leg2=trade["entry_price_leg2"],
-            exit_price_leg1=base_fill,
-            exit_price_leg2=quote_fill,
-        )
-        pnl_value: float | None = pnl.pnl
-    else:
-        pnl_value = None  # actual fills unknown — do not fabricate P&L
-
-    await repo.close_trade(
-        trade["id"],
-        exit_price_leg1=base_fill,
-        exit_price_leg2=quote_fill,
-        exit_z_score=exit_z,
-        exit_reason=reason,
-        pnl=pnl_value,
-        closed_at=now,
-    )
-    pnl_str = f"${pnl_value:,.2f}" if pnl_value is not None else "unknown"
-    await alerter.notify(
-        f"Trade closed: {trade['base_market']}/{trade['quote_market']} "
-        f"({reason}) P&L={pnl_str}"
-    )
