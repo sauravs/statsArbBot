@@ -49,15 +49,18 @@ test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText("DEMO DATA");
 
-    // PAIR column header names base vs quote.
+    // PAIR column header present (base/quote explained via its ⓘ tooltip).
     await expect(
-      page.getByTestId("pairs-table").getByText("Pair (Base / Quote)"),
+      page.getByTestId("pairs-table").getByText("Pair", { exact: true }),
     ).toBeVisible();
 
-    // Each pair row has an explicit "Charts ›" affordance to the 3-panel charts.
+    // Header info-tooltips (#49) are present.
+    await expect(page.getByTestId("info-tip").first()).toBeVisible();
+
+    // Each pair row has a chart affordance linking to the 3-panel charts.
     const chartsLink = page.getByTestId("pair-charts-link").first();
     await expect(chartsLink).toBeVisible();
-    await expect(chartsLink).toHaveText("Charts ›");
+    await expect(chartsLink).toHaveAttribute("href", /\/dashboard\/pair\//);
 
     // Signal names both legs when a pair is active.
     await setThreshold(page, "0.5");

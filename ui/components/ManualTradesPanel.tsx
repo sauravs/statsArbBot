@@ -8,6 +8,7 @@ import {
   type ManualTrade,
 } from "@/lib/api";
 import CloseManualTradeModal from "./CloseManualTradeModal";
+import InfoTip from "./InfoTip";
 
 // Mark-to-market refreshes on a slow interval so a real dydx-mode price fetch
 // stays cheap (issue #37 PR-2).
@@ -78,11 +79,13 @@ export default function ManualTradesPanel({
         >
           <SummaryStat
             label="Allocated (open)"
+            tip="Total capital committed across OPEN manual trades — the sum of both legs' capital for every open position."
             value={usd(portfolio.allocated_capital)}
             testid="portfolio-allocated"
           />
           <SummaryStat
             label="Unrealized P&L"
+            tip="Live mark-to-market profit/loss on OPEN trades: each leg valued at its current price as if closed now. Updates as prices move."
             value={
               portfolio.unrealized_pnl == null
                 ? "—"
@@ -99,12 +102,14 @@ export default function ManualTradesPanel({
           />
           <SummaryStat
             label="Realized P&L"
+            tip="Booked profit/loss from CLOSED trades — the sum of each closed trade's final per-leg P&L."
             value={usd(portfolio.realized_pnl)}
             tone={portfolio.realized_pnl >= 0 ? "green" : "red"}
             testid="portfolio-realized"
           />
           <SummaryStat
             label="Open / Closed"
+            tip="Count of manual trades currently open vs. already closed (for the active data source)."
             value={`${portfolio.open_count} / ${portfolio.closed_count}`}
             testid="portfolio-counts"
           />
@@ -215,11 +220,13 @@ function SummaryStat({
   value,
   tone = "default",
   testid,
+  tip,
 }: {
   label: string;
   value: string;
   tone?: "default" | "green" | "red" | "muted";
   testid: string;
+  tip?: string;
 }) {
   const valueColor =
     tone === "green"
@@ -231,7 +238,10 @@ function SummaryStat({
           : "text-text";
   return (
     <div className="rounded-lg border border-border bg-bg/40 px-3 py-2">
-      <div className="text-xs uppercase tracking-wider text-muted">{label}</div>
+      <div className="text-xs uppercase tracking-wider text-muted">
+        {label}
+        {tip && <InfoTip text={tip} />}
+      </div>
       <div
         className={`mt-0.5 text-lg font-semibold tabular-nums ${valueColor}`}
         data-testid={testid}
