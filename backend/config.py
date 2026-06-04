@@ -107,6 +107,24 @@ DEFAULT_MODE: str = _env("DEFAULT_MODE", default="forward_test")
 # the scan does not depend on the network or take minutes). See exchanges/demo.py.
 SCAN_DATA_SOURCE: str = _env("SCAN_DATA_SOURCE", default="dydx")
 
+# The market-data sources the runtime toggle (issue #43) may switch between.
+VALID_DATA_SOURCES: tuple[str, ...] = ("fake", "dydx")
+
+
+def set_scan_data_source(value: str) -> None:
+    """Reassign the active market-data source at runtime (issue #43).
+
+    Every reader accesses ``config.SCAN_DATA_SOURCE`` at call time
+    (``make_data_client`` / ``make_price_source`` / the candle source / the FF
+    router), so this takes effect for subsequent requests without a restart. It
+    is **not** persisted — the process resets to the ``SCAN_DATA_SOURCE`` env
+    default on restart (arguably safer: a restart can't leave a stale override).
+    """
+    global SCAN_DATA_SOURCE
+    if value not in VALID_DATA_SOURCES:
+        raise ValueError(f"data source must be one of {VALID_DATA_SOURCES}")
+    SCAN_DATA_SOURCE = value
+
 # CSV half of the dual-write (PRD §3.1 step 7). Relative to the backend dir.
 COINTEGRATED_PAIRS_CSV: str = _env(
     "COINTEGRATED_PAIRS_CSV", default="data/cointegrated_pairs.csv"

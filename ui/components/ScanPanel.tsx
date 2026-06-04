@@ -20,8 +20,11 @@ const PRICE_POLL_MS = 20000;
 
 export default function ScanPanel({
   onManualRecorded,
+  reloadKey = 0,
 }: {
   onManualRecorded?: () => void;
+  /** Bumped by a data-source switch → reload pairs + prices (pairs were cleared). */
+  reloadKey?: number;
 }) {
   const [pairs, setPairs] = useState<PairRecord[]>([]);
   const [scannedAt, setScannedAt] = useState<string | null>(null);
@@ -96,6 +99,15 @@ export default function ScanPanel({
     const id = setInterval(refreshPrices, PRICE_POLL_MS);
     return () => clearInterval(id);
   }, [refreshPrices]);
+
+  // A data-source switch cleared the pairs server-side → reload (reloadKey>0
+  // only; the initial mount is handled by the load effect above).
+  useEffect(() => {
+    if (reloadKey > 0) {
+      refreshPairs();
+      refreshPrices();
+    }
+  }, [reloadKey, refreshPairs, refreshPrices]);
 
   async function runScan(quick: boolean) {
     setError(null);
