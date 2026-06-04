@@ -42,13 +42,6 @@ export default function DashboardPage() {
             unknown={!health && !error}
           />
           <StatusDot label="DB" ok={dbConnected} unknown={!health && !error} />
-          <DataSourceControl
-            source={health?.data_source}
-            onSwitched={(next) => {
-              setHealth((h) => (h ? { ...h, data_source: next } : h));
-              setDataSourceKey((k) => k + 1);
-            }}
-          />
           {/* Active page → highlighted (this nav lives only on the dashboard). */}
           <Link
             href="/dashboard"
@@ -96,7 +89,26 @@ export default function DashboardPage() {
       </header>
 
       <section className="mx-auto max-w-6xl px-6 py-8">
-        <h2 className="mb-4 text-xl font-semibold text-text">Dashboard</h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold text-text">Manual Trading</h2>
+          {/* Data-source mode lives with the section it scopes the dashboard to,
+              so it reads as part of Manual Trading rather than a global header. */}
+          <div
+            className="flex items-center gap-2 text-xs"
+            data-testid="market-data-control"
+          >
+            <span className="uppercase tracking-wider text-muted">
+              Market data
+            </span>
+            <DataSourceControl
+              source={health?.data_source}
+              onSwitched={(next) => {
+                setHealth((h) => (h ? { ...h, data_source: next } : h));
+                setDataSourceKey((k) => k + 1);
+              }}
+            />
+          </div>
+        </div>
         {error && (
           <p className="mb-4 text-sm text-red">
             Could not reach the API. Is the backend running?
