@@ -58,14 +58,26 @@ export default function RecordManualTradeModal({
         label={`Capital — Leg 1 (${pair.base_market}) USD`}
         value={leg1}
         onChange={setLeg1}
+        disabled={busy}
         testid="capital-leg1"
       />
       <CapitalField
         label={`Capital — Leg 2 (${pair.quote_market}) USD`}
         value={leg2}
         onChange={setLeg2}
+        disabled={busy}
         testid="capital-leg2"
       />
+
+      {busy && (
+        <p
+          className="mt-3 flex items-center gap-2 text-sm text-blue"
+          data-testid="record-progress"
+        >
+          <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue/30 border-t-blue" />
+          Recording… fetching live prices, please wait.
+        </p>
+      )}
 
       {error && <p className="mt-3 text-sm text-red">{error}</p>}
 
@@ -93,11 +105,13 @@ function CapitalField({
   label,
   value,
   onChange,
+  disabled,
   testid,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
   testid: string;
 }) {
   return (
@@ -109,8 +123,9 @@ function CapitalField({
         step="1"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         data-testid={testid}
-        className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm text-text focus:border-blue focus:outline-none"
+        className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm text-text focus:border-blue focus:outline-none disabled:opacity-50"
       />
     </label>
   );

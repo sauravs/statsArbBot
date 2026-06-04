@@ -111,6 +111,26 @@ def test_record_then_list_then_close(client):
     )
 
 
+def test_record_uses_single_page_fast_path(client, monkeypatch):
+    """Issue #54: recording fetches only one candle page per leg (fast path),
+    not the full paginated history — so a live record completes in seconds."""
+    import routers.manual as manual_router
+    from marketdata.pair_series import current_pair_snapshot as real_snapshot
+
+    captured: dict = {}
+
+    async def spy(*args, **kwargs):
+        captured["num_pages"] = kwargs.get("num_pages")
+        return await real_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(manual_router, "current_pair_snapshot", spy)
+
+    _scan(client)
+    r = _record(client)
+    assert r.status_code == 201, r.text
+    assert captured["num_pages"] == 1
+
+
 def test_record_unknown_pair_404(client):
     _scan(client)
     r = _record(client, base="BBB-USD", quote="AAA-USD")  # reversed = not scanned
