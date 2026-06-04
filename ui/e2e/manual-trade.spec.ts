@@ -29,7 +29,37 @@ async function setThreshold(page: Page, value: string) {
   }, value);
 }
 
-test.describe("Phase 4 — Live Manual Trading", () => {
+test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
+  test("header nav, both-leg signal, base/quote header, and Charts affordance", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    // Header nav has a "Manual Trading" entry linking home (#37 PR-1).
+    const navManual = page.getByTestId("nav-manual");
+    await expect(navManual).toBeVisible();
+    await expect(navManual).toHaveText("Manual Trading");
+    await expect(navManual).toHaveAttribute("href", "/dashboard");
+
+    // PAIR column header names base vs quote.
+    await expect(
+      page.getByTestId("pairs-table").getByText("Pair (Base / Quote)"),
+    ).toBeVisible();
+
+    // Each pair row has an explicit "Charts ›" affordance to the 3-panel charts.
+    const chartsLink = page.getByTestId("pair-charts-link").first();
+    await expect(chartsLink).toBeVisible();
+    await expect(chartsLink).toHaveText("Charts ›");
+
+    // Signal names both legs when a pair is active.
+    await setThreshold(page, "0.5");
+    const sig = page
+      .getByTestId("pair-row")
+      .filter({ hasText: /SELL base · BUY quote|BUY base · SELL quote/ });
+    await expect(sig.first()).toBeVisible();
+  });
+
   test("threshold reveals record → record (OPEN) → close (CLOSED + P&L)", async ({
     page,
   }) => {

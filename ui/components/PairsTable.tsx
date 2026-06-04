@@ -28,8 +28,11 @@ function signal(
 ): { label: string; className: string } {
   if (z === null || Number.isNaN(z))
     return { label: "—", className: "text-muted" };
-  if (z >= threshold) return { label: "SELL base", className: "text-red" };
-  if (z <= -threshold) return { label: "BUY base", className: "text-green" };
+  // Market-neutral: the quote leg is always the opposite of the base leg.
+  if (z >= threshold)
+    return { label: "SELL base · BUY quote", className: "text-red" };
+  if (z <= -threshold)
+    return { label: "BUY base · SELL quote", className: "text-green" };
   return { label: "Neutral", className: "text-muted" };
 }
 
@@ -77,7 +80,7 @@ export default function PairsTable({ pairs, threshold, onRecord }: Props) {
   }
 
   const headers: { key: SortKey; label: string; align: string }[] = [
-    { key: "pair", label: "Pair", align: "text-left" },
+    { key: "pair", label: "Pair (Base / Quote)", align: "text-left" },
     { key: "hedge_ratio", label: "Hedge β", align: "text-right" },
     { key: "half_life", label: "Half-life (h)", align: "text-right" },
     { key: "z_score", label: "Z-score", align: "text-right" },
@@ -121,6 +124,13 @@ export default function PairsTable({ pairs, threshold, onRecord }: Props) {
                   >
                     {p.base_market}
                     <span className="text-muted"> / {p.quote_market}</span>
+                  </Link>
+                  <Link
+                    href={`/dashboard/pair/${encodeURIComponent(p.base_market)}/${encodeURIComponent(p.quote_market)}`}
+                    className="ml-2 text-xs font-normal text-blue hover:underline"
+                    data-testid="pair-charts-link"
+                  >
+                    Charts ›
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
