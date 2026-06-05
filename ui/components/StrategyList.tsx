@@ -42,14 +42,17 @@ export default function StrategyList({
           No strategies yet. Create one or seed the S1–S4 baselines.
         </p>
       ) : (
-        <table className="w-full text-sm" data-testid="strategy-list">
+        // `table-fixed` + an explicit column layout keeps the 22rem-sidebar table
+        // inside its card: the name column truncates instead of pushing the status
+        // pill past the boundary (issue #79). Entry Z is dropped here — it's shown
+        // in the detail panel — to buy the name column more room.
+        <table className="w-full table-fixed text-sm" data-testid="strategy-list">
           <thead>
             <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
-              <th className="px-2 py-2 text-left">#</th>
-              <th className="px-2 py-2 text-left">Strategy</th>
-              <th className="px-2 py-2 text-right">Entry Z</th>
-              <th className="px-2 py-2 text-right">Net P&amp;L</th>
-              <th className="px-2 py-2 text-right">Status</th>
+              <th className="w-7 px-1.5 py-2 text-left">#</th>
+              <th className="px-1.5 py-2 text-left">Strategy</th>
+              <th className="w-20 px-1.5 py-2 text-right">Net P&amp;L</th>
+              <th className="w-24 px-1.5 py-2 text-right">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -62,21 +65,23 @@ export default function StrategyList({
                   selectedId === s.id ? "bg-blue/10" : "hover:bg-card"
                 }`}
               >
-                <td className="px-2 py-2 tabular-nums text-muted" data-testid="strategy-rank">
+                <td className="px-1.5 py-2 tabular-nums text-muted" data-testid="strategy-rank">
                   {s.rank ?? "—"}
                 </td>
-                <td className="px-2 py-2 font-medium text-text">{s.name}</td>
-                <td className="px-2 py-2 text-right tabular-nums text-muted">
-                  {s.entry_threshold}
+                <td
+                  className="truncate px-1.5 py-2 font-medium text-text"
+                  title={s.name}
+                >
+                  {s.name}
                 </td>
                 <td
-                  className={`px-2 py-2 text-right tabular-nums ${
+                  className={`px-1.5 py-2 text-right tabular-nums ${
                     s.net_pnl == null ? "text-muted" : s.net_pnl >= 0 ? "text-green" : "text-red"
                   }`}
                 >
                   {s.net_pnl == null ? "—" : fmtUsd(s.net_pnl)}
                 </td>
-                <td className="px-2 py-2 text-right">
+                <td className="px-1.5 py-2 text-right">
                   <BacktestStatusBadge status={s.status} />
                 </td>
               </tr>
