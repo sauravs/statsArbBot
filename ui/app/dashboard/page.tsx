@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getSystemHealth, setDataSource, type SystemHealth } from "@/lib/api";
 import ScanPanel from "@/components/ScanPanel";
 import ManualTradesPanel from "@/components/ManualTradesPanel";
+import StrategyThresholdsControl from "@/components/StrategyThresholdsControl";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -95,25 +96,44 @@ export default function DashboardPage() {
       <section className="mx-auto max-w-screen-2xl px-6 py-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-text">Manual Trading</h2>
-          {/* Data-source mode lives with the section it scopes the dashboard to,
-              so it reads as part of Manual Trading rather than a global header. */}
-          <div
-            className="flex items-center gap-2 text-xs"
-            data-testid="market-data-control"
-          >
-            <span className="uppercase tracking-wider text-muted">
-              Market data
-            </span>
-            <DataSourceControl
-              source={health?.data_source}
-              onSwitched={(next) => {
-                setHealth((h) => (h ? { ...h, data_source: next } : h));
-                setDataSourceKey((k) => k + 1);
-                // Manual trades are now filtered by source → re-fetch so the
-                // other source's trades drop out of the view immediately.
-                setManualRefresh((n) => n + 1);
-              }}
-            />
+          {/* Section-scoped controls: the market-data source and the Option-B
+              strategy thresholds both read as part of Manual Trading rather than
+              a global header. */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div
+              className="flex items-center gap-2 text-xs"
+              data-testid="strategy-thresholds"
+            >
+              <span className="uppercase tracking-wider text-muted">
+                Z thresholds
+              </span>
+              <StrategyThresholdsControl
+                onApplied={() => {
+                  // The chart reads thresholds from its pair-series payload, so a
+                  // fresh detail view reflects them; nothing on the dashboard to
+                  // refresh, but bump the key for parity with the data-source flow.
+                  setDataSourceKey((k) => k + 1);
+                }}
+              />
+            </div>
+            <div
+              className="flex items-center gap-2 text-xs"
+              data-testid="market-data-control"
+            >
+              <span className="uppercase tracking-wider text-muted">
+                Market data
+              </span>
+              <DataSourceControl
+                source={health?.data_source}
+                onSwitched={(next) => {
+                  setHealth((h) => (h ? { ...h, data_source: next } : h));
+                  setDataSourceKey((k) => k + 1);
+                  // Manual trades are now filtered by source → re-fetch so the
+                  // other source's trades drop out of the view immediately.
+                  setManualRefresh((n) => n + 1);
+                }}
+              />
+            </div>
           </div>
         </div>
         {error && (
