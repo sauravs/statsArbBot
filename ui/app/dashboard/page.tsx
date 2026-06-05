@@ -164,7 +164,18 @@ function DataSourceControl({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  if (!source) return null;
+  // Never blank the whole control while health is (re)loading — show a neutral
+  // placeholder badge so the "Market data" label/badge doesn't vanish (#67).
+  if (!source) {
+    return (
+      <span
+        data-testid="data-source-badge"
+        className="rounded-full bg-muted/20 px-2 py-0.5 text-xs font-medium text-muted"
+      >
+        …
+      </span>
+    );
+  }
   const isDemo = source === "fake";
   const target = isDemo ? "dydx" : "fake";
   const targetLabel = isDemo ? "Live" : "Demo";
@@ -199,23 +210,30 @@ function DataSourceControl({
         {isDemo ? "DEMO DATA" : "LIVE DATA"}
       </span>
 
-      {confirming ? (
+      {busy ? (
+        // Clear in-progress state so a slow switch never reads as a frozen UI (#67).
+        <span
+          className="flex items-center gap-1.5 text-blue"
+          data-testid="data-source-switching"
+        >
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue/30 border-t-blue" />
+          Switching to {targetLabel}…
+        </span>
+      ) : confirming ? (
         <span className="flex items-center gap-1">
           <button
             onClick={doSwitch}
-            disabled={busy}
             data-testid="data-source-confirm"
             title={`Switch to ${targetLabel} data — clears the current pairs; re-scan after.`}
             className="rounded border border-blue px-1.5 py-0.5 text-blue hover:bg-blue/10 disabled:opacity-40"
           >
-            {busy ? "…" : `Confirm ${targetLabel}`}
+            {`Confirm ${targetLabel}`}
           </button>
           <button
             onClick={() => {
               setConfirming(false);
               setErr(null);
             }}
-            disabled={busy}
             className="rounded border border-border px-1.5 py-0.5 text-muted hover:text-text"
           >
             Cancel
