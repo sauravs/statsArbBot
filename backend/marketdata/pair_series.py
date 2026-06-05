@@ -150,16 +150,22 @@ async def _aligned_closes(
     *,
     num_pages: int | None,
     now,
+    concurrent: bool = False,
 ) -> tuple[list[str], np.ndarray, np.ndarray] | None:
     """Fetch both legs concurrently and align on shared timestamps.
 
     Returns ``(sorted_shared_iso, s1, s2)`` or ``None`` if there is no usable
     overlapping history. Shared by the chart builder and the record snapshot so
-    the fetch/align logic lives in one place.
+    the fetch/align logic lives in one place. ``concurrent`` also parallelises the
+    per-leg page fetches (issue #61) for the chart's fast path.
     """
     base_closes, quote_closes = await asyncio.gather(
-        client.get_historical_closes(base_market, num_pages=num_pages, now=now),
-        client.get_historical_closes(quote_market, num_pages=num_pages, now=now),
+        client.get_historical_closes(
+            base_market, num_pages=num_pages, now=now, concurrent=concurrent
+        ),
+        client.get_historical_closes(
+            quote_market, num_pages=num_pages, now=now, concurrent=concurrent
+        ),
     )
     if not base_closes or not quote_closes:
         return None
@@ -330,6 +336,7 @@ async def build_pair_series(
     window: int | None = None,
     num_pages: int | None = None,
     now=None,
+    concurrent: bool = False,
 ) -> PairSeries | None:
     """
     Fetch both legs, align them, and compute the three chart panels.
@@ -350,7 +357,12 @@ async def build_pair_series(
     window = window or config.ZSCORE_WINDOW
 
     aligned = await _aligned_closes(
-        client, base_market, quote_market, num_pages=num_pages, now=now
+        client,
+        base_market,
+        quote_market,
+        num_pages=num_pages,
+        now=now,
+        concurrent=concurrent,
     )
     if aligned is None:
         return None

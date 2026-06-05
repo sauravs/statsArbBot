@@ -138,6 +138,10 @@ async def get_pair_series(
             hedge_ratio=record["hedge_ratio"],
             intercept=record.get("intercept", 0.0) or 0.0,
             half_life=record.get("half_life"),
+            # Fast path (issue #61): a small, concurrently-fetched page count so a
+            # live chart loads in seconds instead of minutes (full-history fetch).
+            num_pages=config.PAIR_CHART_PAGES,
+            concurrent=True,
         )
     finally:
         try:
