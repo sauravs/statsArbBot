@@ -1,12 +1,24 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { getSystemHealth, type SystemHealth } from "@/lib/api";
 import BacktestPanel from "@/components/BacktestPanel";
 import BacktestDataBanner from "@/components/BacktestDataBanner";
+import DataSourceControl from "@/components/DataSourceControl";
 
 export default function BacktestPage() {
   const router = useRouter();
+  const [health, setHealth] = useState<SystemHealth | null>(null);
+  // Bumped on a data-source switch so the coverage banner re-reads for the new mode.
+  const [sourceKey, setSourceKey] = useState(0);
+
+  useEffect(() => {
+    getSystemHealth()
+      .then(setHealth)
+      .catch(() => setHealth(null));
+  }, []);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -38,14 +50,34 @@ export default function BacktestPage() {
       </header>
 
       <section className="mx-auto max-w-6xl px-6 py-8">
-        <h2 className="mb-1 text-xl font-semibold text-text">Walk-Forward Backtest</h2>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold text-text">Walk-Forward Backtest</h2>
+          {/* Which market-data source the backtest replays — DEMO (synthetic, tiny
+              span) vs LIVE (the cached dYdX history). Mirrors the dashboard's
+              control so the operator can see/switch the mode here too (#92). */}
+          <div
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5"
+            data-testid="bt-market-data-control"
+          >
+            <span className="text-[10px] uppercase tracking-wider text-muted">
+              Market data
+            </span>
+            <DataSourceControl
+              source={health?.data_source}
+              onSwitched={(next) => {
+                setHealth((h) => (h ? { ...h, data_source: next } : h));
+                setSourceKey((k) => k + 1);
+              }}
+            />
+          </div>
+        </div>
         <p className="mb-2 text-sm text-muted">
           Backtest a strategy across sliding scan/trade windows: each window re-runs
           the cointegration scan to select pairs, then trades them out-of-sample
           through the same statistical engine the live bot uses. Strategies are ranked
           by net P&amp;L, with an equity curve, per-window breakdown, and a report.
         </p>
-        <BacktestDataBanner />
+        <BacktestDataBanner source={health?.data_source} reloadKey={sourceKey} />
         <BacktestPanel />
       </section>
     </main>
