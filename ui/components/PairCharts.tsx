@@ -10,6 +10,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type LogicalRange,
+  type MouseEventParams,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
@@ -43,6 +44,41 @@ function fmtPrice(v: number | null): string {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   })}`;
+}
+
+/** A plain numeric readout (spread / Z / rebased price) for a panel legend. */
+function fmtNum(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return v.toFixed(2);
+}
+
+/** Read a line series' value at the crosshair (undefined on a whitespace bar). */
+function valueAt(
+  param: MouseEventParams,
+  series: ISeriesApi<"Line">,
+): number | null {
+  const p = param.seriesData.get(series) as { value?: number } | undefined;
+  return p?.value ?? null;
+}
+
+/**
+ * Wire a panel's header legend to the crosshair (issues #68, #73): show the
+ * hovered bar's value(s) while hovering, the latest value otherwise. Returns an
+ * unsubscribe for cleanup — ``chart.remove()`` also tears the handler down, but
+ * detaching explicitly keeps a re-render from ever leaving a stale subscription.
+ */
+function bindCrosshair<T>(
+  chart: IChartApi,
+  latest: T,
+  atHover: (param: MouseEventParams) => T,
+  set: (v: T) => void,
+): () => void {
+  set(latest);
+  const handler = (param: MouseEventParams) => {
+    set(!param.time || param.point === undefined ? latest : atHover(param));
+  };
+  chart.subscribeCrosshairMove(handler);
+  return () => chart.unsubscribeCrosshairMove(handler);
 }
 
 type PriceLevel = { price: number; color: string; text: string };
@@ -139,12 +175,18 @@ export default function PairCharts({
 }) {
   const [data, setData] = useState<PairSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Real per-leg prices shown in the raw-price panel legend (issue #68); updated
-  // to the hovered bar on crosshair move, else the latest close.
+  // Per-panel header readouts (issues #68, #73): updated to the hovered bar on
+  // crosshair move, else the latest value. Raw + normalized carry both legs.
   const [rawAt, setRawAt] = useState<{ base: number | null; quote: number | null }>({
     base: null,
     quote: null,
   });
+  const [normAt, setNormAt] = useState<{ base: number | null; quote: number | null }>({
+    base: null,
+    quote: null,
+  });
+  const [spreadAt, setSpreadAt] = useState<number | null>(null);
+  const [zAt, setZAt] = useState<number | null>(null);
 
   const normRef = useRef<HTMLDivElement>(null);
   const rawRef = useRef<HTMLDivElement>(null);
@@ -178,6 +220,9 @@ export default function PairCharts({
     )
       return;
 
+    // Crosshair-move subscriptions (issues #68, #73), detached on cleanup.
+    const crosshairUnsubs: Array<() => void> = [];
+
     // ── Panel 1: normalized price overlay (both legs rebased to 100) ──────────
     const normChart = createChart(normRef.current, baseChartOptions());
     const baseLine = normChart.addSeries(LineSeries, {
@@ -192,6 +237,21 @@ export default function PairCharts({
     });
     baseLine.setData(toLine(data.normalized.base));
     quoteLine.setData(toLine(data.normalized.quote));
+    const lastNorm = {
+      base: data.normalized.base.at(-1)?.value ?? null,
+      quote: data.normalized.quote.at(-1)?.value ?? null,
+    };
+    crosshairUnsubs.push(
+      bindCrosshair(
+        normChart,
+        lastNorm,
+        (param) => ({
+          base: valueAt(param, baseLine),
+          quote: valueAt(param, quoteLine),
+        }),
+        setNormAt,
+      ),
+    );
 
     // ── Panel 1b: raw prices on dual axes (issue #68) ─────────────────────────
     // The two legs' real prices live on very different scales (e.g. ETH ≈ $1750
@@ -218,20 +278,18 @@ export default function PairCharts({
       base: data.raw.base.at(-1)?.value ?? null,
       quote: data.raw.quote.at(-1)?.value ?? null,
     };
-    setRawAt(lastRaw);
     // Hover → show both legs' real price at that timestamp; leave → latest close.
-    rawChart.subscribeCrosshairMove((param) => {
-      if (!param.time || param.point === undefined) {
-        setRawAt(lastRaw);
-        return;
-      }
-      const b = param.seriesData.get(baseRaw) as { value?: number } | undefined;
-      const q = param.seriesData.get(quoteRaw) as { value?: number } | undefined;
-      setRawAt({
-        base: b?.value ?? null,
-        quote: q?.value ?? null,
-      });
-    });
+    crosshairUnsubs.push(
+      bindCrosshair(
+        rawChart,
+        lastRaw,
+        (param) => ({
+          base: valueAt(param, baseRaw),
+          quote: valueAt(param, quoteRaw),
+        }),
+        setRawAt,
+      ),
+    );
 
     // ── Panel 2: spread with mean and ±1σ / ±2σ bands ─────────────────────────
     const spreadChart = createChart(spreadRef.current, baseChartOptions());
@@ -241,6 +299,14 @@ export default function PairCharts({
       title: "spread",
     });
     spreadLine.setData(toLine(data.spread.series));
+    crosshairUnsubs.push(
+      bindCrosshair(
+        spreadChart,
+        data.spread.series.at(-1)?.value ?? null,
+        (param) => valueAt(param, spreadLine),
+        setSpreadAt,
+      ),
+    );
     const { mean, std } = data.spread;
     const spreadLevels: PriceLevel[] = [];
     const band = (
@@ -275,6 +341,16 @@ export default function PairCharts({
       title: "Z",
     });
     zLine.setData(zLineData(data));
+    // Latest = last *real* Z (the padded series carries whitespace warm-up bars,
+    // which read as "—" when hovered).
+    crosshairUnsubs.push(
+      bindCrosshair(
+        zChart,
+        data.zscore.series.at(-1)?.value ?? null,
+        (param) => valueAt(param, zLine),
+        setZAt,
+      ),
+    );
     const zLevels: PriceLevel[] = [];
     const zLineAt = (
       price: number,
@@ -358,6 +434,7 @@ export default function PairCharts({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      crosshairUnsubs.forEach((unsub) => unsub());
       spreadLabels.remove();
       zLabels.remove();
       subs.forEach(({ src, handler }) =>
@@ -392,8 +469,14 @@ export default function PairCharts({
         title="Normalized price (rebased to 100)"
         legend={
           <>
-            <Legend color={C.green} label={data.base_market} />
-            <Legend color={C.blue} label={data.quote_market} />
+            <Legend
+              color={C.green}
+              label={`${data.base_market} ${fmtNum(normAt.base)}`}
+            />
+            <Legend
+              color={C.blue}
+              label={`${data.quote_market} ${fmtNum(normAt.quote)}`}
+            />
           </>
         }
         innerRef={normRef}
@@ -420,7 +503,8 @@ export default function PairCharts({
         title="Spread (S1 − β·S2 − α) with ±1σ / ±2σ bands"
         legend={
           <span className="text-muted">
-            mean {data.spread.mean.toFixed(2)} · σ {data.spread.std.toFixed(2)}
+            spread <span className="text-text">{fmtNum(spreadAt)}</span> · mean{" "}
+            {data.spread.mean.toFixed(2)} · σ {data.spread.std.toFixed(2)}
           </span>
         }
         innerRef={spreadRef}
@@ -430,7 +514,8 @@ export default function PairCharts({
         title="Z-score with entry / exit / stop thresholds"
         legend={
           <span className="text-muted">
-            entry ±{data.entry_threshold} · exit ±{data.exit_threshold} · stop ±
+            Z <span className="text-text">{fmtNum(zAt)}</span> · entry ±
+            {data.entry_threshold} · exit ±{data.exit_threshold} · stop ±
             {data.stop_threshold}
           </span>
         }
