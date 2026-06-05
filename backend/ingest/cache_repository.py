@@ -14,7 +14,7 @@ batched because a single market spans ~17k hourly bars over the 2024–2025 rang
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,62 @@ class PrismaOhlcvCacheRepository:
         )
         return sorted(g["market"] for g in groups)
 
+    async def get_inventory(
+        self, *, exchange: str, resolution: str, step_seconds: int
+    ) -> list[dict]:
+        """Per-market coverage for the data-inventory view (issue #80).
+
+        One SQL-side ``GROUP BY market`` with count + min/max(timestamp) — so a
+        few dozen rows summarise the whole (hundreds-of-thousands-row) cache
+        without pulling the bars. ``completeness`` is bars / the bars a gapless
+        series would hold between first & last at ``step_seconds`` (1.0 = no gaps),
+        the cheap proxy for the ingest's gap detection.
+        """
+        from db.client import get_db
+
+        db = await get_db()
+        groups = await db.ohlcvcache.group_by(
+            by=["market"],
+            where={"exchange": exchange, "resolution": resolution},
+            count={"_all": True},
+            min={"timestamp": True},
+            max={"timestamp": True},
+        )
+        out: list[dict] = []
+        for g in groups:
+            bars = g["_count"]["_all"]
+            # group_by serialises the aggregated datetimes as ISO strings.
+            first = _as_dt(g["_min"]["timestamp"])
+            last = _as_dt(g["_max"]["timestamp"])
+            span = (last - first).total_seconds()
+            expected = int(span // step_seconds) + 1 if step_seconds > 0 else bars
+            completeness = min(1.0, bars / expected) if expected > 0 else 0.0
+            out.append(
+                {
+                    "market": g["market"],
+                    "bars": bars,
+                    "first": first.isoformat(),
+                    "last": last.isoformat(),
+                    "completeness": round(completeness, 4),
+                }
+            )
+        return sorted(out, key=lambda r: r["market"])
+
+    async def get_funding_summary(self, *, exchange: str) -> dict:
+        """Total funding rows + distinct markets cached (issue #80)."""
+        from db.client import get_db
+
+        db = await get_db()
+        groups = await db.fundingratecache.group_by(
+            by=["market"],
+            where={"exchange": exchange},
+            count={"_all": True},
+        )
+        return {
+            "markets": len(groups),
+            "rows": sum(g["_count"]["_all"] for g in groups),
+        }
+
     # ── reads (Phase 7 fast-forward replay) ──────────────────────────────────
 
     async def get_candles(
@@ -154,6 +210,12 @@ class PrismaOhlcvCacheRepository:
             where=where, order=[{"timestamp": "asc"}]
         )
         return [{"timestamp": r.timestamp, "funding_rate": r.funding_rate} for r in records]
+
+
+def _as_dt(value) -> datetime:
+    """Coerce a group_by timestamp (ISO string from Prisma, or a datetime from a
+    fake repo) to a ``datetime``."""
+    return value if isinstance(value, datetime) else datetime.fromisoformat(value)
 
 
 def _chunks(rows: list[dict], size: int):

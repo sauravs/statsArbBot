@@ -150,6 +150,38 @@ class FakeOhlcvCacheRepository:
             {m for (ex, m, res) in self.candles if ex == exchange and res == resolution}
         )
 
+    async def get_inventory(self, *, exchange, resolution, step_seconds) -> list[dict]:
+        from datetime import datetime
+
+        def _dt(v):
+            return v if isinstance(v, datetime) else datetime.fromisoformat(v)
+
+        out: list[dict] = []
+        for (ex, m, res), rows in self.candles.items():
+            if ex != exchange or res != resolution or not rows:
+                continue
+            ts = sorted(_dt(r["timestamp"]) for r in rows)
+            span = (ts[-1] - ts[0]).total_seconds()
+            expected = int(span // step_seconds) + 1 if step_seconds > 0 else len(rows)
+            completeness = min(1.0, len(rows) / expected) if expected > 0 else 0.0
+            out.append(
+                {
+                    "market": m,
+                    "bars": len(rows),
+                    "first": ts[0].isoformat(),
+                    "last": ts[-1].isoformat(),
+                    "completeness": round(completeness, 4),
+                }
+            )
+        return sorted(out, key=lambda r: r["market"])
+
+    async def get_funding_summary(self, *, exchange) -> dict:
+        markets = [m for (ex, m) in self.funding if ex == exchange]
+        return {
+            "markets": len(markets),
+            "rows": sum(len(self.funding[(exchange, m)]) for m in markets),
+        }
+
 
 class FakeTradeClient:
     """In-memory stand-in for a dYdX trade client (Phase 5a).

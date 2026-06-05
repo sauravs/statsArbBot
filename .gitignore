@@ -9,8 +9,9 @@ Old Reference Resources/
 # Local-only Claude Code settings
 .claude/settings.local.json
 
-# Historical market data — large, regenerable, ingested locally
-data/
+# Historical market data — large, regenerable, ingested locally.
+# Anchored to the repo root so it doesn't also ignore the ui/app/dashboard/data route.
+/data/
 
 # Bot state & output
 bot_agents.json
