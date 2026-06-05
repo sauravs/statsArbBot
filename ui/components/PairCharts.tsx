@@ -35,6 +35,16 @@ function toLine(points: TimePoint[]) {
   return points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
 }
 
+/** A USD price for the raw-price legend — more decimals for sub-$1 markets. */
+function fmtPrice(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const dp = v >= 100 ? 2 : v >= 1 ? 3 : 5;
+  return `$${v.toLocaleString("en-US", {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  })}`;
+}
+
 type PriceLevel = { price: number; color: string; text: string };
 
 /**
@@ -129,8 +139,15 @@ export default function PairCharts({
 }) {
   const [data, setData] = useState<PairSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Real per-leg prices shown in the raw-price panel legend (issue #68); updated
+  // to the hovered bar on crosshair move, else the latest close.
+  const [rawAt, setRawAt] = useState<{ base: number | null; quote: number | null }>({
+    base: null,
+    quote: null,
+  });
 
   const normRef = useRef<HTMLDivElement>(null);
+  const rawRef = useRef<HTMLDivElement>(null);
   const spreadRef = useRef<HTMLDivElement>(null);
   const zRef = useRef<HTMLDivElement>(null);
 
@@ -155,6 +172,7 @@ export default function PairCharts({
     if (
       !data ||
       !normRef.current ||
+      !rawRef.current ||
       !spreadRef.current ||
       !zRef.current
     )
@@ -174,6 +192,46 @@ export default function PairCharts({
     });
     baseLine.setData(toLine(data.normalized.base));
     quoteLine.setData(toLine(data.normalized.quote));
+
+    // ── Panel 1b: raw prices on dual axes (issue #68) ─────────────────────────
+    // The two legs' real prices live on very different scales (e.g. ETH ≈ $1750
+    // vs AVAX ≈ $20), so the base uses the left axis and the quote the right.
+    const rawChart = createChart(rawRef.current, {
+      ...baseChartOptions(),
+      leftPriceScale: { visible: true, borderColor: C.border },
+    });
+    const baseRaw = rawChart.addSeries(LineSeries, {
+      color: C.green,
+      lineWidth: 2,
+      priceScaleId: "left",
+      title: data.base_market,
+    });
+    const quoteRaw = rawChart.addSeries(LineSeries, {
+      color: C.blue,
+      lineWidth: 2,
+      priceScaleId: "right",
+      title: data.quote_market,
+    });
+    baseRaw.setData(toLine(data.raw.base));
+    quoteRaw.setData(toLine(data.raw.quote));
+    const lastRaw = {
+      base: data.raw.base.at(-1)?.value ?? null,
+      quote: data.raw.quote.at(-1)?.value ?? null,
+    };
+    setRawAt(lastRaw);
+    // Hover → show both legs' real price at that timestamp; leave → latest close.
+    rawChart.subscribeCrosshairMove((param) => {
+      if (!param.time || param.point === undefined) {
+        setRawAt(lastRaw);
+        return;
+      }
+      const b = param.seriesData.get(baseRaw) as { value?: number } | undefined;
+      const q = param.seriesData.get(quoteRaw) as { value?: number } | undefined;
+      setRawAt({
+        base: b?.value ?? null,
+        quote: q?.value ?? null,
+      });
+    });
 
     // ── Panel 2: spread with mean and ±1σ / ±2σ bands ─────────────────────────
     const spreadChart = createChart(spreadRef.current, baseChartOptions());
@@ -273,8 +331,8 @@ export default function PairCharts({
       zLabels.reposition();
     };
 
-    // ── Sync the visible time range across all three panels ───────────────────
-    const charts: IChartApi[] = [normChart, spreadChart, zChart];
+    // ── Sync the visible time range across all panels ─────────────────────────
+    const charts: IChartApi[] = [normChart, rawChart, spreadChart, zChart];
     let syncing = false;
     const subs = charts.map((src) => {
       const handler = (range: LogicalRange | null) => {
@@ -340,6 +398,23 @@ export default function PairCharts({
         }
         innerRef={normRef}
         testid="chart-normalized"
+      />
+      <Panel
+        title="Price (actual) — left axis / right axis"
+        legend={
+          <>
+            <Legend
+              color={C.green}
+              label={`${data.base_market} ${fmtPrice(rawAt.base)}`}
+            />
+            <Legend
+              color={C.blue}
+              label={`${data.quote_market} ${fmtPrice(rawAt.quote)}`}
+            />
+          </>
+        }
+        innerRef={rawRef}
+        testid="chart-raw"
       />
       <Panel
         title="Spread (S1 − β·S2 − α) with ±1σ / ±2σ bands"

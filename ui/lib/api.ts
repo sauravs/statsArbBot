@@ -156,6 +156,7 @@ export interface PairSeries {
   window_end: string | null;
   count: number;
   normalized: { base: TimePoint[]; quote: TimePoint[] };
+  raw: { base: TimePoint[]; quote: TimePoint[] };
   spread: { mean: number; std: number; series: TimePoint[] };
   zscore: { series: TimePoint[]; markers: PairMarker[] };
 }
