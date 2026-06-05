@@ -92,6 +92,13 @@ SCAN_QUICK_PAGES: int = _env("SCAN_QUICK_PAGES", default=2, cast=int)
 PAIR_CHART_PAGES: int = _env("PAIR_CHART_PAGES", default=2, cast=int)
 # Max simultaneous candle-fetch requests against the indexer (rate-limit guard).
 SCAN_FETCH_CONCURRENCY: int = _env("SCAN_FETCH_CONCURRENCY", default=3, cast=int)
+# Process-wide cap on concurrent indexer candle requests across ALL callers
+# (scan, pairs-price poll, record snapshot, portfolio mark-to-market, charts) so
+# they share one rate budget and never burst the indexer into Retry-After
+# throttling (issue #65). The per-caller caps above are secondary to this.
+DYDX_INDEXER_MAX_CONCURRENCY: int = _env(
+    "DYDX_INDEXER_MAX_CONCURRENCY", default=6, cast=int
+)
 # Minimum candles a market must have to be included in the price matrix.
 MIN_CANDLES_PER_MARKET: int = _env("MIN_CANDLES_PER_MARKET", default=50, cast=int)
 
