@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 import config
 from auth import require_api_key
+from db.bot_config_repository import get_bot_config_repository
 from db.scan_repository import get_scan_repository
 
 logger = logging.getLogger(__name__)
@@ -91,3 +92,50 @@ async def set_data_source(body: DataSourceBody) -> dict:
 
     logger.info("data source set to %s (was %s)", source, previous)
     return {"data_source": source, "previous": previous, "pairs_cleared": switched}
+
+
+class ThresholdsBody(BaseModel):
+    entry: float
+    exit: float
+    stop: float
+
+
+@router.get("/api/system/thresholds", dependencies=[Depends(require_api_key)])
+async def get_thresholds() -> dict:
+    """The active Option-B signal thresholds (entry/exit/stop) — issue #74."""
+    return config.get_signal_thresholds()
+
+
+@router.post("/api/system/thresholds", dependencies=[Depends(require_api_key)])
+async def set_thresholds(body: ThresholdsBody) -> dict:
+    """
+    Set the app-wide Option-B signal thresholds at runtime (issue #74).
+
+    Validates bounds + the ordering ``exit < entry < stop`` (422 on violation),
+    applies them to ``config`` (every consumer reads them at call time, so the
+    pair-detail chart and the live/sim strategy pick them up without a restart),
+    then persists them to ``BotConfigHistory`` so they survive a restart. A
+    persistence hiccup keeps the runtime value and is reported via ``persisted``.
+    """
+    try:
+        config.set_signal_thresholds(body.entry, body.exit, body.stop)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    persisted = True
+    try:
+        await get_bot_config_repository().save_thresholds(
+            body.entry,
+            body.exit,
+            body.stop,
+            exchange=config.DEFAULT_EXCHANGE,
+            mode=config.DEFAULT_MODE,
+        )
+    except Exception as exc:  # don't lose the runtime change on a DB hiccup
+        persisted = False
+        logger.warning("persisting thresholds failed (kept runtime value): %s", exc)
+
+    result = config.get_signal_thresholds()
+    result["persisted"] = persisted
+    logger.info("signal thresholds set to %s (persisted=%s)", result, persisted)
+    return result

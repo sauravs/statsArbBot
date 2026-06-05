@@ -59,6 +59,27 @@ export function setDataSource(source: string): Promise<SetDataSourceResult> {
   return proxyPost<SetDataSourceResult>("api/system/data-source", { source });
 }
 
+/** The Option-B signal thresholds (issue #74); validated exit < entry < stop. */
+export interface SignalThresholds {
+  entry: number;
+  exit: number;
+  stop: number;
+}
+
+export function getThresholds(): Promise<SignalThresholds> {
+  return proxyGet<SignalThresholds>("api/system/thresholds");
+}
+
+/** Set the app-wide signal thresholds; `persisted` is false if the DB write hiccuped. */
+export function setThresholds(
+  t: SignalThresholds,
+): Promise<SignalThresholds & { persisted: boolean }> {
+  return proxyPost<SignalThresholds & { persisted: boolean }>(
+    "api/system/thresholds",
+    t,
+  );
+}
+
 // ── Cointegration scan & pairs (Phase 2) ─────────────────────────────────────
 
 export interface PairRecord {

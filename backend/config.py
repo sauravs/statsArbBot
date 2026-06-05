@@ -17,6 +17,7 @@ runs locally and in Docker.
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -51,6 +52,50 @@ API_KEY: str = _DASHBOARD_PASSWORD or "changeme"
 ZSCORE_THRESH: float = _env("ZSCORE_THRESH", default=1.5, cast=float)     # entry
 EXIT_ZSCORE: float = _env("EXIT_ZSCORE", default=0.5, cast=float)         # exit  (#3)
 STOP_LOSS_ZSCORE: float = _env("STOP_LOSS_ZSCORE", default=4.0, cast=float)  # stop (#2)
+
+# Bounds for the runtime signal-threshold setter (issue #74). They mirror the
+# per-run sim/ff/backtest form bounds (routers/{sim,ff,backtest}.py) so a chart /
+# strategy threshold can't be set outside what a simulation would accept. The
+# ordering exit < entry < stop is enforced on top of these in set_signal_thresholds.
+ZSCORE_ENTRY_MIN, ZSCORE_ENTRY_MAX = 0.5, 4.0
+ZSCORE_EXIT_MIN, ZSCORE_EXIT_MAX = 0.0, 2.0  # exit must be strictly > 0
+ZSCORE_STOP_MIN, ZSCORE_STOP_MAX = 1.0, 10.0
+
+
+def get_signal_thresholds() -> dict:
+    """The active Option-B signal thresholds as a JSON-safe dict (issue #74)."""
+    return {
+        "entry": ZSCORE_THRESH,
+        "exit": EXIT_ZSCORE,
+        "stop": STOP_LOSS_ZSCORE,
+    }
+
+
+def set_signal_thresholds(entry: float, exit: float, stop: float) -> None:
+    """Reassign the Option-B signal thresholds at runtime (issue #74).
+
+    Every consumer reads ``config.ZSCORE_THRESH`` / ``EXIT_ZSCORE`` /
+    ``STOP_LOSS_ZSCORE`` at call time — statcore signals, the pair-detail chart
+    (``pair_series``), and the live entry/exit path; sim/ff/backtest inherit these
+    as per-run form defaults — so this takes effect app-wide without a restart
+    (the chart reflects it on its next fetch). Enforces sane per-value bounds and
+    the ordering ``exit < entry < stop``; raises ``ValueError`` otherwise.
+    Persistence (BotConfigHistory) is the caller's concern — this only mutates
+    process state.
+    """
+    entry, exit, stop = float(entry), float(exit), float(stop)
+    if not all(math.isfinite(v) for v in (entry, exit, stop)):
+        raise ValueError("thresholds must be finite numbers")
+    if not ZSCORE_ENTRY_MIN <= entry <= ZSCORE_ENTRY_MAX:
+        raise ValueError(f"entry must be in [{ZSCORE_ENTRY_MIN}, {ZSCORE_ENTRY_MAX}]")
+    if not ZSCORE_EXIT_MIN < exit <= ZSCORE_EXIT_MAX:
+        raise ValueError(f"exit must be in ({ZSCORE_EXIT_MIN}, {ZSCORE_EXIT_MAX}]")
+    if not ZSCORE_STOP_MIN <= stop <= ZSCORE_STOP_MAX:
+        raise ValueError(f"stop must be in [{ZSCORE_STOP_MIN}, {ZSCORE_STOP_MAX}]")
+    if not (exit < entry < stop):
+        raise ValueError("thresholds must satisfy exit < entry < stop")
+    global ZSCORE_THRESH, EXIT_ZSCORE, STOP_LOSS_ZSCORE
+    ZSCORE_THRESH, EXIT_ZSCORE, STOP_LOSS_ZSCORE = entry, exit, stop
 
 # ── Pair filter ──────────────────────────────────────────────────────────────
 PVALUE_MAX: float = _env("PVALUE_MAX", default=0.05, cast=float)

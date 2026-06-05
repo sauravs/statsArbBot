@@ -61,6 +61,16 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.error("DB connect failed: %s", exc)
 
+        # Re-apply any operator-persisted signal thresholds (issue #74) so they
+        # survive a restart instead of resetting to the env defaults. Best-effort:
+        # a missing/invalid row just leaves the defaults in place.
+        try:
+            from db.bot_config_repository import load_persisted_thresholds
+
+            await load_persisted_thresholds()
+        except Exception as exc:
+            logger.error("loading persisted thresholds failed: %s", exc)
+
         # Start the simulation scheduler and re-register any RUNNING sessions so
         # real-time sims survive an API restart (PRD F6.4). Best-effort: a failure
         # here must not block the API from serving.
