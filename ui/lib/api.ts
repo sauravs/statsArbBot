@@ -80,6 +80,36 @@ export function setThresholds(
   );
 }
 
+// ── Historical-data inventory (issue #80) ────────────────────────────────────
+
+export interface DataInventoryMarket {
+  market: string;
+  bars: number;
+  first: string;
+  last: string;
+  /** Fraction of a gapless series present (1.0 = no gaps). */
+  completeness: number;
+}
+
+export interface DataInventory {
+  exchange: string;
+  resolution: string;
+  markets: DataInventoryMarket[];
+  summary: {
+    market_count: number;
+    total_bars: number;
+    earliest: string | null;
+    latest: string | null;
+    funding_markets: number;
+    funding_rows: number;
+  };
+}
+
+/** Per-market coverage of the cached OHLCV/funding history (read-only). */
+export function getDataInventory(): Promise<DataInventory> {
+  return proxyGet<DataInventory>("api/data/inventory");
+}
+
 // ── Cointegration scan & pairs (Phase 2) ─────────────────────────────────────
 
 export interface PairRecord {
