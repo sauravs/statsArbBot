@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from datetime import datetime
 
 import httpx
 
@@ -31,6 +32,11 @@ import config
 from marketdata.time_windows import iso_time_windows
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iso(value: str) -> datetime:
+    """Parse an indexer ISO timestamp (handles the trailing ``Z``) to a datetime."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 # Process-wide gate on concurrent indexer candle requests (issue #65). Every
@@ -233,6 +239,67 @@ class DydxDataClient:
             {"datetime": ts, "close": close}
             for ts, close in sorted(by_datetime.items())
         ]
+
+    async def fetch_ohlcv_range(self, market: str, start, end) -> list[dict]:
+        """Paginate full OHLCV candles for ``market`` over [start, end] (issue #81).
+
+        Walks backwards from ``end`` (the indexer returns newest-first pages),
+        de-duped by ``startedAt``. Returns raw candle dicts (``startedAt`` / open /
+        high / low / close / baseTokenVolume); the caller cleans + caches them.
+        """
+        out: dict[str, dict] = {}
+        cursor_end = end
+        for _ in range(2000):  # safety bound (~200k bars)
+            if cursor_end <= start:
+                break
+            candles = await self._get_candle_page(
+                market,
+                start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                cursor_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+            if not candles:
+                break
+            for c in candles:
+                out[c["startedAt"]] = c
+            earliest = min(_parse_iso(c["startedAt"]) for c in candles)
+            if earliest <= start or earliest >= cursor_end:  # done / no progress
+                break
+            cursor_end = earliest
+        return list(out.values())
+
+    async def fetch_funding_range(self, market: str, start, end) -> list[dict]:
+        """Paginate historical funding for ``market`` back to ``start`` (issue #81).
+
+        Returns raw funding dicts (``effectiveAt`` / ``rate``); the caller filters
+        to [start, end], cleans, and caches. Best-effort: a page error ends the walk
+        with whatever was collected."""
+        url = f"{self.data_url}/v4/historicalFunding/{market}"
+        out: dict[str, dict] = {}
+        cursor_before: str | None = None
+        for _ in range(2000):
+            params: dict = {"limit": 100}
+            if cursor_before:
+                params["effectiveBeforeOrAtHeight"] = cursor_before
+            async with _indexer_semaphore():
+                try:
+                    resp = await self._http().get(url, params=params)
+                    resp.raise_for_status()
+                except httpx.HTTPError as exc:
+                    logger.warning("funding fetch failed for %s: %s", market, exc)
+                    break
+            data = resp.json().get("historicalFunding", [])
+            if not data:
+                break
+            for f in data:
+                out[f["effectiveAt"]] = f
+            earliest = min(_parse_iso(f["effectiveAt"]) for f in data)
+            if earliest <= start:
+                break
+            heights = [int(f["effectiveAtHeight"]) for f in data if f.get("effectiveAtHeight")]
+            if not heights:
+                break
+            cursor_before = str(min(heights) - 1)
+        return list(out.values())
 
     # ── account ──────────────────────────────────────────────────────────────
 

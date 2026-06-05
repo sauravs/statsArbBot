@@ -110,6 +110,43 @@ export function getDataInventory(): Promise<DataInventory> {
   return proxyGet<DataInventory>("api/data/inventory");
 }
 
+// ── Historical-data fetch by date range (issue #81) ──────────────────────────
+
+export interface MarketFetchResult {
+  market: string;
+  bars: number;
+  funding_rows: number;
+  status: string; // pending | ok | empty | error
+  error: string | null;
+}
+
+export interface FetchStatus {
+  running: boolean;
+  cancel_requested: boolean;
+  cancelled: boolean;
+  start: string | null;
+  end: string | null;
+  total_markets: number;
+  markets_done: number;
+  current_market: string | null;
+  results: MarketFetchResult[];
+  error: string | null;
+  finished_at: string | null;
+}
+
+/** Launch a background fetch of liquid-market OHLCV/funding for [start, end]. */
+export function startDataFetch(start: string, end: string): Promise<FetchStatus> {
+  return proxyPost<FetchStatus>("api/data/fetch", { start, end });
+}
+
+export function getDataFetchStatus(): Promise<FetchStatus> {
+  return proxyGet<FetchStatus>("api/data/fetch/status");
+}
+
+export function cancelDataFetch(): Promise<FetchStatus> {
+  return proxyPost<FetchStatus>("api/data/fetch/cancel");
+}
+
 // ── Cointegration scan & pairs (Phase 2) ─────────────────────────────────────
 
 export interface PairRecord {

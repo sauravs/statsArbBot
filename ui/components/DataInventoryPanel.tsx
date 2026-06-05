@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getDataInventory, type DataInventory } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  cancelDataFetch,
+  getDataFetchStatus,
+  getDataInventory,
+  startDataFetch,
+  type DataInventory,
+  type FetchStatus,
+} from "@/lib/api";
 import InfoTip from "./InfoTip";
 
-// Read-only inventory of the cached historical data (issue #80): a summary line
-// plus a per-market coverage table (bars, date range, completeness). What the
-// scan / sim / fast-forward / backtest engines actually run on. Fetching new data
-// by date range is a separate feature (#81).
+// Inventory of the cached historical data (issue #80) + a fetch-by-date-range
+// control (issue #81): a summary line, a per-market coverage table, and a control
+// to pull new OHLCV/funding from the dYdX mainnet indexer into the cache.
 export default function DataInventoryPanel() {
   const [inv, setInv] = useState<DataInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     getDataInventory()
       .then(setInv)
       .catch((e) =>
@@ -20,21 +26,29 @@ export default function DataInventoryPanel() {
       );
   }, []);
 
-  if (error) {
-    return (
-      <p className="text-sm text-red" data-testid="data-inventory-error">
-        {error}
-      </p>
-    );
-  }
-  if (!inv) {
-    return (
-      <p className="text-sm text-muted" data-testid="data-inventory-loading">
-        Loading inventory…
-      </p>
-    );
-  }
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
+  return (
+    <div className="space-y-6">
+      <FetchControl onDone={reload} />
+      {error ? (
+        <p className="text-sm text-red" data-testid="data-inventory-error">
+          {error}
+        </p>
+      ) : !inv ? (
+        <p className="text-sm text-muted" data-testid="data-inventory-loading">
+          Loading inventory…
+        </p>
+      ) : (
+        <Inventory inv={inv} />
+      )}
+    </div>
+  );
+}
+
+function Inventory({ inv }: { inv: DataInventory }) {
   const s = inv.summary;
   return (
     <div className="space-y-6" data-testid="data-inventory">
@@ -115,6 +129,183 @@ export default function DataInventoryPanel() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Fetch new OHLCV/funding by date range (issue #81). Discovers liquid markets and
+// pulls the range from the dYdX mainnet indexer in the background; polls progress
+// and can cancel mid-run. On completion it refreshes the inventory above.
+function FetchControl({ onDone }: { onDone: () => void }) {
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [status, setStatus] = useState<FetchStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const poll = useCallback(() => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const st = await getDataFetchStatus();
+        setStatus(st);
+        if (!st.running) {
+          stopPolling();
+          onDoneRef.current(); // refresh inventory with the new coverage
+        }
+      } catch {
+        /* transient — keep last status */
+      }
+    }, 1500);
+  }, [stopPolling]);
+
+  // Resume polling if a fetch is already running (e.g. after a page reload).
+  useEffect(() => {
+    getDataFetchStatus()
+      .then((st) => {
+        setStatus(st);
+        if (st.running) poll();
+      })
+      .catch(() => {});
+    return stopPolling;
+  }, [poll, stopPolling]);
+
+  async function onFetch() {
+    if (!start || !end) {
+      setError("Pick a start and end date");
+      return;
+    }
+    if (start >= end) {
+      setError("Start must be before end");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const st = await startDataFetch(`${start}T00:00:00Z`, `${end}T23:59:59Z`);
+      setStatus(st);
+      poll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Fetch failed to start");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCancel() {
+    try {
+      setStatus(await cancelDataFetch());
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const running = status?.running ?? false;
+  const pct =
+    status && status.total_markets > 0
+      ? Math.round((status.markets_done / status.total_markets) * 100)
+      : 0;
+  const errors = status?.results.filter((r) => r.status === "error").length ?? 0;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5" data-testid="data-fetch">
+      <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+        Fetch History
+        <InfoTip text="Pull new OHLCV + funding for a date range from the dYdX mainnet indexer into the cache. Discovers all liquid markets; merges into the range without touching data outside it. Long ranges are slow — you can cancel." />
+      </h2>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">Start date</span>
+          <input
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            disabled={running}
+            className="bt-input"
+            data-testid="fetch-start"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">End date</span>
+          <input
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            disabled={running}
+            className="bt-input"
+            data-testid="fetch-end"
+          />
+        </label>
+        {running ? (
+          <button
+            onClick={onCancel}
+            disabled={status?.cancel_requested}
+            className="rounded-lg border border-red px-3 py-2 text-xs text-red transition-colors hover:bg-red/10 disabled:opacity-40"
+            data-testid="fetch-cancel"
+          >
+            {status?.cancel_requested ? "Stopping…" : "Cancel"}
+          </button>
+        ) : (
+          <button
+            onClick={onFetch}
+            disabled={busy}
+            className="rounded-lg bg-blue/20 px-3 py-2 text-xs font-medium text-blue transition-colors hover:bg-blue/30 disabled:opacity-50"
+            data-testid="fetch-start-btn"
+          >
+            {busy ? "Starting…" : "Fetch"}
+          </button>
+        )}
+      </div>
+
+      {running && (
+        <div className="mt-4" data-testid="fetch-progress">
+          <div className="mb-1 flex justify-between text-xs text-muted">
+            <span>
+              Fetching {status?.current_market ?? "…"} — {status?.markets_done}/
+              {status?.total_markets} markets
+            </span>
+            <span className="tabular-nums">{pct}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-bg">
+            <div className="h-full bg-blue transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+
+      {!running && status?.finished_at && (
+        <p className="mt-3 text-xs text-muted" data-testid="fetch-done">
+          {status.cancelled ? "Cancelled after" : "Fetched"} {status.markets_done}/
+          {status.total_markets} markets
+          {errors > 0 && <span className="text-red"> · {errors} failed</span>}.
+        </p>
+      )}
+      {(error || status?.error) && (
+        <p className="mt-3 text-xs text-red" data-testid="fetch-error">
+          {error || status?.error}
+        </p>
+      )}
+
+      <style jsx>{`
+        :global(.bt-input) {
+          border-radius: 0.5rem;
+          border: 1px solid #21262d;
+          background: #0a0b0d;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.875rem;
+          color: #e4e6ea;
+        }
+      `}</style>
     </div>
   );
 }
