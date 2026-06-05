@@ -29,16 +29,24 @@ export default function ManualTradesPanel({
 }) {
   const [trades, setTrades] = useState<ManualTrade[]>([]);
   const [portfolio, setPortfolio] = useState<ManualPortfolio | null>(null);
+  // The live mark-to-market (Unrealized P&L) is the only summary figure that
+  // needs a live price fetch — slow against the dydx indexer right after a
+  // scan/record (issue #60). Track its load so the card can render instantly
+  // (with the cheap figures derived below) and show a spinner just for it.
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<ManualTrade | null>(null);
   const [deleting, setDeleting] = useState<ManualTrade | null>(null);
 
   // Best-effort mark-to-market; a failure keeps the last summary.
   const refreshPortfolio = useCallback(async () => {
+    setPortfolioLoading(true);
     try {
       setPortfolio(await getManualPortfolio());
     } catch {
       /* keep previous summary */
+    } finally {
+      setPortfolioLoading(false);
     }
   }, []);
 
@@ -63,6 +71,27 @@ export default function ManualTradesPanel({
     return () => clearInterval(id);
   }, [refreshPortfolio]);
 
+  // Allocated / Realized / counts are derived straight from the trades list (a
+  // fast DB read) so the summary card renders immediately — only the live
+  // mark-to-market below waits on the indexer (issue #60).
+  const openTrades = trades.filter((t) => t.status === "OPEN");
+  const closedTrades = trades.filter((t) => t.status === "CLOSED");
+  const allocated = openTrades.reduce(
+    (s, t) => s + t.capital_leg1_usd + t.capital_leg2_usd,
+    0,
+  );
+  const realized = closedTrades.reduce((s, t) => s + (t.pnl ?? 0), 0);
+  const openCount = openTrades.length;
+  const closedCount = closedTrades.length;
+
+  // Unrealized P&L needs the live price fetch: show a spinner while it resolves
+  // (open trades, not yet priced), the value once it lands, or "—" if there's
+  // nothing to mark / pricing failed.
+  const unrealizedPending =
+    openCount > 0 &&
+    portfolio?.unrealized_pnl == null &&
+    (portfolioLoading || portfolio == null);
+
   return (
     <div className="mt-6 rounded-xl border border-border bg-card p-5">
       <div className="mb-4 flex items-center gap-2">
@@ -74,7 +103,7 @@ export default function ManualTradesPanel({
         </h2>
       </div>
 
-      {portfolio && (portfolio.open_count > 0 || portfolio.closed_count > 0) && (
+      {trades.length > 0 && (
         <div
           className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4"
           data-testid="portfolio-summary"
@@ -82,19 +111,22 @@ export default function ManualTradesPanel({
           <SummaryStat
             label="Allocated (open)"
             tip="Total capital committed across OPEN manual trades — the sum of both legs' capital for every open position."
-            value={usd(portfolio.allocated_capital)}
+            value={usd(allocated)}
             testid="portfolio-allocated"
           />
           <SummaryStat
             label="Unrealized P&L"
             tip="Live mark-to-market profit/loss on OPEN trades: each leg valued at its current price as if closed now. Updates as prices move."
             value={
-              portfolio.unrealized_pnl == null
-                ? "—"
-                : usd(portfolio.unrealized_pnl)
+              unrealizedPending
+                ? null
+                : portfolio?.unrealized_pnl == null
+                  ? "—"
+                  : usd(portfolio.unrealized_pnl)
             }
+            loading={unrealizedPending}
             tone={
-              portfolio.unrealized_pnl == null
+              portfolio?.unrealized_pnl == null
                 ? "muted"
                 : portfolio.unrealized_pnl >= 0
                   ? "green"
@@ -105,14 +137,14 @@ export default function ManualTradesPanel({
           <SummaryStat
             label="Realized P&L"
             tip="Booked profit/loss from CLOSED trades — the sum of each closed trade's final per-leg P&L."
-            value={usd(portfolio.realized_pnl)}
-            tone={portfolio.realized_pnl >= 0 ? "green" : "red"}
+            value={usd(realized)}
+            tone={realized >= 0 ? "green" : "red"}
             testid="portfolio-realized"
           />
           <SummaryStat
             label="Open / Closed"
             tip="Count of manual trades currently open vs. already closed (for the active data source)."
-            value={`${portfolio.open_count} / ${portfolio.closed_count}`}
+            value={`${openCount} / ${closedCount}`}
             testid="portfolio-counts"
           />
         </div>
@@ -238,12 +270,14 @@ function SummaryStat({
   tone = "default",
   testid,
   tip,
+  loading = false,
 }: {
   label: string;
-  value: string;
+  value: string | null;
   tone?: "default" | "green" | "red" | "muted";
   testid: string;
   tip?: string;
+  loading?: boolean;
 }) {
   const valueColor =
     tone === "green"
@@ -263,7 +297,14 @@ function SummaryStat({
         className={`mt-0.5 text-lg font-semibold tabular-nums ${valueColor}`}
         data-testid={testid}
       >
-        {value}
+        {loading ? (
+          <span className="flex items-center gap-1.5 text-sm text-muted">
+            <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted/30 border-t-muted" />
+            computing…
+          </span>
+        ) : (
+          value
+        )}
       </div>
     </div>
   );
