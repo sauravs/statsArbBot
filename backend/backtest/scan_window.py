@@ -26,16 +26,33 @@ logger = logging.getLogger(__name__)
 
 
 def build_window_matrix(
-    candles_by_market: dict[str, list[dict]], start: datetime, end: datetime
+    candles_by_market: dict[str, list[dict]],
+    start: datetime,
+    end: datetime,
+    *,
+    min_completeness: float | None = None,
 ) -> pd.DataFrame:
     """Aligned close-price matrix over [start, end] (inclusive).
 
     ``candles_by_market`` maps a market to ascending ``{"timestamp", "close"}``
     dicts (a superset window is fine — only the in-range bars are used). Columns
-    are markets, the index is the shared timestamps; markets that don't cover every
-    shared timestamp are dropped (cointegration needs aligned series), exactly like
-    the live price-matrix builder.
+    are markets, the index is the union of timestamps.
+
+    Completeness-aware cleaning (issue #93): cointegration needs aligned, dense
+    series, but real history has sporadic gaps and an all-or-nothing drop discarded
+    a whole market for a single missing bar (a 90-day real-data window kept only 6
+    of 38 markets). Instead a market is **kept only if it has at least
+    ``min_completeness`` of the window's bars** (markets below that are genuinely
+    absent — not-yet-listed / thin — and filling them would fabricate long flat
+    stretches), then the survivors' small residual gaps are **forward-filled then
+    back-filled**. Prices are non-stationary, so we never mean/median-fill (that
+    injects artificial jumps and destroys the spread dynamics).
     """
+    if min_completeness is None:
+        import config
+
+        min_completeness = config.BACKTEST_MIN_COMPLETENESS
+
     price_data: dict[str, dict[datetime, float]] = {}
     for market, candles in candles_by_market.items():
         series = {
@@ -47,9 +64,25 @@ def build_window_matrix(
             price_data[market] = series
     if not price_data:
         return pd.DataFrame()
+
+    # Union index of all in-range timestamps; missing bars surface as NaN.
     df = pd.DataFrame(price_data)
-    df.dropna(axis=1, how="any", inplace=True)
     df.sort_index(inplace=True)
+    n = len(df.index)
+    if n == 0:
+        return pd.DataFrame()
+
+    # Keep markets covering at least the threshold fraction of the window's bars.
+    threshold = min_completeness * n
+    keep = [m for m in df.columns if df[m].notna().sum() >= threshold]
+    df = df[keep]
+    if df.shape[1] == 0:
+        return pd.DataFrame()
+
+    # Fill the survivors' small residual gaps: forward-fill (carry the last close),
+    # then back-fill any leading gap. Drop anything still entirely NaN (defensive).
+    df = df.ffill().bfill()
+    df.dropna(axis=1, how="any", inplace=True)
     return df
 
 

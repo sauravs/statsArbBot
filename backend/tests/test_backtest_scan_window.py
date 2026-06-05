@@ -59,6 +59,49 @@ def test_scan_finds_cointegrated_pair():
     assert "intercept" in row and "half_life" in row
 
 
+def test_market_with_small_gap_is_kept_and_forward_filled():
+    # 100-bar window; BBB is missing 5 interior bars (95% coverage ≥ 90%) — it must
+    # be KEPT (not dropped) and its gap forward-filled with the last close (#93).
+    n = 100
+    a = _candles(range(100, 100 + n))
+    b_full = list(range(200, 200 + n))
+    b = [c for i, c in enumerate(_candles(b_full)) if not (50 <= i < 55)]
+    df = build_window_matrix(
+        {"AAA-USD": a, "BBB-USD": b}, _ANCHOR, _ANCHOR + timedelta(hours=n - 1)
+    )
+    assert set(df.columns) == {"AAA-USD", "BBB-USD"}  # BBB survived the gap
+    assert df.shape[0] == n  # union index = the full hourly grid
+    assert df["BBB-USD"].notna().all()  # gap filled, no NaN
+    assert df["BBB-USD"].iloc[52] == b_full[49]  # forward-filled from bar 49
+
+
+def test_market_below_completeness_threshold_is_dropped():
+    # BBB covers only the first half of the window (50% < 90%) — genuinely absent,
+    # so it is dropped rather than fabricated.
+    n = 100
+    a = _candles(range(100, 100 + n))
+    b = _candles(range(200, 250))  # 50 of 100 bars
+    df = build_window_matrix(
+        {"AAA-USD": a, "BBB-USD": b}, _ANCHOR, _ANCHOR + timedelta(hours=n - 1)
+    )
+    assert list(df.columns) == ["AAA-USD"]
+
+
+def test_completeness_threshold_is_configurable():
+    # A permissive threshold keeps the sparse market and fills it.
+    n = 100
+    a = _candles(range(100, 100 + n))
+    b = _candles(range(200, 250))  # 50% coverage
+    df = build_window_matrix(
+        {"AAA-USD": a, "BBB-USD": b},
+        _ANCHOR,
+        _ANCHOR + timedelta(hours=n - 1),
+        min_completeness=0.4,
+    )
+    assert set(df.columns) == {"AAA-USD", "BBB-USD"}
+    assert df["BBB-USD"].notna().all()
+
+
 def test_scan_returns_empty_when_too_few_rows():
     candles = {"AAA-USD": _candles(range(40)), "BBB-USD": _candles(range(40))}
     found = scan_window_pairs(
