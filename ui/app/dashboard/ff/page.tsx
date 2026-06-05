@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FastForwardPanel from "@/components/FastForwardPanel";
+import NonOperationalBanner from "@/components/NonOperationalBanner";
 
 export default function FastForwardPage() {
   const router = useRouter();
@@ -44,6 +45,7 @@ export default function FastForwardPage() {
           and closing virtual trades on real signals, then saves the equity curve,
           per-pair P&amp;L, and exit-reason breakdown.
         </p>
+        <NonOperationalBanner section="Fast-Forward" />
         <FastForwardPanel />
       </section>
     </main>

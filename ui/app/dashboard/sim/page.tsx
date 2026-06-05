@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import SimulationPanel from "@/components/SimulationPanel";
+import NonOperationalBanner from "@/components/NonOperationalBanner";
 
 export default function SimulationPage() {
   const router = useRouter();
@@ -43,6 +44,7 @@ export default function SimulationPage() {
           and closing virtual positions on the same statistical engine the live bot
           uses, with a slippage / fee / funding cost model.
         </p>
+        <NonOperationalBanner section="Real-Time Simulation" />
         <SimulationPanel />
       </section>
     </main>
