@@ -78,7 +78,7 @@ export default function BacktestPage() {
           by net P&amp;L, with an equity curve, per-window breakdown, and a report.
         </p>
         <BacktestDataBanner source={health?.data_source} reloadKey={sourceKey} />
-        <BacktestPanel />
+        <BacktestPanel reloadKey={sourceKey} />
       </section>
     </main>
   );

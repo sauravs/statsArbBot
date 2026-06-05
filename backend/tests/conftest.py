@@ -606,6 +606,7 @@ class FakeStrategyRepository:
         "error": None,
         "completed_at": None,
         "exchange": "dydx",
+        "data_source": "dydx",
     }
 
     def __init__(self) -> None:
@@ -637,7 +638,13 @@ class FakeStrategyRepository:
         return dict(row) if row is not None else None
 
     async def list(self) -> list[dict]:
-        rows = list(self.store.values())
+        import config
+
+        rows = [
+            r
+            for r in self.store.values()
+            if r.get("data_source") == config.SCAN_DATA_SOURCE
+        ]
         ranked = sorted((r for r in rows if r.get("rank")), key=lambda r: r["rank"])
         unranked = sorted(
             (r for r in rows if not r.get("rank")),
@@ -658,14 +665,19 @@ class FakeStrategyRepository:
         return self.store.pop(strategy_id, None) is not None
 
     async def recompute_ranks(self) -> None:
-        ranked = sorted(
-            (r for r in self.store.values() if r.get("net_pnl") is not None),
-            key=lambda r: (-r["net_pnl"], r.get("created_at") or ""),
-        )
-        ranked_ids = {r["id"] for r in ranked}
-        for i, r in enumerate(ranked, start=1):
-            r["rank"] = i
-        for r in self.store.values():
+        # Rank within each data source independently (issue #98).
+        rows = list(self.store.values())
+        ranked_ids: set[str] = set()
+        for source in {r.get("data_source") for r in rows}:
+            group = [r for r in rows if r.get("data_source") == source]
+            ranked = sorted(
+                (r for r in group if r.get("net_pnl") is not None),
+                key=lambda r: (-r["net_pnl"], r.get("created_at") or ""),
+            )
+            for i, r in enumerate(ranked, start=1):
+                ranked_ids.add(r["id"])
+                r["rank"] = i
+        for r in rows:
             if r["id"] not in ranked_ids:
                 r["rank"] = None
 

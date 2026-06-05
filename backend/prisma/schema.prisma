@@ -411,6 +411,10 @@ model FundingRateCache {
 model Strategy {
   id          String         @id @default(cuid())
   exchange    Exchange       @default(dydx)
+  // Market-data source the strategy was created/run under ("fake" demo vs "dydx"
+  // live). Scopes the list so demo strategies stay in demo and live in live
+  // (issue #98) — same pattern as ManualTrade.data_source. Defaults to live.
+  data_source String         @default("dydx")
   name        String // S1..S4 or a user-given label
   description String?
   status      BacktestStatus @default(PENDING)
@@ -463,7 +467,7 @@ model Strategy {
   updated_at   DateTime  @updatedAt @db.Timestamptz
   completed_at DateTime? @db.Timestamptz
 
-  @@index([exchange, status])
+  @@index([exchange, data_source, status])
   @@index([rank])
   @@map("strategies")
 }

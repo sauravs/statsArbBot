@@ -73,7 +73,9 @@ def ctx(monkeypatch):
 
 def _params(**over):
     p = {
-        "exchange": "dydx", "name": "S1", "description": "t",
+        # Stamp the active source (the router does this in production) so the
+        # source-scoped list (#98) surfaces these strategies.
+        "exchange": "dydx", "data_source": config.SCAN_DATA_SOURCE, "name": "S1", "description": "t",
         "scan_window_days": 7, "trade_window_days": 3,
         "zscore_window": 21, "entry_threshold": 0.5, "exit_threshold": 0.5,
         "stop_threshold": 4.0, "pvalue_max": 0.05, "max_half_life_h": 72.0,
@@ -226,3 +228,21 @@ async def test_ranking_orders_by_net_pnl(ctx):
     assert ranked[0]["rank"] == 1 and ranked[1]["rank"] == 2
     # Rank 1 has the higher (or equal) net P&L.
     assert ranked[0]["net_pnl"] >= ranked[1]["net_pnl"]
+
+
+async def test_list_is_scoped_by_data_source(ctx, monkeypatch):
+    """A strategy is visible only under the source it was created with (#98)."""
+    engine = BacktestEngine()
+    # ctx sets fake (DEMO) — create a demo strategy.
+    await ctx.repo.create(_params(name="demo-strat"))
+    assert [r["name"] for r in await engine.list()] == ["demo-strat"]
+
+    # Switch to LIVE: the demo strategy is hidden, and a new one is scoped to live.
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "dydx")
+    assert await engine.list() == []
+    await ctx.repo.create(_params(name="live-strat"))
+    assert [r["name"] for r in await engine.list()] == ["live-strat"]
+
+    # Back to DEMO: only the demo strategy shows.
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+    assert [r["name"] for r in await engine.list()] == ["demo-strat"]

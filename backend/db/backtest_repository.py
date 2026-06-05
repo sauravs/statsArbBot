@@ -43,8 +43,14 @@ class PrismaStrategyRepository:
     async def list(self) -> list[dict]:
         from db.client import get_db
 
+        import config
+
         db = await get_db()
-        records = await db.strategy.find_many()
+        # Scope to the active market-data source so demo strategies stay in demo and
+        # live in live (issue #98), like the manual-trades list.
+        records = await db.strategy.find_many(
+            where={"data_source": config.SCAN_DATA_SOURCE}
+        )
         return _sorted([self._to_dict(r) for r in records])
 
     async def update(self, strategy_id: str, data: dict) -> dict | None:
@@ -81,14 +87,20 @@ class PrismaStrategyRepository:
 
         db = await get_db()
         records = await db.strategy.find_many()
-        ranked = sorted(
-            [r for r in records if r.net_pnl is not None],
-            key=lambda r: (-r.net_pnl, str(r.created_at)),
-        )
-        ranked_ids = {r.id for r in ranked}
-        for i, r in enumerate(ranked, start=1):
-            if r.rank != i:
-                await db.strategy.update(where={"id": r.id}, data={"rank": i})
+        # Rank within each data source independently (issue #98) — demo and live are
+        # incomparable worlds, so a demo run shouldn't out/under-rank a live one.
+        sources = {r.data_source for r in records}
+        ranked_ids: set[str] = set()
+        for source in sources:
+            group = [r for r in records if r.data_source == source]
+            ranked = sorted(
+                [r for r in group if r.net_pnl is not None],
+                key=lambda r: (-r.net_pnl, str(r.created_at)),
+            )
+            for i, r in enumerate(ranked, start=1):
+                ranked_ids.add(r.id)
+                if r.rank != i:
+                    await db.strategy.update(where={"id": r.id}, data={"rank": i})
         for r in records:
             if r.id not in ranked_ids and r.rank is not None:
                 await db.strategy.update(where={"id": r.id}, data={"rank": None})
@@ -108,6 +120,7 @@ class PrismaStrategyRepository:
         return {
             "id": r.id,
             "exchange": _enum_value(r.exchange),
+            "data_source": r.data_source,
             "name": r.name,
             "description": r.description,
             "status": _enum_value(r.status),

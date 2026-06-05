@@ -19,7 +19,7 @@ import StrategyDetail from "./StrategyDetail";
 // comparison on the left, the selected strategy's detail (controls, equity curve,
 // per-window table, per-pair P&L, report) on the right. A RUNNING sweep is polled
 // until terminal so progress + final results appear without a manual refresh.
-export default function BacktestPanel() {
+export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number }) {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Strategy | null>(null);
@@ -45,6 +45,16 @@ export default function BacktestPanel() {
       setError(e instanceof Error ? e.message : "Failed to load strategies"),
     );
   }, [refreshList]);
+
+  // When the market-data source toggles (reloadKey bumps), the visible strategies
+  // change (they're scoped to demo/live, issue #98) — drop the now-irrelevant
+  // selection and reload the scoped list.
+  useEffect(() => {
+    if (reloadKey === 0) return; // initial mount already loads via the effect above
+    setSelectedId(null);
+    setDetail(null);
+    refreshList().catch(() => {});
+  }, [reloadKey, refreshList]);
 
   // Load the selected strategy when the selection changes.
   useEffect(() => {
