@@ -94,6 +94,7 @@ def scan_window_pairs(
     pvalue_max: float,
     max_half_life: float,
     min_rows: int,
+    should_stop=None,
 ) -> list[dict]:
     """Cointegrated pairs found over the formation window [start, end].
 
@@ -109,6 +110,10 @@ def scan_window_pairs(
     markets = list(df.columns)
     found: list[dict] = []
     for base, quote in itertools.combinations(markets, 2):
+        # Cooperative cancel (issue #100): let a pause/stop bail the CPU-heavy scan
+        # between pairs rather than only at the window boundary.
+        if should_stop is not None and should_stop():
+            break
         s1 = df[base].to_numpy(dtype=float)
         s2 = df[quote].to_numpy(dtype=float)
         try:
