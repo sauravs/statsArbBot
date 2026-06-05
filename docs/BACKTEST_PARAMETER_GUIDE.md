@@ -9,49 +9,37 @@ is in `fake` mode.** The data source is switched by `SCAN_DATA_SOURCE`:
 
 | `SCAN_DATA_SOURCE` | What the backtest actually replays | Span | Markets |
 |--------------------|------------------------------------|------|---------|
-| `fake` (current default) | Synthetic **DEMO** series (`exchanges/demo.py`) | **2025-01-01 → 2025-01-17** (400 hourly bars, ~16.6 days) | DEMO1–4, NOISE1–2 |
-| `dydx` (real) | The cached dYdX history (`OhlcvCache`) | 2024-01-01 → 2026-06-03 | 38 markets |
+| `fake` (DEMO) | Synthetic **DEMO** series (`exchanges/demo.py`) | **2024-01-01 → 2026-06-03** (≈21k hourly bars; #96) | DEMO1–4, NOISE1–2 |
+| `dydx` (LIVE) | The cached dYdX history (`OhlcvCache`) | 2024-01-01 → 2026-06-03 | 38 markets |
 
-In the failing screenshot the stack was in `fake` mode but the dates were
-**2025-05-03 → 2026-04-06** — entirely outside the 16.6-day demo span. Every
-window therefore loaded **0 bars → 0 pairs → 0 trades**. Reproduced:
+> The Backtest page shows a **DEMO/LIVE** badge (#92) — switch it to pick the source.
 
-```
-[USER REPRO] fake mode, dates 2025-05-03→2026-04-06, scan90/trade60
-  win0 2025-05-03->2025-08-01 bars=0 pairs=0
-  win1 2025-07-02->2025-09-30 bars=0 pairs=0
-  ...  (all windows: 0 bars)
-```
-
-A second, compounding issue: even when bars exist, **a 90-day scan window is far
-larger than the 16.6-day demo history**, so `build_windows` can't form a single
-valid window inside it.
-
-"It used to work randomly" = earlier you left the dates **blank** (which auto-fills
-the demo span) and/or used **short** scan/trade windows — so the demo's two
-built-in cointegrated pairs were found.
+_Historical note:_ the original failure was that the DEMO series spanned only
+~16 days (2025-01-01 → 2025-01-17), so real-calendar dates loaded 0 bars → 0
+trades. **Fixed in #96** — DEMO now spans 2024-01-01 → 2026-06-03, so any normal
+date range / window finds pairs and trades (see §A). Always check the DEMO/LIVE
+badge so you know which source you're running.
 
 ---
 
-## A. Offline / `fake` mode (what your stack runs right now)
+## A. Offline / DEMO mode (`fake`)
 
-The demo universe contains **two genuinely cointegrated pairs** by construction
-(DEMO1/DEMO2, DEMO3/DEMO4, both p < 0.001). To hit them:
+The demo data now spans the **same range as the real cache** (2024-01-01 →
+2026-06-03; #96) with two genuinely cointegrated pairs by construction
+(DEMO1/DEMO2, DEMO3/DEMO4, both p < 0.001) persisting throughout — so **normal
+params just work**, like LIVE. Leaving Start/End **blank** runs a quick recent
+window; explicit dates anywhere in the span are fine.
 
-- **Leave Start/End blank** (auto-fills the demo span), or set them inside
-  **2025-01-01 → 2025-01-17**.
-- Keep scan + trade windows **small** (the whole history is ~16 days).
-
-Empirically validated (full engine, blank dates):
+Empirically validated (full engine, DEMO, dates 2024-05 → 2026-07):
 
 | Entry | Exit | Stop | p-value | half-life | scan/trade | trades | win% | net |
 |------:|-----:|-----:|--------:|----------:|-----------:|-------:|-----:|----:|
-| **1.5** | 0.5 | 4 | 0.05 | 72h | **7d / 3d** | 46 | 63% | **+\$9.10** |
-| 1.0 | 0.5 | 4 | 0.05 | 72h | 7d / 3d | 93 | 44% | +\$1.20 |
-| 0.5 | 0.3 | 4 | 0.05 | 72h | 5d / 2d | 124 | 44% | −\$0.48 |
+| **1.5** | 0.5 | 4 | 0.05 | 72h | **90d / 30d** | 4,486 | 63% | **+\$405.79** |
+| 2.0 | 0.5 | 4 | 0.05 | 72h | 90d / 30d | 1,990 | 72% | +\$335.34 |
+| 1.0 | 0.5 | 4 | 0.05 | 72h | 90d / 30d | 7,621 | 49% | −\$3.41 |
 
 **Recommended demo preset:** Entry 1.5 / Exit 0.5 / Stop 4, p≤0.05, half-life≤72h,
-Z-window 21, scan 7d / trade 3d, **dates blank**.
+Z-window 21 — any normal scan/trade windows and date range in the span.
 
 ---
 

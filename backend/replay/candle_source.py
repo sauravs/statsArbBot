@@ -107,8 +107,16 @@ def make_candle_source(*, exchange: str | None = None) -> OhlcvCacheSource | Dem
 
 
 def demo_window() -> tuple[datetime, datetime]:
-    """The full [start, end] span of the demo synthetic history (offline default)."""
-    from exchanges.demo import DEMO_ANCHOR, DEMO_BARS
+    """Default [start, end] window for a blank-date offline run.
 
-    start = DEMO_ANCHOR.replace(tzinfo=timezone.utc) if DEMO_ANCHOR.tzinfo is None else DEMO_ANCHOR
-    return start, start + timedelta(hours=DEMO_BARS - 1)
+    The synthetic history spans years (issue #96), but a blank-date FF / backtest
+    run should stay quick, so this returns only the most-recent
+    ``DEMO_DEFAULT_WINDOW_BARS`` of the series. Explicit date ranges still reach the
+    full span via :class:`DemoCandleSource`.
+    """
+    from exchanges.demo import DEMO_ANCHOR, DEMO_BARS, DEMO_DEFAULT_WINDOW_BARS
+
+    anchor = DEMO_ANCHOR.replace(tzinfo=timezone.utc) if DEMO_ANCHOR.tzinfo is None else DEMO_ANCHOR
+    end = anchor + timedelta(hours=DEMO_BARS - 1)
+    start = anchor + timedelta(hours=max(0, DEMO_BARS - DEMO_DEFAULT_WINDOW_BARS))
+    return start, end

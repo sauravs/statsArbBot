@@ -5,10 +5,10 @@ import Link from "next/link";
 import { getDataInventory, type DataInventory } from "@/lib/api";
 
 // The synthetic demo history the backtest replays in DEMO mode (SCAN_DATA_SOURCE=
-// fake): a fixed set of markets anchored at 2025-01-01 spanning ~400 hourly bars.
-// Kept in sync with backend/exchanges/demo.py (_ANCHOR / _N) — surfaced so the
-// operator picks Start/End the offline engine can actually use (#92).
-const DEMO_SPAN = "2025-01-01 → 2025-01-17";
+// fake): a fixed set of markets spanning the same range as the real cache so demo
+// is a faithful stand-in for live data (#96). Kept in sync with
+// backend/exchanges/demo.py (_ANCHOR / _N).
+const DEMO_SPAN = "2024-01-01 → 2026-06-03";
 const DEMO_MARKETS = 6;
 
 // Slim one-line cached-data coverage banner under the Backtest page intro (issue
@@ -42,7 +42,7 @@ export default function BacktestDataBanner({
     return (
       <p className="mb-6 text-xs text-muted" data-testid="bt-data-banner">
         <span className="text-muted/70">Demo data:</span> {DEMO_MARKETS} synthetic
-        markets · {DEMO_SPAN} · offline (leave Start/End blank to use this span).
+        markets · {DEMO_SPAN} · offline synthetic stand-in for live data.
       </p>
     );
   }

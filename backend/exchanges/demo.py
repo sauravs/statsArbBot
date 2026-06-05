@@ -15,8 +15,16 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-_ANCHOR = datetime(2025, 1, 1, tzinfo=timezone.utc)
-_N = 400  # candles per market
+_ANCHOR = datetime(2024, 1, 1, tzinfo=timezone.utc)
+# ~2.5 years of hourly bars (2024-01-01 → 2026-06-03) so the offline backtest spans
+# the same range as the real dYdX cache (issue #96): a DEMO run with normal params
+# (e.g. 90d scan / 30d trade across 2024–2026) finds cointegrated pairs + trades,
+# making demo a faithful stand-in for live data. Generation is vectorised → instant.
+_N = 21_241  # candles per market: hours from 2024-01-01 00:00 to 2026-06-03 00:00
+# Blank-date offline runs (the FF / backtest default window) replay only this many
+# of the most-recent bars so they stay quick; the full series above is available to
+# any explicit date range.
+_DEFAULT_WINDOW_BARS = 400
 
 
 def _iso(dt: datetime) -> str:
@@ -25,17 +33,22 @@ def _iso(dt: datetime) -> str:
 
 def _cointegrated_pair(seed: int, *, beta: float, alpha: float) -> tuple[list[float], list[float]]:
     rng = np.random.default_rng(seed)
-    s2 = 100 + np.cumsum(rng.normal(0, 1, _N))
+    # Base 1000 keeps the random walk comfortably positive across the long span
+    # (a base-100 walk over ~21k steps would drift negative → invalid prices).
+    s2 = 1000 + np.cumsum(rng.normal(0, 1, _N))
+    # Spread (residual) scaled to ~0.3% of the leg price so the mean-reversion is
+    # tradeable net of the ~0.1% round-trip fees — i.e. the demo keeps the original
+    # profitable signal-to-cost ratio after the ×10 base increase (issue #96).
     eps = np.zeros(_N)
     for t in range(1, _N):
-        eps[t] = 0.5 * eps[t - 1] + rng.normal(0, 0.5)
+        eps[t] = 0.5 * eps[t - 1] + rng.normal(0, 5.0)
     s1 = beta * s2 + alpha + eps
     return s1.tolist(), s2.tolist()
 
 
 def _random_walk(seed: int) -> list[float]:
     rng = np.random.default_rng(seed)
-    return (50 + np.cumsum(rng.normal(0, 1, _N))).tolist()
+    return (1000 + np.cumsum(rng.normal(0, 1, _N))).tolist()
 
 
 def _build_series() -> dict[str, list[float]]:
@@ -65,8 +78,11 @@ def demo_series() -> dict[str, list[float]]:
 
 # Anchor + bar count of the synthetic history (the demo series span this window
 # of hourly bars from DEMO_ANCHOR). Phase 7's replay maps them onto timestamps.
+# DEMO_DEFAULT_WINDOW_BARS is the short recent slice a blank-date offline run
+# replays so it stays quick (issue #96).
 DEMO_ANCHOR = _ANCHOR
 DEMO_BARS = _N
+DEMO_DEFAULT_WINDOW_BARS = _DEFAULT_WINDOW_BARS
 
 
 class DemoDataClient:
@@ -81,10 +97,21 @@ class DemoDataClient:
     async def get_historical_closes(
         self, market: str, *, num_pages=None, now=None, concurrent: bool = False
     ) -> list[dict]:
+        import config
+
         closes = self._series.get(market, [])
+        # Mirror a real indexer: return the most-recent ``num_pages`` worth of bars
+        # rather than the entire multi-year series, so the scan / chart paths stay
+        # fast (issue #96). The full history is still reachable by date range via
+        # DemoCandleSource (the backtest/FF path). num_pages=None ⇒ full series.
+        if num_pages is None:
+            start_idx = 0
+        else:
+            start_idx = max(0, len(closes) - num_pages * config.CANDLES_PER_PAGE)
         return [
             {"datetime": _iso(_ANCHOR + timedelta(hours=i)), "close": float(c)}
             for i, c in enumerate(closes)
+            if i >= start_idx
         ]
 
     async def aclose(self) -> None:  # parity with DydxDataClient
