@@ -8,6 +8,7 @@ import {
   LineSeries,
   LineStyle,
   type IChartApi,
+  type ISeriesApi,
   type LogicalRange,
   type SeriesMarker,
   type Time,
@@ -32,6 +33,47 @@ const PANEL_HEIGHT = 240;
 
 function toLine(points: TimePoint[]) {
   return points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
+}
+
+type PriceLevel = { price: number; color: string; text: string };
+
+/**
+ * Render the band / threshold identities as labels pinned to the LEFT edge of a
+ * panel, aligned to each level's line (issue #69). lightweight-charts only draws
+ * a price-line's title as part of its right-axis label, which covers the price
+ * tick values — so we keep ``axisLabelVisible: false`` (clean right ticks) and
+ * place our own left-edge labels here. ``reposition`` re-aligns them whenever the
+ * price scale changes (zoom / resize); returns a cleanup that removes the nodes.
+ */
+function attachLeftLabels(
+  container: HTMLDivElement,
+  series: ISeriesApi<"Line">,
+  levels: PriceLevel[],
+) {
+  const els = levels.map((lvl) => {
+    const el = document.createElement("div");
+    el.textContent = lvl.text;
+    el.style.cssText =
+      "position:absolute;left:2px;transform:translateY(-50%);font-size:10px;" +
+      "font-weight:600;line-height:1;pointer-events:none;z-index:3;padding:1px 3px;" +
+      "border-radius:3px;white-space:nowrap;";
+    el.style.color = lvl.color;
+    el.style.background = "rgba(18,20,26,0.72)"; // C.card, semi-opaque
+    container.appendChild(el);
+    return el;
+  });
+  const reposition = () => {
+    levels.forEach((lvl, i) => {
+      const y = series.priceToCoordinate(lvl.price);
+      if (y == null) {
+        els[i].style.display = "none";
+      } else {
+        els[i].style.display = "block";
+        els[i].style.top = `${y}px`;
+      }
+    });
+  };
+  return { reposition, remove: () => els.forEach((e) => e.remove()) };
 }
 
 /**
@@ -142,20 +184,25 @@ export default function PairCharts({
     });
     spreadLine.setData(toLine(data.spread.series));
     const { mean, std } = data.spread;
+    const spreadLevels: PriceLevel[] = [];
     const band = (
       offset: number,
       color: string,
       style: LineStyle,
-      title: string,
-    ) =>
+      text: string,
+    ) => {
+      const price = mean + offset;
       spreadLine.createPriceLine({
-        price: mean + offset,
+        price,
         color,
         lineWidth: 1,
         lineStyle: style,
-        axisLabelVisible: true,
-        title,
+        // Right-axis value label off so it no longer covers the tick values; the
+        // band identity is drawn as a left-edge label instead (issue #69).
+        axisLabelVisible: false,
       });
+      spreadLevels.push({ price, color, text });
+    };
     band(0, C.muted, LineStyle.Solid, "mean");
     band(std, C.blue, LineStyle.Dashed, "+1σ");
     band(-std, C.blue, LineStyle.Dashed, "−1σ");
@@ -170,20 +217,23 @@ export default function PairCharts({
       title: "Z",
     });
     zLine.setData(zLineData(data));
+    const zLevels: PriceLevel[] = [];
     const zLineAt = (
       price: number,
       color: string,
       style: LineStyle,
-      title: string,
-    ) =>
+      text: string,
+    ) => {
       zLine.createPriceLine({
         price,
         color,
         lineWidth: 1,
         lineStyle: style,
-        axisLabelVisible: true,
-        title,
+        // Left-edge label instead of the right-axis label (issue #69).
+        axisLabelVisible: false,
       });
+      zLevels.push({ price, color, text });
+    };
     zLineAt(0, C.muted, LineStyle.Solid, "0");
     zLineAt(data.entry_threshold, C.green, LineStyle.Dashed, "+entry");
     zLineAt(-data.entry_threshold, C.green, LineStyle.Dashed, "−entry");
@@ -213,6 +263,16 @@ export default function PairCharts({
       createSeriesMarkers(zLine, markers);
     }
 
+    // Left-edge band/threshold labels (issue #69), re-aligned on scale changes.
+    spreadRef.current.style.position = "relative";
+    zRef.current.style.position = "relative";
+    const spreadLabels = attachLeftLabels(spreadRef.current, spreadLine, spreadLevels);
+    const zLabels = attachLeftLabels(zRef.current, zLine, zLevels);
+    const repositionLabels = () => {
+      spreadLabels.reposition();
+      zLabels.reposition();
+    };
+
     // ── Sync the visible time range across all three panels ───────────────────
     const charts: IChartApi[] = [normChart, spreadChart, zChart];
     let syncing = false;
@@ -224,13 +284,24 @@ export default function PairCharts({
           if (other !== src) other.timeScale().setVisibleLogicalRange(range);
         }
         syncing = false;
+        // The price scale may have re-autoscaled to the new visible data.
+        repositionLabels();
       };
       src.timeScale().subscribeVisibleLogicalRangeChange(handler);
       return { src, handler };
     });
     charts.forEach((c) => c.timeScale().fitContent());
+    // Initial placement once the panes have painted (priceToCoordinate is ready).
+    const raf = requestAnimationFrame(repositionLabels);
+    const ro = new ResizeObserver(() => repositionLabels());
+    ro.observe(spreadRef.current);
+    ro.observe(zRef.current);
 
     return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      spreadLabels.remove();
+      zLabels.remove();
       subs.forEach(({ src, handler }) =>
         src.timeScale().unsubscribeVisibleLogicalRangeChange(handler),
       );
