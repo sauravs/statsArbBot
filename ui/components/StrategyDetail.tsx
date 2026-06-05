@@ -283,7 +283,14 @@ export default function StrategyDetail({
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
                 <th className="px-2 py-2 text-left">#</th>
-                <th className="px-2 py-2 text-left">Scan → Trade</th>
+                <th className="px-2 py-2 text-left">
+                  Scan (formation)
+                  <InfoTip text="The formation window the cointegration scan reads to SELECT pairs — no trading happens here." />
+                </th>
+                <th className="px-2 py-2 text-left">
+                  Trade (test)
+                  <InfoTip text="The out-of-sample window where the selected pairs are traded (data the scan never saw). Trade windows tile edge-to-edge across history." />
+                </th>
                 <th className="px-2 py-2 text-right">Pairs</th>
                 <th className="px-2 py-2 text-right">Trades</th>
                 <th className="px-2 py-2 text-right">Net P&amp;L</th>
@@ -294,7 +301,10 @@ export default function StrategyDetail({
                 <tr key={w.index} className="border-b border-border/50" data-testid="bt-perwindow-row">
                   <td className="px-2 py-2 tabular-nums text-muted">{w.index}</td>
                   <td className="px-2 py-2 text-xs text-muted">
-                    {w.scan_start.slice(0, 10)} → {w.trade_end.slice(0, 10)}
+                    {w.scan_start.slice(0, 10)} → {w.scan_end.slice(0, 10)}
+                  </td>
+                  <td className="px-2 py-2 text-xs text-muted">
+                    {w.trade_start.slice(0, 10)} → {w.trade_end.slice(0, 10)}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums text-muted">{w.pairs}</td>
                   <td className="px-2 py-2 text-right tabular-nums text-muted">{w.trades}</td>
