@@ -216,6 +216,11 @@ export default function StrategyDetail({
         </div>
       </div>
 
+      {/* Why-no-trades diagnostic (issue #87): a COMPLETED run with 0 trades
+          renders a flat $0 curve + empty panels; explain whether it's the pair
+          filter or the entry that bit, and suggest concrete looser values. */}
+      {s.status === "COMPLETED" && s.total_trades === 0 && <NoTradesDiagnostic s={s} />}
+
       {/* Equity curve */}
       <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
@@ -438,6 +443,71 @@ export default function StrategyDetail({
           </pre>
         </div>
       )}
+    </div>
+  );
+}
+
+// Diagnostic for a COMPLETED run that placed 0 trades (issue #87). The root cause
+// is almost always one (or both) of: the cointegration filter (p-value / half-life)
+// admitted no pairs, or pairs were found but their rolling |Z| never reached the
+// entry threshold (cointegrated ⇒ mean-reverting ⇒ Z stays bounded). We split the
+// saved per_window rows into those two buckets so the operator can see which bit,
+// then suggest concrete looser values anchored to this run's own params.
+function NoTradesDiagnostic({ s }: { s: Strategy }) {
+  const windows = s.per_window ?? [];
+  const total = windows.length;
+  const noPairs = windows.filter((w) => w.pairs === 0).length;
+  const pairsNoTrades = windows.filter((w) => w.pairs > 0 && w.trades === 0).length;
+  // Looser targets — never tighter than the current value.
+  const looserP = Math.max(s.pvalue_max, 0.1);
+  const looserHl = Math.max(s.max_half_life_h, 168);
+  const looserEntry = Math.min(s.entry_threshold, 1.0);
+
+  return (
+    <div
+      className="rounded-xl border border-yellow/30 bg-yellow/5 p-5"
+      data-testid="bt-no-trades-hint"
+    >
+      <h2 className="mb-2 text-xs uppercase tracking-wider text-yellow">
+        Why no trades?
+        <InfoTip text="A completed run with 0 trades is usually conservative settings, not a bug: either the cointegration filter admitted no pairs, or pairs were found but |Z| never reached the entry threshold." />
+      </h2>
+      <p className="text-sm text-text">
+        {total > 0 ? (
+          <>
+            No trades across {total} walk-forward window{total === 1 ? "" : "s"}:{" "}
+            <strong className="text-yellow">{noPairs}</strong> found no cointegrated
+            pairs (the p≤{s.pvalue_max} / half-life≤{s.max_half_life_h}h filter is
+            strict over crypto perps), and{" "}
+            <strong className="text-yellow">{pairsNoTrades}</strong> found pairs but
+            the rolling |Z| never reached the {s.entry_threshold} entry. This is
+            expected with conservative settings — not a defect.
+          </>
+        ) : (
+          <>
+            No trades were placed — the pair filter likely admitted nothing, or the
+            |Z| never reached the {s.entry_threshold} entry. Expected with
+            conservative settings, not a defect.
+          </>
+        )}
+      </p>
+      <p className="mt-3 text-xs uppercase tracking-wider text-muted">Try loosening</p>
+      <ul className="mt-1.5 space-y-1 text-sm text-muted" data-testid="bt-no-trades-suggestions">
+        <li>
+          • <span className="text-text">Pair filter</span> — p-value {s.pvalue_max} →{" "}
+          {looserP}, half-life {s.max_half_life_h}h → {looserHl}h (admits more,
+          slower-reverting pairs).
+        </li>
+        <li>
+          • <span className="text-text">Entry</span> — |Z| {s.entry_threshold} →{" "}
+          {looserEntry} (keep exit {s.exit_threshold}, stop {s.stop_threshold}), or
+          entry 0.5 / exit 0.3 to almost always trigger.
+        </li>
+        <li>
+          • <span className="text-text">Trade window</span> — {s.trade_window_days}d →
+          45–60d to give the spread more time to revert.
+        </li>
+      </ul>
     </div>
   );
 }
