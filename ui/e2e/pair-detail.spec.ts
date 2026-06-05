@@ -61,4 +61,30 @@ test.describe("Phase 3 — pair detail + 3-panel charts", () => {
     await expect(page).toHaveURL(/\/dashboard$/);
     expect(label.length).toBeGreaterThan(0);
   });
+
+  test("each panel header shows a Y-value readout that tracks the crosshair (#73)", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    await page.getByTestId("pair-link").first().click();
+    await expect(page).toHaveURL(/\/dashboard\/pair\/.+\/.+$/);
+    await expect(page.getByTestId("pair-charts")).toBeVisible({ timeout: 15_000 });
+
+    // Not hovering → each panel header carries its latest value (a number).
+    const spreadPanel = page.getByTestId("chart-spread").locator("..");
+    const zPanel = page.getByTestId("chart-zscore").locator("..");
+    await expect(spreadPanel).toHaveText(/spread\s+-?\d/);
+    await expect(zPanel).toHaveText(/Z\s+-?\d/);
+
+    // Hover the spread canvas → the readout still resolves to a number (the
+    // crosshair handler ran without clearing the legend to "—").
+    const canvas = page.getByTestId("chart-spread").locator("canvas").first();
+    const box = await canvas.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    }
+    await expect(spreadPanel).toHaveText(/spread\s+-?\d/);
+  });
 });
