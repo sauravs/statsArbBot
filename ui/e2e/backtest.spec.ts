@@ -20,6 +20,9 @@ async function login(page: Page) {
 async function createStrategy(page: Page, name: string, entryZ: string) {
   await page.getByTestId("strategy-name").fill(name);
   await page.getByTestId("strategy-entry-z").fill(entryZ);
+  // Exit must satisfy exit < entry (#78); the loose case uses entry 0.5, so keep
+  // exit below it.
+  await page.getByTestId("strategy-exit-z").fill("0.3");
   await page.getByTestId("strategy-scan-days").fill("7");
   await page.getByTestId("strategy-trade-days").fill("3");
   await page.getByTestId("create-strategy-btn").click();
@@ -66,5 +69,50 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(
       page.getByTestId("strategy-rank").filter({ hasText: /^1$/ }).first(),
     ).toBeVisible();
+  });
+
+  test("form exposes Exit/Stop + Advanced; summary reflects them (#78)", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.getByTestId("nav-backtest").click();
+    await expect(page.getByTestId("create-strategy-form")).toBeVisible();
+
+    await page.getByTestId("strategy-name").fill("E2E Custom");
+    await page.getByTestId("strategy-entry-z").fill("2");
+    await page.getByTestId("strategy-exit-z").fill("0.3");
+    await page.getByTestId("strategy-stop-z").fill("5");
+    await page.getByTestId("strategy-scan-days").fill("7");
+    await page.getByTestId("strategy-trade-days").fill("3");
+
+    // Advanced is collapsed by default; open it and tweak a knob.
+    await expect(page.getByTestId("strategy-advanced-panel")).toBeHidden();
+    await page.getByTestId("strategy-advanced-toggle").click();
+    await page.getByTestId("strategy-pvalue").fill("0.1");
+
+    await page.getByTestId("create-strategy-btn").click();
+
+    const detail = page.getByTestId("strategy-detail");
+    await expect(detail).toBeVisible();
+    await expect(detail).toContainText("Entry |Z|≥2");
+    await expect(detail).toContainText("Exit |Z|<0.3");
+    await expect(detail).toContainText("Stop |Z|≥5");
+  });
+
+  test("rejects exit ≥ entry client-side (#78)", async ({ page }) => {
+    await login(page);
+    await page.getByTestId("nav-backtest").click();
+    await expect(page.getByTestId("create-strategy-form")).toBeVisible();
+
+    await page.getByTestId("strategy-name").fill("E2E Bad");
+    await page.getByTestId("strategy-entry-z").fill("1");
+    await page.getByTestId("strategy-exit-z").fill("1.5");
+    await page.getByTestId("create-strategy-btn").click();
+
+    await expect(page.getByTestId("create-strategy-error")).toContainText(
+      "exit < entry < stop",
+    );
+    // Nothing was created → the right pane still shows the empty state.
+    await expect(page.getByTestId("strategy-detail")).toHaveCount(0);
   });
 });
