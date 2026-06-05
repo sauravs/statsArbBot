@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import BacktestPanel from "@/components/BacktestPanel";
+import BacktestDataBanner from "@/components/BacktestDataBanner";
 
 export default function BacktestPage() {
   const router = useRouter();
@@ -38,12 +39,13 @@ export default function BacktestPage() {
 
       <section className="mx-auto max-w-6xl px-6 py-8">
         <h2 className="mb-1 text-xl font-semibold text-text">Walk-Forward Backtest</h2>
-        <p className="mb-6 text-sm text-muted">
+        <p className="mb-2 text-sm text-muted">
           Backtest a strategy across sliding scan/trade windows: each window re-runs
           the cointegration scan to select pairs, then trades them out-of-sample
           through the same statistical engine the live bot uses. Strategies are ranked
           by net P&amp;L, with an equity curve, per-window breakdown, and a report.
         </p>
+        <BacktestDataBanner />
         <BacktestPanel />
       </section>
     </main>
