@@ -100,6 +100,10 @@ export interface ScanStatus {
   pairs_found: number;
   total_pairs: number;
   timed_out: boolean;
+  /** Operator stop requested but not yet settled (issue #59). */
+  stop_requested?: boolean;
+  /** Run ended via an operator stop (partial results persisted) (issue #59). */
+  stopped?: boolean;
 }
 
 /** The latest scan's cointegrated pairs (read from the DB — survives reload). */
@@ -246,6 +250,11 @@ export function startScan(quick = false): Promise<{ message: string; started: bo
 
 export function resetScan(): Promise<ScanStatus> {
   return proxyPost("api/scan/reset");
+}
+
+/** Ask the running scan to stop at its next checkpoint; persists partial results (#59). */
+export function stopScan(): Promise<ScanStatus> {
+  return proxyPost("api/scan/stop");
 }
 
 // ── Live Trading Bot (Phase 5, PRD F5) ───────────────────────────────────────

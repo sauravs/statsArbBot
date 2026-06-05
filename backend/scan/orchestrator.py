@@ -154,8 +154,23 @@ async def run_scan(
             state.progress_msg = f"Fetching market data: {done}/{total} markets"
 
         matrix = await build_price_matrix(
-            client, num_pages=pages, progress_callback=_market_cb, now=scan_anchor
+            client,
+            num_pages=pages,
+            progress_callback=_market_cb,
+            should_stop=lambda: state.stop_requested,
+            now=scan_anchor,
         )
+
+        # A stop requested during the (long) fetch phase ends it before any pair is
+        # tested → no survivors. Reflect the empty partial result in the table so
+        # it matches the stopped scan (#59).
+        if state.stop_requested:
+            try:
+                await repository.replace_scan_results([], exchange=exchange, mode=mode)
+            except Exception as exc:  # best-effort clear; never crash on stop
+                logger.warning("partial (empty) write on stop failed: %s", exc)
+            state.finish("⏹ Stopped during market fetch — 0 pairs scanned.", stopped=True)
+            return {"found": 0, "tested": 0, "stopped": True}
 
         # Surface markets excluded from the matrix (issues #6/#7) so a scan that
         # silently loses most of the universe is visible, not a clean "success".
@@ -190,9 +205,15 @@ async def run_scan(
         pair_iter = itertools.combinations(markets, 2)
         tested = 0
         found: list[dict] = []
+        stopped = False
         while True:
             chunk = list(itertools.islice(pair_iter, _CHUNK_SIZE))
             if not chunk:
+                break
+            # Checkpoint between chunks: an operator stop halts here and the
+            # survivors found so far are dual-written below (#59).
+            if state.stop_requested:
+                stopped = True
                 break
             chunk_tested, chunk_found = await asyncio.to_thread(
                 _analyze_chunk,
@@ -246,13 +267,21 @@ async def run_scan(
             f" ({matrix.num_dropped} market(s) excluded: {matrix.dropped_by_reason})"
             if matrix.num_dropped else ""
         )
-        state.finish(
-            f"✓ Complete — {len(found)} cointegrated pair(s) "
-            f"from {tested:,}/{total_pairs:,} tested{dropped_note}."
-        )
+        if stopped:
+            state.finish(
+                f"⏹ Stopped — {len(found)} cointegrated pair(s) found "
+                f"from {tested:,}/{total_pairs:,} tested so far{dropped_note}.",
+                stopped=True,
+            )
+        else:
+            state.finish(
+                f"✓ Complete — {len(found)} cointegrated pair(s) "
+                f"from {tested:,}/{total_pairs:,} tested{dropped_note}."
+            )
         return {
             "found": len(found),
             "tested": tested,
+            "stopped": stopped,
             "markets_dropped": matrix.num_dropped,
             "dropped_by_reason": matrix.dropped_by_reason,
         }

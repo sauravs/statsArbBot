@@ -42,6 +42,11 @@ class ScanState:
     timed_out: bool = False
     markets_dropped: int = 0  # eligible markets excluded from the matrix (#6/#7)
     dropped_by_reason: dict[str, int] = field(default_factory=dict)
+    # Operator-requested early stop (issue #59): set by request_stop(), polled by
+    # the running scan task which halts at the next safe checkpoint and persists
+    # whatever pairs were found so far. ``stopped`` marks a run that ended that way.
+    stop_requested: bool = False
+    stopped: bool = False
 
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
@@ -55,6 +60,8 @@ class ScanState:
         self.timed_out = False
         self.markets_dropped = 0
         self.dropped_by_reason = {}
+        self.stop_requested = False
+        self.stopped = False
 
     # ── start guard ──────────────────────────────────────────────────────────
 
@@ -73,6 +80,21 @@ class ScanState:
             self.completed_at = None
             self.error = None
             self._clear_counters()
+            return True
+
+    async def request_stop(self) -> bool:
+        """
+        Ask the running scan to stop at its next safe checkpoint (issue #59).
+
+        Returns True if a scan was running and is now flagged to stop, False if
+        nothing was running (so the caller can answer 409). The running task polls
+        ``stop_requested`` and persists whatever pairs it had found so far.
+        """
+        async with self._lock:
+            if not self.running:
+                return False
+            self.stop_requested = True
+            self.progress_msg = "Stopping scan…"
             return True
 
     async def reset(self) -> None:
@@ -107,16 +129,19 @@ class ScanState:
         self.total_pairs = total
         self.pairs_found = found
 
-    def finish(self, msg: str, *, timed_out: bool = False) -> None:
+    def finish(self, msg: str, *, timed_out: bool = False, stopped: bool = False) -> None:
         self.phase = 4
         self.running = False
         self.timed_out = timed_out
+        self.stopped = stopped
+        self.stop_requested = False
         self.completed_at = _now_iso()
         self.progress_msg = msg
 
     def fail(self, error: str) -> None:
         self.phase = 4  # terminal — a failed scan is not still mid-fetch/mid-test
         self.running = False
+        self.stop_requested = False
         self.error = error
         self.completed_at = _now_iso()
         self.progress_msg = f"Error: {error}"
@@ -140,6 +165,8 @@ class ScanState:
             "pairs_found": self.pairs_found,
             "total_pairs": self.total_pairs,
             "timed_out": self.timed_out,
+            "stop_requested": self.stop_requested,
+            "stopped": self.stopped,
         }
 
 

@@ -6,6 +6,7 @@ import {
   getPairPrices,
   getScanStatus,
   startScan,
+  stopScan,
   type PairRecord,
   type ScanStatus,
 } from "@/lib/api";
@@ -137,7 +138,20 @@ export default function ScanPanel({
     }
   }
 
+  async function haltScan() {
+    setError(null);
+    try {
+      // Reflect "Stopping…" immediately; the poll then settles to the stopped
+      // run and refreshes the table with the partial survivors (issue #59).
+      const s = await stopScan();
+      setStatus(s);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to stop scan");
+    }
+  }
+
   const running = status?.running ?? false;
+  const stopping = (status?.stop_requested ?? false) && running;
   const pct =
     status && status.total_pairs > 0
       ? Math.round((status.pairs_tested / status.total_pairs) * 100)
@@ -173,6 +187,17 @@ export default function ScanPanel({
           >
             {running ? "Scanning…" : "Full scan"}
           </button>
+          {running && (
+            <button
+              onClick={haltScan}
+              disabled={stopping}
+              data-testid="scan-stop"
+              title="Stop the scan now — keeps whatever pairs were found so far."
+              className="rounded border border-red px-2.5 py-1 text-xs text-red transition hover:bg-red/10 disabled:opacity-40"
+            >
+              {stopping ? "Stopping…" : "Stop scan"}
+            </button>
+          )}
         </div>
       </div>
 

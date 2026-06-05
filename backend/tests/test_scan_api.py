@@ -95,6 +95,31 @@ def test_double_start_returns_409(client):
         SCAN_STATE.running = False
 
 
+def test_stop_requires_auth(client):
+    assert client.post("/api/scan/stop").status_code == 401
+
+
+def test_stop_when_idle_returns_409(client):
+    resp = client.post("/api/scan/stop", headers=AUTH)
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "No scan is running"
+
+
+def test_stop_flags_running_scan(client):
+    # Simulate an in-flight scan; stop flags it and reports back (issue #59).
+    from scan.state import SCAN_STATE
+
+    SCAN_STATE.running = True
+    try:
+        resp = client.post("/api/scan/stop", headers=AUTH)
+        assert resp.status_code == 200
+        assert resp.json()["stop_requested"] is True
+        assert SCAN_STATE.stop_requested is True
+    finally:
+        SCAN_STATE.stop_requested = False
+        SCAN_STATE.running = False
+
+
 def test_exchange_list(client):
     resp = client.get("/exchange/list", headers=AUTH)
     assert resp.status_code == 200
