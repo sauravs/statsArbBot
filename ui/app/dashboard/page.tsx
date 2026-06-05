@@ -54,11 +54,18 @@ export default function DashboardPage() {
             Manual Trading
           </Link>
           <Link
-            href="/dashboard/sim"
-            data-testid="nav-sim"
+            href="/dashboard/backtest"
+            data-testid="nav-backtest"
             className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
-            Simulation
+            Backtest
+          </Link>
+          <Link
+            href="/dashboard/data"
+            data-testid="nav-data"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+          >
+            Data
           </Link>
           <Link
             href="/dashboard/ff"
@@ -68,11 +75,11 @@ export default function DashboardPage() {
             Fast-Forward
           </Link>
           <Link
-            href="/dashboard/backtest"
-            data-testid="nav-backtest"
+            href="/dashboard/sim"
+            data-testid="nav-sim"
             className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
-            Backtest
+            Simulation
           </Link>
           <Link
             href="/dashboard/live"
@@ -80,13 +87,6 @@ export default function DashboardPage() {
             className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
           >
             Live Bot
-          </Link>
-          <Link
-            href="/dashboard/data"
-            data-testid="nav-data"
-            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
-          >
-            Data
           </Link>
           <button
             onClick={logout}
