@@ -34,6 +34,17 @@ async def start_scan(body: ScanStartBody, background_tasks: BackgroundTasks) -> 
     return {"message": f"{label} scan started", "started": True}
 
 
+@router.post("/stop")
+async def stop_scan() -> dict:
+    """Request the running scan to stop at its next safe checkpoint (issue #59).
+
+    Whatever pairs were found so far are persisted; 409 if no scan is running.
+    """
+    if not await SCAN_STATE.request_stop():
+        raise HTTPException(status_code=409, detail="No scan is running")
+    return SCAN_STATE.snapshot()
+
+
 @router.get("/status")
 async def scan_status() -> dict:
     return SCAN_STATE.snapshot()

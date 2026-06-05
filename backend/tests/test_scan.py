@@ -142,6 +142,87 @@ async def test_run_scan_no_data_finishes_cleanly(monkeypatch, tmp_path):
     assert "No market data" in state.progress_msg
 
 
+# ── Stop Scan (issue #59) ────────────────────────────────────────────────────
+
+
+async def test_request_stop_only_when_running():
+    state = ScanState()
+    # Idle → nothing to stop.
+    assert await state.request_stop() is False
+    await state.try_begin()
+    assert state.stop_requested is False  # try_begin clears the flag
+    assert await state.request_stop() is True
+    assert state.stop_requested is True
+    assert "Stopping" in state.progress_msg
+
+
+async def test_run_scan_stopped_during_fetch_writes_empty(tmp_path, monkeypatch):
+    """A stop during the market-fetch phase aborts promptly and reflects 0 pairs."""
+    monkeypatch.setattr(config, "COINTEGRATED_PAIRS_CSV", str(tmp_path / "out.csv"))
+
+    s1, s2 = make_cointegrated_series()
+    client = FakeDydxClient({"AAA-USD": s1, "BBB-USD": s2})
+    repo = FakeScanRepository()
+    state = ScanState()
+    await state.try_begin()
+    state.stop_requested = True  # flag a stop before the fetch callbacks fire
+
+    result = await run_scan(
+        client=client, repository=repo, state=state, exchange="dydx", mode="forward_test"
+    )
+
+    assert result["stopped"] is True
+    assert result["found"] == 0
+    assert state.running is False and state.stopped is True
+    assert "Stopped during market fetch" in state.progress_msg
+    # The (empty) partial result replaced the table.
+    assert repo.store[("dydx", "forward_test")] == []
+
+
+class _StopAfterFirstChunk(ScanState):
+    """Flips stop_requested True once the first pair-chunk has been tested, so the
+    scan halts at the second chunk's checkpoint (a deterministic partial stop)."""
+
+    def update_pairs(self, tested, total, found):
+        super().update_pairs(tested, total, found)
+        if tested > 0:  # the pre-loop call has tested=0 — don't stop before it starts
+            self.stop_requested = True
+
+
+async def test_run_scan_stopped_during_pair_testing_writes_partial(tmp_path, monkeypatch):
+    """A stop mid-pair-testing persists the survivors found so far (partial)."""
+    monkeypatch.setattr(config, "COINTEGRATED_PAIRS_CSV", str(tmp_path / "out.csv"))
+
+    # 21 markets → C(21,2)=210 pairs > _CHUNK_SIZE (200), so there are 2 chunks.
+    # AAA/BBB are cointegrated and ordered first, so their pair is in chunk 1.
+    s1, s2 = make_cointegrated_series()
+    series = {"AAA-USD": s1, "BBB-USD": s2}
+    for i in range(19):
+        series[f"N{i:02d}-USD"] = make_independent_walk(seed=1000 + i)
+
+    client = FakeDydxClient(series)
+    repo = FakeScanRepository()
+    state = _StopAfterFirstChunk()
+    await state.try_begin()
+
+    result = await run_scan(
+        client=client, repository=repo, state=state, exchange="dydx", mode="forward_test"
+    )
+
+    assert result["stopped"] is True
+    assert state.stopped is True and state.running is False
+    # Stopped after the first chunk: fewer than all pairs were tested.
+    assert result["tested"] == 200
+    assert result["tested"] < state.total_pairs  # 200 < 210
+    assert "Stopped —" in state.progress_msg
+    # The survivors from the tested chunk are persisted (incl. the AAA/BBB pair).
+    rows = repo.store[("dydx", "forward_test")]
+    assert len(rows) == result["found"] >= 1
+    assert any(
+        {r["base_market"], r["quote_market"]} == {"AAA-USD", "BBB-USD"} for r in rows
+    )
+
+
 async def test_run_scan_closes_owned_client(monkeypatch, tmp_path):
     monkeypatch.setattr(
         config, "COINTEGRATED_PAIRS_CSV", str(tmp_path / "out.csv")

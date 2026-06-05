@@ -85,6 +85,7 @@ async def build_price_matrix(
     num_pages: int | None = None,
     concurrency: int | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
     now=None,
 ) -> PriceMatrix:
     """
@@ -96,6 +97,9 @@ async def build_price_matrix(
         num_pages: candle-history pages per market (defaults to config).
         concurrency: max simultaneous candle fetches (defaults to config).
         progress_callback: invoked ``(done, total)`` after each market completes.
+        should_stop: polled before each market's fetch; when it returns True the
+            remaining fetches are skipped so an operator stop (#59) ends the fetch
+            phase promptly without leaving orphaned requests in flight.
         now: anchor passed through for deterministic time windows in tests.
 
     Returns a :class:`PriceMatrix`; ``is_empty`` is True when no usable data.
@@ -111,6 +115,11 @@ async def build_price_matrix(
     async def fetch_one(ticker: str) -> tuple[str, list[dict], bool]:
         nonlocal done
         async with sem:
+            # Cooperative stop (#59): once requested, skip the remaining fetches so
+            # the phase winds down quickly (no orphaned in-flight requests). The
+            # partial matrix is discarded by the caller, which stops on the flag.
+            if should_stop is not None and should_stop():
+                return ticker, [], False
             failed = False
             try:
                 closes = await client.get_historical_closes(

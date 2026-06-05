@@ -36,6 +36,53 @@ test.describe("Phase 2 — scan → pairs table", () => {
     expect(await page.getByTestId("pair-row").count()).toBe(count);
   });
 
+  test("Stop scan: control shows while running and calls the stop endpoint (#59)", async ({
+    page,
+  }) => {
+    // A fake-mode scan completes in milliseconds, so stub the status as running
+    // to deterministically exercise the Stop control + its endpoint wiring.
+    const runningStatus = {
+      running: true,
+      phase: 3,
+      progress_msg: "Pairs: 100/210 (47.6%) — 2 cointegrated",
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      error: null,
+      markets_fetched: 21,
+      total_markets: 21,
+      pairs_tested: 100,
+      pairs_found: 2,
+      total_pairs: 210,
+      timed_out: false,
+      stop_requested: false,
+      stopped: false,
+    };
+    await page.route("**/api/proxy/api/scan/status", (route) =>
+      route.fulfill({ status: 200, json: runningStatus }),
+    );
+
+    let stopCalled = false;
+    await page.route("**/api/proxy/api/scan/stop", (route) => {
+      stopCalled = true;
+      route.fulfill({
+        status: 200,
+        json: { ...runningStatus, stop_requested: true, progress_msg: "Stopping scan…" },
+      });
+    });
+
+    await login(page);
+
+    // While running, the Stop control is offered (and Full scan is disabled).
+    const stop = page.getByTestId("scan-stop");
+    await expect(stop).toBeVisible();
+    await expect(page.getByTestId("scan-full")).toBeDisabled();
+
+    // Clicking it requests a stop and reflects the "Stopping…" state.
+    await stop.click();
+    await expect.poll(() => stopCalled).toBe(true);
+    await expect(stop).toHaveText("Stopping…");
+  });
+
   test("Z-threshold slider control updates live", async ({ page }) => {
     await login(page);
     // The single-handle Z-threshold slider (PRD F4.1) is present and live.
