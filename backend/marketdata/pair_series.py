@@ -89,6 +89,8 @@ class PairSeries:
     window_end: str | None
     base_norm: list[TimePoint]
     quote_norm: list[TimePoint]
+    base_raw: list[TimePoint]
+    quote_raw: list[TimePoint]
     spread: list[TimePoint]
     spread_mean: float
     spread_std: float
@@ -112,6 +114,13 @@ class PairSeries:
             "normalized": {
                 "base": [p.to_dict() for p in self.base_norm],
                 "quote": [p.to_dict() for p in self.quote_norm],
+            },
+            # Actual per-leg prices (issue #68) — the raw-price panel plots these on
+            # dual axes so the operator can read each leg's real price, alongside
+            # the rebased-to-100 overlay above.
+            "raw": {
+                "base": [p.to_dict() for p in self.base_raw],
+                "quote": [p.to_dict() for p in self.quote_raw],
             },
             "spread": {
                 "mean": self.spread_mean,
@@ -376,6 +385,9 @@ async def build_pair_series(
     quote_norm = [
         TimePoint(time=t, value=float(v / s2[0] * 100.0)) for t, v in zip(times, s2)
     ]
+    # Actual prices per leg (issue #68) — the dual-axis raw-price panel.
+    base_raw = [TimePoint(time=t, value=float(v)) for t, v in zip(times, s1)]
+    quote_raw = [TimePoint(time=t, value=float(v)) for t, v in zip(times, s2)]
 
     spread = compute_spread(s1, s2, hedge_ratio, intercept)
     spread_points = [
@@ -418,6 +430,8 @@ async def build_pair_series(
         window_end=shared[-1],
         base_norm=base_norm,
         quote_norm=quote_norm,
+        base_raw=base_raw,
+        quote_raw=quote_raw,
         spread=spread_points,
         spread_mean=spread_mean,
         spread_std=spread_std,

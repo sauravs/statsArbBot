@@ -40,7 +40,12 @@ test.describe("Phase 3 — pair detail + 3-panel charts", () => {
     });
     await expect(page.getByTestId("pair-charts-error")).toHaveCount(0);
 
-    for (const id of ["chart-normalized", "chart-spread", "chart-zscore"]) {
+    for (const id of [
+      "chart-normalized",
+      "chart-raw",
+      "chart-spread",
+      "chart-zscore",
+    ]) {
       const panel = page.getByTestId(id);
       await expect(panel).toBeVisible();
       // lightweight-charts renders into a <canvas> inside the panel.

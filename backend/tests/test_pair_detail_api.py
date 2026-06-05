@@ -81,6 +81,16 @@ def test_series_for_scanned_pair(client):
     assert "mean" in spread and "std" in spread
     assert len(spread["series"]) >= 1
 
+    # Raw (actual) per-leg prices for the dual-axis panel (issue #68): same length
+    # as the normalized overlay, positive prices, distinct from the rebased values.
+    raw = body["raw"]
+    assert len(raw["base"]) == len(norm["base"]) >= 1
+    assert len(raw["quote"]) == len(norm["quote"]) >= 1
+    assert all(p["value"] > 0 for p in raw["base"])
+    assert all(p["value"] > 0 for p in raw["quote"])
+    # The normalized series is rebased to 100 at the window start; raw is not.
+    assert raw["base"][0]["value"] != pytest.approx(100.0)
+
     z = body["zscore"]
     assert len(z["series"]) >= 1
     # Markers (if any) are well-formed.
