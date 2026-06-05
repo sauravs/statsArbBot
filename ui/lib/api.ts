@@ -764,6 +764,8 @@ export interface BacktestWindow {
 export interface Strategy {
   id: string;
   exchange: string;
+  /** Market-data source the strategy was created under: "fake" (demo) or "dydx" (live). */
+  data_source?: string;
   name: string;
   description: string | null;
   status: BacktestStatus;

@@ -111,6 +111,9 @@ async def create_strategy(body: StrategyBody) -> dict:
     _normalise_span(body.start_time, body.end_time)
     params = body.model_dump()
     params["status"] = "PENDING"
+    # Stamp the active market-data source so the list stays scoped to demo/live
+    # (issue #98), mirroring how manual trades are stamped on record.
+    params["data_source"] = config.SCAN_DATA_SOURCE
     try:
         return await get_backtest_engine().create(params)
     except Exception as exc:
@@ -265,6 +268,7 @@ def _default_strategies() -> list[dict]:
     return [
         {
             "exchange": config.DEFAULT_EXCHANGE,
+            "data_source": config.SCAN_DATA_SOURCE,
             "name": name,
             "description": desc,
             "scan_window_days": scan_days,
