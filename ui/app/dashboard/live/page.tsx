@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import LiveTradingPanel from "@/components/LiveTradingPanel";
+import NonOperationalBanner from "@/components/NonOperationalBanner";
 
 export default function LiveTradingPage() {
   const router = useRouter();
@@ -38,6 +39,7 @@ export default function LiveTradingPage() {
 
       <section className="mx-auto max-w-6xl px-6 py-8">
         <h2 className="mb-4 text-xl font-semibold text-text">Live Trading</h2>
+        <NonOperationalBanner section="Live Bot" />
         <LiveTradingPanel />
       </section>
     </main>

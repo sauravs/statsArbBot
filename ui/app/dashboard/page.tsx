@@ -67,25 +67,34 @@ export default function DashboardPage() {
           >
             Data
           </Link>
+          {/* Fast-Forward / Simulation / Live Bot are functional but not yet
+              user-tested — marked non-operational (dashed amber + dot) until a later
+              phase. They still navigate normally. */}
           <Link
             href="/dashboard/ff"
             data-testid="nav-ff"
-            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            title="Non-operational — not yet tested"
+            className="rounded-lg whitespace-nowrap border border-dashed border-yellow/50 px-3 py-1.5 text-muted transition-colors hover:border-yellow hover:text-text"
           >
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-yellow align-middle" />
             Fast-Forward
           </Link>
           <Link
             href="/dashboard/sim"
             data-testid="nav-sim"
-            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            title="Non-operational — not yet tested"
+            className="rounded-lg whitespace-nowrap border border-dashed border-yellow/50 px-3 py-1.5 text-muted transition-colors hover:border-yellow hover:text-text"
           >
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-yellow align-middle" />
             Simulation
           </Link>
           <Link
             href="/dashboard/live"
             data-testid="nav-live"
-            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+            title="Non-operational — not yet tested"
+            className="rounded-lg whitespace-nowrap border border-dashed border-yellow/50 px-3 py-1.5 text-muted transition-colors hover:border-yellow hover:text-text"
           >
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-yellow align-middle" />
             Live Bot
           </Link>
           <button
