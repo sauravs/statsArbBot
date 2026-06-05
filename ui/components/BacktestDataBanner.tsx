@@ -4,20 +4,48 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getDataInventory, type DataInventory } from "@/lib/api";
 
+// The synthetic demo history the backtest replays in DEMO mode (SCAN_DATA_SOURCE=
+// fake): a fixed set of markets anchored at 2025-01-01 spanning ~400 hourly bars.
+// Kept in sync with backend/exchanges/demo.py (_ANCHOR / _N) — surfaced so the
+// operator picks Start/End the offline engine can actually use (#92).
+const DEMO_SPAN = "2025-01-01 → 2025-01-17";
+const DEMO_MARKETS = 6;
+
 // Slim one-line cached-data coverage banner under the Backtest page intro (issue
-// #88). It surfaces what the Data section already knows — markets, date range,
-// bars, funding — so the operator can pick a valid Start/End and set expectations
-// before running, without leaving the Backtest page. Read-only and best-effort: a
-// failed inventory fetch just hides the banner rather than blocking the page.
-export default function BacktestDataBanner() {
+// #88), made data-source aware in #92. In LIVE mode it surfaces the real cached
+// dYdX inventory; in DEMO mode it shows the synthetic demo span instead (the
+// engine ignores the real cache offline, so the live numbers would mislead).
+// Read-only and best-effort: a failed inventory fetch just hides the LIVE banner.
+export default function BacktestDataBanner({
+  source,
+  reloadKey = 0,
+}: {
+  source?: string;
+  reloadKey?: number;
+}) {
   const [inv, setInv] = useState<DataInventory | null>(null);
   const [failed, setFailed] = useState(false);
+  const isDemo = source === "fake";
 
   useEffect(() => {
+    // Only the LIVE inventory is fetched; DEMO shows a static span.
+    if (isDemo) return;
+    setInv(null);
+    setFailed(false);
     getDataInventory()
       .then(setInv)
       .catch(() => setFailed(true));
-  }, []);
+  }, [isDemo, reloadKey]);
+
+  // DEMO mode: show the synthetic span the offline engine actually replays.
+  if (isDemo) {
+    return (
+      <p className="mb-6 text-xs text-muted" data-testid="bt-data-banner">
+        <span className="text-muted/70">Demo data:</span> {DEMO_MARKETS} synthetic
+        markets · {DEMO_SPAN} · offline (leave Start/End blank to use this span).
+      </p>
+    );
+  }
 
   if (failed) return null;
 
