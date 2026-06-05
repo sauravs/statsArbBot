@@ -4,9 +4,10 @@ import { useState } from "react";
 import { createStrategy, type Strategy } from "@/lib/api";
 
 // Create a backtest strategy (PRD F8.4). A strategy is a parameter set — the
-// walk-forward window lengths plus the entry Z-threshold / Z-window that S1–S4
-// vary. Advanced cost knobs use sensible server defaults. The date range is
-// optional (blank ⇒ full demo history offline).
+// walk-forward window lengths plus the signal thresholds (entry/exit/stop |Z|),
+// Z-window, and an Advanced section for the filter / cost / sizing knobs (issue
+// #78; these used to be hidden and silently took server defaults). The date
+// range is optional (blank ⇒ full demo history offline).
 export default function CreateStrategyForm({
   onCreated,
 }: {
@@ -15,25 +16,55 @@ export default function CreateStrategyForm({
   const [name, setName] = useState("");
   const [capital, setCapital] = useState("10000");
   const [entryZ, setEntryZ] = useState("1.5");
+  const [exitZ, setExitZ] = useState("0.5");
+  const [stopZ, setStopZ] = useState("4");
   const [scanDays, setScanDays] = useState("90");
   const [tradeDays, setTradeDays] = useState("30");
   const [zwindow, setZwindow] = useState("21");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  // Advanced filter / cost / sizing knobs (issue #78) — defaults mirror the
+  // server's StrategyBody so leaving them untouched reproduces today's behaviour.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [pvalueMax, setPvalueMax] = useState("0.05");
+  const [maxHalfLife, setMaxHalfLife] = useState("72");
+  const [usdPerTrade, setUsdPerTrade] = useState("100");
+  const [maxActivePairs, setMaxActivePairs] = useState(""); // blank ⇒ unlimited
+  const [slippagePct, setSlippagePct] = useState("0.05");
+  const [takerFeePct, setTakerFeePct] = useState("0.05");
+  const [fundingFreqH, setFundingFreqH] = useState("1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
+    const entry = Number(entryZ);
+    const exit = Number(exitZ);
+    const stop = Number(stopZ);
+    // Same ordering rule as the live thresholds (#74): exit < entry < stop.
+    if (!(exit < entry && entry < stop)) {
+      setError("Thresholds must satisfy exit < entry < stop");
+      return;
+    }
+    const maxPairs = maxActivePairs.trim();
     setBusy(true);
     setError(null);
     try {
       const s = await createStrategy({
         name: name.trim() || "Untitled strategy",
         starting_capital: Number(capital),
-        entry_threshold: Number(entryZ),
+        entry_threshold: entry,
+        exit_threshold: exit,
+        stop_threshold: stop,
         scan_window_days: Number(scanDays),
         trade_window_days: Number(tradeDays),
         zscore_window: Number(zwindow),
+        pvalue_max: Number(pvalueMax),
+        max_half_life_h: Number(maxHalfLife),
+        usd_per_trade: Number(usdPerTrade),
+        max_active_pairs: maxPairs === "" ? undefined : Number(maxPairs),
+        slippage_pct: Number(slippagePct),
+        taker_fee_pct: Number(takerFeePct),
+        funding_freq_h: Number(fundingFreqH),
         // Interpret the datetime-local wall-clock value as UTC (append "Z"), like
         // the fast-forward form, so the range matches the UTC-anchored history.
         start_time: start ? new Date(`${start}Z`).toISOString() : undefined,
@@ -73,6 +104,21 @@ export default function CreateStrategyForm({
               data-testid="strategy-capital"
             />
           </Field>
+          <Field label="Z-score window (bars)">
+            <input
+              type="number"
+              min="3"
+              step="1"
+              value={zwindow}
+              onChange={(e) => setZwindow(e.target.value)}
+              className="bt-input"
+              data-testid="strategy-zwindow"
+            />
+          </Field>
+        </div>
+
+        {/* Signal thresholds — exit < entry < stop (issue #78). */}
+        <div className="grid grid-cols-3 gap-3">
           <Field label="Entry |Z| ≥">
             <input
               type="number"
@@ -85,6 +131,33 @@ export default function CreateStrategyForm({
               data-testid="strategy-entry-z"
             />
           </Field>
+          <Field label="Exit |Z| <">
+            <input
+              type="number"
+              min="0.1"
+              max="2"
+              step="0.1"
+              value={exitZ}
+              onChange={(e) => setExitZ(e.target.value)}
+              className="bt-input"
+              data-testid="strategy-exit-z"
+            />
+          </Field>
+          <Field label="Stop |Z| ≥">
+            <input
+              type="number"
+              min="1"
+              max="10"
+              step="0.5"
+              value={stopZ}
+              onChange={(e) => setStopZ(e.target.value)}
+              className="bt-input"
+              data-testid="strategy-stop-z"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Scan window (days)">
             <input
               type="number"
@@ -107,18 +180,112 @@ export default function CreateStrategyForm({
               data-testid="strategy-trade-days"
             />
           </Field>
-          <Field label="Z-score window (bars)">
-            <input
-              type="number"
-              min="3"
-              step="1"
-              value={zwindow}
-              onChange={(e) => setZwindow(e.target.value)}
-              className="bt-input"
-              data-testid="strategy-zwindow"
-            />
-          </Field>
         </div>
+
+        {/* Advanced: filter / cost / sizing knobs that otherwise take server
+            defaults. Collapsed by default so the common path stays simple. */}
+        <div className="rounded-lg border border-border">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted hover:text-text"
+            data-testid="strategy-advanced-toggle"
+            aria-expanded={showAdvanced}
+          >
+            <span className="uppercase tracking-wider">Advanced</span>
+            <span>{showAdvanced ? "▾" : "▸"}</span>
+          </button>
+          {showAdvanced && (
+            <div
+              className="grid grid-cols-2 gap-3 border-t border-border p-3"
+              data-testid="strategy-advanced-panel"
+            >
+              <Field label="p-value max">
+                <input
+                  type="number"
+                  min="0.001"
+                  max="1"
+                  step="0.01"
+                  value={pvalueMax}
+                  onChange={(e) => setPvalueMax(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-pvalue"
+                />
+              </Field>
+              <Field label="Half-life cap (h)">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={maxHalfLife}
+                  onChange={(e) => setMaxHalfLife(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-halflife"
+                />
+              </Field>
+              <Field label="USD per trade">
+                <input
+                  type="number"
+                  min="1"
+                  step="10"
+                  value={usdPerTrade}
+                  onChange={(e) => setUsdPerTrade(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-usd-per-trade"
+                />
+              </Field>
+              <Field label="Max active pairs (blank ⇒ ∞)">
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={maxActivePairs}
+                  onChange={(e) => setMaxActivePairs(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-max-pairs"
+                />
+              </Field>
+              <Field label="Slippage %">
+                <input
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.01"
+                  value={slippagePct}
+                  onChange={(e) => setSlippagePct(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-slippage"
+                />
+              </Field>
+              <Field label="Taker fee %">
+                <input
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.01"
+                  value={takerFeePct}
+                  onChange={(e) => setTakerFeePct(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-taker-fee"
+                />
+              </Field>
+              <Field label="Funding freq (h)">
+                <input
+                  type="number"
+                  min="1"
+                  max="24"
+                  step="1"
+                  value={fundingFreqH}
+                  onChange={(e) => setFundingFreqH(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-funding-freq"
+                />
+              </Field>
+            </div>
+          )}
+        </div>
+
         <Field label="Start (optional — full history if blank)">
           <input
             type="datetime-local"

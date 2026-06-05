@@ -748,6 +748,15 @@ export interface CreateStrategyInput {
   start_time?: string;
   end_time?: string;
   starting_capital?: number;
+  // Advanced filter / cost / sizing knobs (issue #78) — the backend StrategyBody
+  // already accepts them; omitting a field uses the server default.
+  pvalue_max?: number;
+  max_half_life_h?: number;
+  usd_per_trade?: number;
+  max_active_pairs?: number;
+  slippage_pct?: number;
+  taker_fee_pct?: number;
+  funding_freq_h?: number;
 }
 
 /** List strategies, ranked by net P&L (best first). */
