@@ -146,6 +146,13 @@ DYDX_INDEXER_MAX_CONCURRENCY: int = _env(
 )
 # Minimum candles a market must have to be included in the price matrix.
 MIN_CANDLES_PER_MARKET: int = _env("MIN_CANDLES_PER_MARKET", default=50, cast=int)
+# Backtest scan (issue #93): a market is kept in a formation window only if it has
+# at least this fraction of the window's bars; small residual gaps in survivors are
+# forward/back-filled. Replaces an all-or-nothing drop that discarded a whole
+# market for a single missing bar (a 90d real-data window kept only 6 of 38).
+BACKTEST_MIN_COMPLETENESS: float = _env(
+    "BACKTEST_MIN_COMPLETENESS", default=0.90, cast=float
+)
 
 # Market eligibility filters.
 MIN_LIQUIDITY_USD: float = _env("MIN_LIQUIDITY_USD", default=10_000.0, cast=float)
