@@ -53,7 +53,12 @@ test.describe("Manual Trading — configurable Z thresholds (#74)", () => {
     await login(page);
     await ensurePairs(page);
 
-    // Badge starts at the Option-B defaults.
+    // Establish a known baseline — the shared API process may carry a persisted
+    // value from earlier operator/test activity (the #74 persistence feature).
+    await page.request.post("/api/proxy/api/system/thresholds", {
+      data: { entry: 1.5, exit: 0.5, stop: 4 },
+    });
+    await page.reload();
     await expect(page.getByTestId("strategy-thresholds-badge")).toHaveText(
       "entry ±1.5 · exit ±0.5 · stop ±4",
     );

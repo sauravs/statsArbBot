@@ -96,43 +96,48 @@ export default function DashboardPage() {
       <section className="mx-auto max-w-screen-2xl px-6 py-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-text">Manual Trading</h2>
-          {/* Section-scoped controls: the market-data source and the Option-B
-              strategy thresholds both read as part of Manual Trading rather than
-              a global header. */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          {/* Section-scoped controls: the Option-B strategy thresholds and the
+              market-data source. Each sits in its own bordered chip with its
+              label stacked above the control, so it's unambiguous which label
+              owns which control (they used to run together on one line). */}
+          <div className="flex flex-wrap items-stretch gap-3">
             <div
-              className="flex items-center gap-2 text-xs"
+              className="flex flex-col gap-1 rounded-lg border border-border px-3 py-1.5"
               data-testid="strategy-thresholds"
             >
-              <span className="uppercase tracking-wider text-muted">
+              <span className="text-[10px] uppercase tracking-wider text-muted">
                 Z thresholds
               </span>
-              <StrategyThresholdsControl
-                onApplied={() => {
-                  // The chart reads thresholds from its pair-series payload, so a
-                  // fresh detail view reflects them; nothing on the dashboard to
-                  // refresh, but bump the key for parity with the data-source flow.
-                  setDataSourceKey((k) => k + 1);
-                }}
-              />
+              <div className="flex items-center text-xs">
+                <StrategyThresholdsControl
+                  onApplied={() => {
+                    // The chart reads thresholds from its pair-series payload, so a
+                    // fresh detail view reflects them; nothing on the dashboard to
+                    // refresh, but bump the key for parity with the data-source flow.
+                    setDataSourceKey((k) => k + 1);
+                  }}
+                />
+              </div>
             </div>
             <div
-              className="flex items-center gap-2 text-xs"
+              className="flex flex-col gap-1 rounded-lg border border-border px-3 py-1.5"
               data-testid="market-data-control"
             >
-              <span className="uppercase tracking-wider text-muted">
+              <span className="text-[10px] uppercase tracking-wider text-muted">
                 Market data
               </span>
-              <DataSourceControl
-                source={health?.data_source}
-                onSwitched={(next) => {
-                  setHealth((h) => (h ? { ...h, data_source: next } : h));
-                  setDataSourceKey((k) => k + 1);
-                  // Manual trades are now filtered by source → re-fetch so the
-                  // other source's trades drop out of the view immediately.
-                  setManualRefresh((n) => n + 1);
-                }}
-              />
+              <div className="flex items-center text-xs">
+                <DataSourceControl
+                  source={health?.data_source}
+                  onSwitched={(next) => {
+                    setHealth((h) => (h ? { ...h, data_source: next } : h));
+                    setDataSourceKey((k) => k + 1);
+                    // Manual trades are now filtered by source → re-fetch so the
+                    // other source's trades drop out of the view immediately.
+                    setManualRefresh((n) => n + 1);
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
