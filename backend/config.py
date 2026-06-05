@@ -86,6 +86,10 @@ CANDLES_PER_PAGE: int = _env("CANDLES_PER_PAGE", default=100, cast=int)
 NUM_HISTORICAL_PAGES: int = _env("NUM_HISTORICAL_PAGES", default=4, cast=int)
 # Pages used for a quick/timed scan.
 SCAN_QUICK_PAGES: int = _env("SCAN_QUICK_PAGES", default=2, cast=int)
+# Pages of history fetched per leg for the pair-detail chart (issue #61). Kept
+# small (and fetched concurrently) so a live chart loads in seconds rather than
+# minutes — ~2 pages ≈ 200 hourly bars ≈ 8 days, enough for the spread/Z window.
+PAIR_CHART_PAGES: int = _env("PAIR_CHART_PAGES", default=2, cast=int)
 # Max simultaneous candle-fetch requests against the indexer (rate-limit guard).
 SCAN_FETCH_CONCURRENCY: int = _env("SCAN_FETCH_CONCURRENCY", default=3, cast=int)
 # Minimum candles a market must have to be included in the price matrix.

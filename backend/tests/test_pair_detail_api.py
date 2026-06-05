@@ -89,6 +89,28 @@ def test_series_for_scanned_pair(client):
         assert set(m) == {"time", "kind", "side", "reason", "zscore"}
 
 
+def test_series_uses_concurrent_two_page_fast_path(client, monkeypatch):
+    """Issue #61: the chart fetches a small, concurrently-fetched page count so a
+    live pair-detail chart loads in seconds rather than the full-history minutes."""
+    import routers.pairs as pairs_router
+    from marketdata.pair_series import build_pair_series as real_builder
+
+    captured: dict = {}
+
+    async def spy(*args, **kwargs):
+        captured["num_pages"] = kwargs.get("num_pages")
+        captured["concurrent"] = kwargs.get("concurrent")
+        return await real_builder(*args, **kwargs)
+
+    monkeypatch.setattr(pairs_router, "build_pair_series", spy)
+
+    _run_scan(client)
+    resp = client.get("/api/pairs/AAA-USD/BBB-USD/series", headers=AUTH)
+    assert resp.status_code == 200
+    assert captured["num_pages"] == config.PAIR_CHART_PAGES == 2
+    assert captured["concurrent"] is True
+
+
 def test_series_unknown_pair_404(client):
     _run_scan(client)
     # Reversed orientation was not the scanned pair.

@@ -30,7 +30,9 @@ class _ExplicitClient:
     async def get_markets(self):
         return {m: {"status": "ACTIVE"} for m in self._rows}
 
-    async def get_historical_closes(self, market, *, num_pages=None, now=None):
+    async def get_historical_closes(
+        self, market, *, num_pages=None, now=None, concurrent=False
+    ):
         return list(self._rows.get(market, []))
 
     async def aclose(self):

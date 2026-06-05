@@ -79,7 +79,7 @@ class DemoDataClient:
         return {m: {"status": "ACTIVE"} for m in self._series}
 
     async def get_historical_closes(
-        self, market: str, *, num_pages=None, now=None
+        self, market: str, *, num_pages=None, now=None, concurrent: bool = False
     ) -> list[dict]:
         closes = self._series.get(market, [])
         return [

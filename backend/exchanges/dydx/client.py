@@ -160,12 +160,18 @@ class DydxDataClient:
         *,
         num_pages: int | None = None,
         now=None,
+        concurrent: bool = False,
     ) -> list[dict]:
         """
         Fetch paginated historical close prices for one market.
 
         Returns a chronologically-sorted, de-duplicated list of
         ``{"datetime": str, "close": float}`` dicts (empty on total failure).
+
+        ``concurrent`` fetches the (disjoint) page windows in parallel rather than
+        sequentially — used by the pair-detail chart (issue #61) where a small
+        page count makes the burst safe and the latency win large. The scan's bulk
+        fetch keeps the sequential default so it doesn't multiply its indexer load.
         """
         pages = num_pages or config.NUM_HISTORICAL_PAGES
         windows = iso_time_windows(
@@ -175,11 +181,21 @@ class DydxDataClient:
             now=now,
         )
 
-        by_datetime: dict[str, float] = {}
-        for window in windows:
-            candles = await self._get_candle_page(
-                market, window["from_iso"], window["to_iso"]
+        if concurrent and len(windows) > 1:
+            pages_candles = await asyncio.gather(
+                *(
+                    self._get_candle_page(market, w["from_iso"], w["to_iso"])
+                    for w in windows
+                )
             )
+        else:
+            pages_candles = [
+                await self._get_candle_page(market, w["from_iso"], w["to_iso"])
+                for w in windows
+            ]
+
+        by_datetime: dict[str, float] = {}
+        for candles in pages_candles:
             for c in candles:
                 # Last write wins on duplicate timestamps; values are identical.
                 by_datetime[c["startedAt"]] = float(c["close"])
