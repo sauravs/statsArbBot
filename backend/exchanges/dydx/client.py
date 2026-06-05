@@ -33,6 +33,26 @@ from marketdata.time_windows import iso_time_windows
 logger = logging.getLogger(__name__)
 
 
+# Process-wide gate on concurrent indexer candle requests (issue #65). Every
+# DydxDataClient instance (one per call site) draws from this single semaphore, so
+# the scan, the pairs-price poll, record snapshots, the portfolio mark-to-market,
+# and charts share one rate budget and never burst the indexer into Retry-After
+# throttling. Created lazily and rebound if the running event loop changes (an
+# asyncio.Semaphore binds to the loop it's first awaited on — without this a
+# fresh test loop would hit "bound to a different event loop").
+_indexer_sem: asyncio.Semaphore | None = None
+_indexer_sem_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _indexer_semaphore() -> asyncio.Semaphore:
+    global _indexer_sem, _indexer_sem_loop
+    loop = asyncio.get_running_loop()
+    if _indexer_sem is None or _indexer_sem_loop is not loop:
+        _indexer_sem = asyncio.Semaphore(config.DYDX_INDEXER_MAX_CONCURRENCY)
+        _indexer_sem_loop = loop
+    return _indexer_sem
+
+
 class DydxDataClient:
     """Read-only adapter for the dYdX v4 indexer REST API."""
 
@@ -113,7 +133,15 @@ class DydxDataClient:
     async def _get_candle_page(
         self, market: str, from_iso: str, to_iso: str
     ) -> list[dict]:
-        """Fetch one candle page, retrying with backoff on 429 rate-limits."""
+        """Fetch one candle page, retrying with backoff on 429 rate-limits.
+
+        Held under the process-wide indexer gate so concurrent callers don't burst
+        the indexer into throttling (issue #65). The gate intentionally wraps the
+        whole retry loop — a request waiting out a 429 backoff keeps holding its
+        slot, so when the indexer is already unhappy that pressure propagates to
+        every caller (the whole process slows down) instead of the gate releasing
+        a slot that would immediately fire another request into the throttle.
+        """
         url = f"{self.data_url}/v4/candles/perpetualMarkets/{market}"
         params = {
             "resolution": self.resolution,
@@ -121,23 +149,24 @@ class DydxDataClient:
             "toISO": to_iso,
             "limit": self.candles_per_page,
         }
-        for attempt in range(self.max_retries):
-            try:
-                resp = await self._http().get(url, params=params)
-                if resp.status_code == 429:
-                    await self._backoff(market, attempt, resp)
-                    continue
-                resp.raise_for_status()
-                return resp.json().get("candles", [])
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429 and attempt < self.max_retries - 1:
-                    await self._backoff(market, attempt, exc.response)
-                    continue
-                logger.warning("candle fetch failed for %s: %s", market, exc)
-                return []
-            except httpx.HTTPError as exc:
-                logger.warning("candle fetch error for %s: %s", market, exc)
-                return []
+        async with _indexer_semaphore():
+            for attempt in range(self.max_retries):
+                try:
+                    resp = await self._http().get(url, params=params)
+                    if resp.status_code == 429:
+                        await self._backoff(market, attempt, resp)
+                        continue
+                    resp.raise_for_status()
+                    return resp.json().get("candles", [])
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 429 and attempt < self.max_retries - 1:
+                        await self._backoff(market, attempt, exc.response)
+                        continue
+                    logger.warning("candle fetch failed for %s: %s", market, exc)
+                    return []
+                except httpx.HTTPError as exc:
+                    logger.warning("candle fetch error for %s: %s", market, exc)
+                    return []
         return []
 
     async def _backoff(
