@@ -61,6 +61,11 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     expect(Number(trades)).toBeGreaterThan(0);
     await expect(page.getByTestId("bt-rank")).toBeVisible();
 
+    // Exit reasons render as a donut with a count·% legend + a health read (#79).
+    await expect(page.getByTestId("bt-exits-donut")).toBeVisible();
+    await expect(page.getByTestId("bt-exits-list")).toContainText("%");
+    await expect(page.getByTestId("bt-exits-health")).toBeVisible();
+
     // A second strategy → both are ranked by net P&L (F8.3).
     await createStrategy(page, "E2E Tight", "1.5");
     await runToCompletion(page);

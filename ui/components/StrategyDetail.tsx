@@ -2,8 +2,11 @@
 
 import {
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -11,6 +14,54 @@ import {
 } from "recharts";
 import { type Strategy } from "@/lib/api";
 import { BacktestStatusBadge } from "./StrategyList";
+import InfoTip from "./InfoTip";
+
+// Health-coloured palette for the exit-reason mix (issue #79): take-profit is a
+// good exit (green), the z-score stop is a loss/breakdown signal (red), the time
+// stop is a stale-position signal (amber), and an end-of-window force-close is
+// neutral/forced (grey). Any future reason falls back to blue.
+const EXIT_COLORS: Record<string, string> = {
+  TAKE_PROFIT: "#00d4a1",
+  STOP_LOSS_ZSCORE: "#ff4757",
+  STOP_LOSS_TIME: "#ffd32a",
+  END_OF_WINDOW: "#8b949e",
+};
+const exitColor = (reason: string) => EXIT_COLORS[reason] ?? "#4a90e2";
+
+/** A one-line read of the exit mix — a strategy-health hint, not a verdict. */
+function exitHealth(
+  data: { reason: string; count: number }[],
+  total: number,
+): { tone: string; text: string } | null {
+  if (total === 0) return null;
+  const share = (r: string) =>
+    ((data.find((d) => d.reason === r)?.count ?? 0) / total) * 100;
+  const tp = share("TAKE_PROFIT");
+  const sz = share("STOP_LOSS_ZSCORE");
+  const st = share("STOP_LOSS_TIME");
+  const ew = share("END_OF_WINDOW");
+  if (sz >= 20)
+    return {
+      tone: "text-red",
+      text: `${sz.toFixed(0)}% hit the z-score stop — watch for cointegration breakdown.`,
+    };
+  if (ew >= 25)
+    return {
+      tone: "text-yellow",
+      text: `${ew.toFixed(0)}% force-closed at window end — the trade window may be too short for the spread to revert.`,
+    };
+  if (st >= 25)
+    return {
+      tone: "text-yellow",
+      text: `${st.toFixed(0)}% closed on the time stop — the spread reverts slowly (positions near the half-life cap).`,
+    };
+  if (tp >= 60)
+    return {
+      tone: "text-green",
+      text: `${tp.toFixed(0)}% exited on take-profit — healthy mean-reversion.`,
+    };
+  return { tone: "text-muted", text: "Mixed exit profile." };
+}
 
 // Detail for one strategy's walk-forward backtest (PRD F8.4): run/pause/stop/delete
 // controls, headline metrics, the equity curve, the per-window walk-forward table,
@@ -83,19 +134,41 @@ export default function StrategyDetail({
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Metric label="Net P&L" value={s.net_pnl != null ? fmtUsd(s.net_pnl) : "—"}
             tone={s.net_pnl != null ? (s.net_pnl >= 0 ? "green" : "red") : undefined}
-            testid="bt-net-pnl" />
-          <Metric label="Final" value={s.final_capital != null ? fmtUsd(s.final_capital) : "—"} testid="bt-final-cap" />
-          <Metric label="Trades" value={String(s.total_trades)} testid="bt-total-trades" />
-          <Metric label="Win rate" value={s.win_rate != null ? `${(s.win_rate * 100).toFixed(0)}%` : "—"} testid="bt-win-rate" />
+            testid="bt-net-pnl"
+            tip="Total profit/loss across every closed trade in all walk-forward windows, after slippage and fees." />
+          <Metric label="Final" value={s.final_capital != null ? fmtUsd(s.final_capital) : "—"} testid="bt-final-cap"
+            tip="Ending equity of the run — starting capital plus net P&L." />
+          <Metric label="Trades" value={String(s.total_trades)} testid="bt-total-trades"
+            tip="Number of pair trades opened and closed across all windows." />
+          <Metric label="Win rate" value={s.win_rate != null ? `${(s.win_rate * 100).toFixed(0)}%` : "—"} testid="bt-win-rate"
+            tip="Share of closed trades that ended profitable (net of costs)." />
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-muted">
-          <span>Scan {s.scan_window_days}d / Trade {s.trade_window_days}d</span>
-          <span>Z-window {s.zscore_window}</span>
-          <span>Entry |Z|≥{s.entry_threshold}</span>
-          <span>Exit |Z|&lt;{s.exit_threshold}</span>
-          <span>Stop |Z|≥{s.stop_threshold}</span>
-          <span>Windows {s.processed_windows}/{s.total_windows}</span>
+          <span>
+            Scan {s.scan_window_days}d / Trade {s.trade_window_days}d
+            <InfoTip text="Each walk-forward window scans this many days of history to pick cointegrated pairs, then trades them out-of-sample over the next N days — then the window steps forward." />
+          </span>
+          <span>
+            Z-window {s.zscore_window}
+            <InfoTip text="Rolling lookback, in bars, for the spread's z-score — the standardisation window the entry/exit signals read." />
+          </span>
+          <span>
+            Entry |Z|≥{s.entry_threshold}
+            <InfoTip text="Open a pair when the spread's |z-score| reaches this — the divergence that triggers a market-neutral trade." />
+          </span>
+          <span>
+            Exit |Z|&lt;{s.exit_threshold}
+            <InfoTip text="Take-profit: close once |z-score| falls back below this, i.e. the spread has reverted toward its mean." />
+          </span>
+          <span>
+            Stop |Z|≥{s.stop_threshold}
+            <InfoTip text="Hard stop: close at a loss if |z-score| diverges to this, signalling a likely cointegration breakdown." />
+          </span>
+          <span>
+            Windows {s.processed_windows}/{s.total_windows}
+            <InfoTip text="Walk-forward windows processed / total — each is an independent scan→trade slice stepped through history." />
+          </span>
         </div>
 
         {/* Controls */}
@@ -145,7 +218,10 @@ export default function StrategyDetail({
 
       {/* Equity curve */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">Equity Curve</h2>
+        <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+          Equity Curve
+          <InfoTip text="Account equity over time across all windows — the compounded result of every trade in the run." />
+        </h2>
         {curve.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted" data-testid="bt-equity-empty">
             No equity data yet.
@@ -189,7 +265,10 @@ export default function StrategyDetail({
 
       {/* Walk-forward windows */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">Walk-Forward Windows</h2>
+        <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+          Walk-Forward Windows
+          <InfoTip text="Per-window breakdown: each row is one scan→trade slice with the pairs it selected, trades taken, and net P&L." />
+        </h2>
         {perWindow.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted" data-testid="bt-perwindow-empty">
             No windows processed yet.
@@ -227,7 +306,10 @@ export default function StrategyDetail({
       {/* Per-pair P&L + exit reasons */}
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">Per-Pair P&amp;L</h2>
+          <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+            Per-Pair P&amp;L
+            <InfoTip text="Net result per traded pair across the whole run — which pairs carried or dragged the strategy." />
+          </h2>
           {perPair.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted" data-testid="bt-perpair-empty">
               No closed trades.
@@ -259,20 +341,84 @@ export default function StrategyDetail({
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">Exit Reasons</h2>
+          <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+            Exit Reasons
+            <InfoTip text="Why trades closed — take-profit, z-score stop, time stop, or forced at the window end. The mix is a strategy-health signal." />
+          </h2>
           {exitReasons.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted" data-testid="bt-exits-empty">
               No exits yet.
             </p>
           ) : (
-            <ul className="space-y-2" data-testid="bt-exits-list">
-              {exitReasons.map(([reason, count]) => (
-                <li key={reason} className="flex items-center justify-between text-sm">
-                  <span className="text-muted">{reason}</span>
-                  <span className="tabular-nums text-text">{count}</span>
-                </li>
-              ))}
-            </ul>
+            (() => {
+              const total = exitReasons.reduce((sum, [, c]) => sum + c, 0);
+              const pieData = exitReasons.map(([reason, count]) => ({
+                reason,
+                count,
+                pct: total ? (count / total) * 100 : 0,
+              }));
+              const health = exitHealth(pieData, total);
+              return (
+                <div data-testid="bt-exits">
+                  <div className="h-40" data-testid="bt-exits-donut">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          dataKey="count"
+                          nameKey="reason"
+                          innerRadius={42}
+                          outerRadius={62}
+                          paddingAngle={2}
+                          stroke="none"
+                        >
+                          {pieData.map((d) => (
+                            <Cell key={d.reason} fill={exitColor(d.reason)} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: "#12141a",
+                            border: "1px solid #21262d",
+                            borderRadius: "0.5rem",
+                            color: "#e4e6ea",
+                            fontSize: "0.8rem",
+                          }}
+                          formatter={(v: number, _n, p: { payload?: { pct: number } }) => [
+                            `${v} (${(p.payload?.pct ?? 0).toFixed(0)}%)`,
+                            "trades",
+                          ]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <ul className="mt-3 space-y-1.5" data-testid="bt-exits-list">
+                    {pieData.map((d) => (
+                      <li
+                        key={d.reason}
+                        className="flex items-center justify-between text-sm"
+                      >
+                        <span className="flex items-center gap-2 text-muted">
+                          <span
+                            className="inline-block h-2 w-2 shrink-0 rounded-full"
+                            style={{ background: exitColor(d.reason) }}
+                          />
+                          {d.reason}
+                        </span>
+                        <span className="tabular-nums text-text">
+                          {d.count} · {d.pct.toFixed(0)}%
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {health && (
+                    <p className={`mt-3 text-xs ${health.tone}`} data-testid="bt-exits-health">
+                      {health.text}
+                    </p>
+                  )}
+                </div>
+              );
+            })()
           )}
         </div>
       </div>
@@ -280,7 +426,10 @@ export default function StrategyDetail({
       {/* Report viewer (F8.3) */}
       {s.report_md && (
         <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">Report</h2>
+          <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+            Report
+            <InfoTip text="The generated markdown summary — parameters, aggregates, and per-window results for this run." />
+          </h2>
           <pre
             className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-bg p-4 text-xs leading-relaxed text-muted"
             data-testid="bt-report"
@@ -298,16 +447,21 @@ function Metric({
   value,
   tone,
   testid,
+  tip,
 }: {
   label: string;
   value: string;
   tone?: "green" | "red";
   testid: string;
+  tip?: string;
 }) {
   const color = tone === "green" ? "text-green" : tone === "red" ? "text-red" : "text-text";
   return (
     <div>
-      <p className="text-xs text-muted">{label}</p>
+      <p className="text-xs text-muted">
+        {label}
+        {tip && <InfoTip text={tip} />}
+      </p>
       <p className={`mt-1 text-lg font-semibold tabular-nums ${color}`} data-testid={testid}>
         {value}
       </p>
