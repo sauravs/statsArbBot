@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createStrategy, type Strategy } from "@/lib/api";
+import InfoTip from "./InfoTip";
 
 // Create a backtest strategy (PRD F8.4). A strategy is a parameter set — the
 // walk-forward window lengths plus the signal thresholds (entry/exit/stop |Z|),
@@ -83,7 +84,7 @@ export default function CreateStrategyForm({
     <div className="rounded-xl border border-border bg-card p-5" data-testid="create-strategy-form">
       <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">New Strategy</h2>
       <div className="space-y-3">
-        <Field label="Name">
+        <Field label="Name" tip="A label for this strategy — shown in the ranked list. Cosmetic only; defaults to “Untitled strategy” if blank.">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -93,7 +94,7 @@ export default function CreateStrategyForm({
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Starting capital ($)">
+          <Field label="Starting capital ($)" tip="Account equity the backtest starts with; the equity curve compounds from here. Typical $10k–$100k for a demo run.">
             <input
               type="number"
               min="1"
@@ -104,7 +105,7 @@ export default function CreateStrategyForm({
               data-testid="strategy-capital"
             />
           </Field>
-          <Field label="Z-score window (bars)">
+          <Field label="Z-score window (bars)" tip="Rolling lookback, in bars, used to standardise the spread into a z-score — the window the entry/exit signals read. Typical 20–60.">
             <input
               type="number"
               min="3"
@@ -119,7 +120,7 @@ export default function CreateStrategyForm({
 
         {/* Signal thresholds — exit < entry < stop (issue #78). */}
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Entry |Z| ≥">
+          <Field label="Entry |Z| ≥" tip="Open a pair when the spread's |z-score| reaches this. Typical 1.5–2.0; lower (1.0) trades more often, higher trades rarer but cleaner.">
             <input
               type="number"
               min="0.5"
@@ -131,7 +132,7 @@ export default function CreateStrategyForm({
               data-testid="strategy-entry-z"
             />
           </Field>
-          <Field label="Exit |Z| <">
+          <Field label="Exit |Z| <" tip="Take-profit: close once |z-score| reverts below this, i.e. the spread is back near its mean. Typical 0.0–0.5.">
             <input
               type="number"
               min="0.1"
@@ -143,7 +144,7 @@ export default function CreateStrategyForm({
               data-testid="strategy-exit-z"
             />
           </Field>
-          <Field label="Stop |Z| ≥">
+          <Field label="Stop |Z| ≥" tip="Hard stop: close at a loss if |z-score| diverges to this, signalling a likely cointegration breakdown. Typical 3.0–4.0.">
             <input
               type="number"
               min="1"
@@ -158,7 +159,7 @@ export default function CreateStrategyForm({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Scan window (days)">
+          <Field label="Scan window (days)" tip="Formation/lookback span each walk-forward window uses to pick cointegrated pairs. Typical 60–120 days.">
             <input
               type="number"
               min="1"
@@ -169,7 +170,7 @@ export default function CreateStrategyForm({
               data-testid="strategy-scan-days"
             />
           </Field>
-          <Field label="Trade window (days)">
+          <Field label="Trade window (days)" tip="Out-of-sample span each window holds the selected pairs before stepping forward. Typical 30–180 days.">
             <input
               type="number"
               min="1"
@@ -200,7 +201,7 @@ export default function CreateStrategyForm({
               className="grid grid-cols-2 gap-3 border-t border-border p-3"
               data-testid="strategy-advanced-panel"
             >
-              <Field label="p-value max">
+              <Field label="p-value max" tip="Cointegration significance cutoff for keeping a pair. 0.05 standard; 0.01 strict (fewer pairs); 0.10 loose (more pairs).">
                 <input
                   type="number"
                   min="0.001"
@@ -212,7 +213,7 @@ export default function CreateStrategyForm({
                   data-testid="strategy-pvalue"
                 />
               </Field>
-              <Field label="Half-life cap (h)">
+              <Field label="Half-life cap (h)" tip="Maximum mean-reversion half-life to keep a pair. 72h default; raise (e.g. 168h) to admit slower-reverting pairs.">
                 <input
                   type="number"
                   min="1"
@@ -223,7 +224,7 @@ export default function CreateStrategyForm({
                   data-testid="strategy-halflife"
                 />
               </Field>
-              <Field label="USD per trade">
+              <Field label="USD per trade" tip="Fixed notional sized into each leg of a pair trade. Typical $100–$1,000.">
                 <input
                   type="number"
                   min="1"
@@ -234,7 +235,7 @@ export default function CreateStrategyForm({
                   data-testid="strategy-usd-per-trade"
                 />
               </Field>
-              <Field label="Max active pairs (blank ⇒ ∞)">
+              <Field label="Max active pairs (blank ⇒ ∞)" tip="Cap on concurrently open pairs. Blank ⇒ unlimited; typical 5–20 to spread risk across pairs.">
                 <input
                   type="number"
                   min="1"
@@ -246,7 +247,7 @@ export default function CreateStrategyForm({
                   data-testid="strategy-max-pairs"
                 />
               </Field>
-              <Field label="Slippage %">
+              <Field label="Slippage %" tip="Per-leg slippage cost assumption applied on entry and exit. ~0.05% is typical on dYdX.">
                 <input
                   type="number"
                   min="0"
@@ -258,7 +259,7 @@ export default function CreateStrategyForm({
                   data-testid="strategy-slippage"
                 />
               </Field>
-              <Field label="Taker fee %">
+              <Field label="Taker fee %" tip="Per-leg taker fee assumption applied on entry and exit. ~0.05% is typical on dYdX.">
                 <input
                   type="number"
                   min="0"
@@ -270,7 +271,7 @@ export default function CreateStrategyForm({
                   data-testid="strategy-taker-fee"
                 />
               </Field>
-              <Field label="Funding freq (h)">
+              <Field label="Funding freq (h)" tip="How often funding is charged on open positions. dYdX funding is hourly ⇒ 1.">
                 <input
                   type="number"
                   min="1"
@@ -286,7 +287,7 @@ export default function CreateStrategyForm({
           )}
         </div>
 
-        <Field label="Start (optional — full history if blank)">
+        <Field label="Start (optional — full history if blank)" tip="UTC start of the backtest history. Blank ⇒ full cached history. Keep it within the cached coverage shown on the Backtest page.">
           <input
             type="datetime-local"
             value={start}
@@ -295,7 +296,7 @@ export default function CreateStrategyForm({
             data-testid="strategy-start"
           />
         </Field>
-        <Field label="End (optional)">
+        <Field label="End (optional)" tip="UTC end of the backtest history. Blank ⇒ runs to the latest cached bar.">
           <input
             type="datetime-local"
             value={end}
@@ -341,10 +342,21 @@ export default function CreateStrategyForm({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  tip,
+  children,
+}: {
+  label: string;
+  tip?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs text-muted">{label}</span>
+      <span className="mb-1 block text-xs text-muted">
+        {label}
+        {tip && <InfoTip text={tip} />}
+      </span>
       {children}
     </label>
   );
