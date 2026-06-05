@@ -61,6 +61,19 @@ class StrategyNotFound(Exception):
     """Raised when a control / read targets an unknown strategy id."""
 
 
+class _WindowAborted(Exception):
+    """Internal: a pause/stop was requested mid-window (issue #100).
+
+    Carries the control ``action`` ("pause" | "stop") so the sweep can finalise in
+    the right terminal state. The partial window is discarded (not recorded), so a
+    PAUSE→resume re-runs it cleanly.
+    """
+
+    def __init__(self, action: str) -> None:
+        super().__init__(action)
+        self.action = action
+
+
 class BacktestEngine:
     """Orchestrates walk-forward backtests; one ``Strategy`` row per run."""
 
@@ -214,8 +227,12 @@ class BacktestEngine:
 
         session_base = _session_params(row)
         terminal = None
+
+        def _pending() -> str | None:
+            return self._control.get(strategy_id)
+
         for w in windows[cursor_idx:]:
-            action = self._control.get(strategy_id)
+            action = _pending()
             if action == "stop":
                 terminal = "STOPPED"
                 break
@@ -223,10 +240,18 @@ class BacktestEngine:
                 terminal = "PAUSED"
                 break
 
-            capital = await self._run_window(
-                repo, strategy_id, w, candles_by_market, funding, zwindow,
-                row, session_base, capital, acc, pts_per_window,
-            )
+            try:
+                capital = await self._run_window(
+                    repo, strategy_id, w, candles_by_market, funding, zwindow,
+                    row, session_base, capital, acc, pts_per_window,
+                    should_abort=_pending,
+                )
+            except _WindowAborted as aborted:
+                # Pause/stop landed mid-window: the window's partial work was NOT
+                # recorded, so just stop at the last completed window — a resume
+                # re-runs this one from the carried capital (issue #100).
+                terminal = "STOPPED" if aborted.action == "stop" else "PAUSED"
+                break
             acc.processed = w.index + 1
             await repo.update(
                 strategy_id,
@@ -244,10 +269,19 @@ class BacktestEngine:
 
     async def _run_window(
         self, repo, strategy_id, w: Window, candles_by_market, funding, zwindow,
-        row, session_base, capital, acc, pts_per_window,
+        row, session_base, capital, acc, pts_per_window, *, should_abort=None,
     ) -> float:
-        """Scan + trade one window; mutate ``acc``; return the carried capital."""
-        # 1. Scan the formation window (CPU-bound → worker thread).
+        """Scan + trade one window; mutate ``acc``; return the carried capital.
+
+        ``should_abort`` (issue #100) is polled during the scan and the replay so a
+        pause/stop is honoured mid-window; when it fires this raises ``_WindowAborted``
+        and nothing is committed to ``acc`` for this (now-discarded) window.
+        """
+        def _aborting() -> str | None:
+            return should_abort() if should_abort is not None else None
+
+        # 1. Scan the formation window (CPU-bound → worker thread). The scan polls
+        # should_abort between pairs so a long LIVE scan can be cancelled.
         min_rows = zwindow + 10
         pairs = await asyncio.to_thread(
             scan_window_pairs,
@@ -255,10 +289,19 @@ class BacktestEngine:
             pvalue_max=row["pvalue_max"],
             max_half_life=row["max_half_life_h"],
             min_rows=min_rows,
+            should_stop=(lambda: _aborting() is not None),
         )
+        # Honour a pause/stop requested during the scan before the OOS replay.
+        action = _aborting()
+        if action:
+            raise _WindowAborted(action)
 
         window_trades = 0
         window_pnl = 0.0
+        # Buffer this window's equity points; commit to acc only once the window
+        # fully completes, so an aborted window leaves acc clean (no half-window
+        # points that would duplicate on resume).
+        window_equity: list[tuple] = []
         if pairs:
             aligned = align_pairs(pairs, candles_by_market)
             aligned_by_pair = {(ap.base_market, ap.quote_market): ap for ap in aligned}
@@ -285,6 +328,12 @@ class BacktestEngine:
                 }
                 sample_every = max(1, len(timeline) // pts_per_window)
                 for i, cur in enumerate(timeline):
+                    # Poll for pause/stop periodically so a long LIVE replay stays
+                    # responsive (the per-tick cost is tiny; check every 64 bars).
+                    if i % 64 == 0:
+                        action = _aborting()
+                        if action:
+                            raise _WindowAborted(action)
                     snaps = snapshots_at(aligned, cur, window=zwindow)
                     rates = funding.rates_at(cur, markets) if not funding.empty else {}
                     cur_session = await wrepo.get_session(strategy_id)
@@ -296,7 +345,7 @@ class BacktestEngine:
                     # so sampling it pre-close too would emit two points at the same t.
                     if i % sample_every == 0 and i != len(timeline) - 1:
                         equity = await _equity_at(wrepo, aligned_by_pair, cur)
-                        acc.add_equity(cur, equity)
+                        window_equity.append((cur, equity))
                 # Force-close at the final traded bar (END_OF_WINDOW).
                 final_cur = timeline[-1]
                 capital = await _close_window(
@@ -306,8 +355,12 @@ class BacktestEngine:
                 window_trades = len(trades)
                 window_pnl = round(sum(t["net_pnl"] for t in trades), 6)
                 acc.merge_trades(trades)
-                acc.add_equity(final_cur, capital)
+                window_equity.append((final_cur, capital))
 
+        # Window completed — commit its buffered equity points now (an aborted
+        # window raised above and committed nothing).
+        for t, equity in window_equity:
+            acc.add_equity(t, equity)
         acc.add_window(
             {
                 "index": w.index,

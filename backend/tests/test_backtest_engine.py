@@ -246,3 +246,28 @@ async def test_list_is_scoped_by_data_source(ctx, monkeypatch):
     # Back to DEMO: only the demo strategy shows.
     monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
     assert [r["name"] for r in await engine.list()] == ["demo-strat"]
+
+
+async def test_pause_mid_window_discards_partial_window(ctx, monkeypatch):
+    """A pause that lands during a window aborts it without recording it (#100)."""
+    import backtest.engine as eng_mod
+
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params(name="P"))
+
+    # Simulate the pause request arriving DURING the first window: the scan flips the
+    # control flag, so the engine's post-scan check must abort before recording it.
+    real_scan = eng_mod.scan_window_pairs
+
+    def scan_then_pause(*a, **k):
+        engine._control[row["id"]] = "pause"
+        return real_scan(*a, **k)
+
+    monkeypatch.setattr(eng_mod, "scan_window_pairs", scan_then_pause)
+    await engine.run(row["id"])
+
+    done = await ctx.repo.get(row["id"])
+    assert done["status"] == "PAUSED"
+    assert done["processed_windows"] == 0            # no window completed
+    assert not done["per_window"]                    # partial window not recorded
+    assert not done["equity_curve"]                  # no half-window equity points
