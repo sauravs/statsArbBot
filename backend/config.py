@@ -243,6 +243,10 @@ INGEST_MIN_COVERAGE_ROWS: int = _env("INGEST_MIN_COVERAGE_ROWS", default=2160, c
 INGEST_DROP_FLAT: bool = _env("INGEST_DROP_FLAT", default=True, cast=_as_bool)
 INGEST_DROP_ZERO_VOLUME: bool = _env("INGEST_DROP_ZERO_VOLUME", default=True, cast=_as_bool)
 INGEST_FUNDING: bool = _env("INGEST_FUNDING", default=True, cast=_as_bool)
+
+# Max span (days) a single UI-triggered historical-data fetch may cover (issue
+# #81). Caps indexer load — a longer history is fetched in a couple of passes.
+DATA_FETCH_MAX_DAYS: int = _env("DATA_FETCH_MAX_DAYS", default=366, cast=int)
 # Validation report destination (markdown). Gitignored under data/.
 INGEST_REPORT_PATH: str = _env(
     "INGEST_REPORT_PATH", default=str(REPO_ROOT / "data" / "ingest_report.md")

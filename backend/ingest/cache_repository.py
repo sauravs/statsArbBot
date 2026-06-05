@@ -103,6 +103,70 @@ class PrismaOhlcvCacheRepository:
         )
         return sorted(g["market"] for g in groups)
 
+    async def merge_candles_range(
+        self,
+        market: str,
+        rows: list[dict],
+        *,
+        exchange: str,
+        resolution: str,
+        start,
+        end,
+        batch_size: int = _DEFAULT_BATCH,
+    ) -> int:
+        """Replace cached candles for ``market`` **only within [start, end]** with
+        ``rows`` (issue #81). Unlike ``replace_candles`` (whole-market delete), this
+        deletes just the fetched window then inserts, so a date-range fetch extends
+        / refreshes coverage without touching bars outside the window. One tx."""
+        from db.client import get_db
+
+        db = await get_db()
+        written = 0
+        async with db.tx(timeout=_TX_TIMEOUT) as tx:
+            await tx.ohlcvcache.delete_many(
+                where={
+                    "exchange": exchange,
+                    "market": market,
+                    "resolution": resolution,
+                    "timestamp": {"gte": start, "lte": end},
+                }
+            )
+            for batch in _chunks(rows, batch_size):
+                written += await tx.ohlcvcache.create_many(
+                    data=batch, skip_duplicates=True
+                )
+        return written
+
+    async def merge_funding_range(
+        self,
+        market: str,
+        rows: list[dict],
+        *,
+        exchange: str,
+        start,
+        end,
+        batch_size: int = _DEFAULT_BATCH,
+    ) -> int:
+        """Range-scoped funding merge — the funding analogue of
+        ``merge_candles_range`` (issue #81)."""
+        from db.client import get_db
+
+        db = await get_db()
+        written = 0
+        async with db.tx(timeout=_TX_TIMEOUT) as tx:
+            await tx.fundingratecache.delete_many(
+                where={
+                    "exchange": exchange,
+                    "market": market,
+                    "timestamp": {"gte": start, "lte": end},
+                }
+            )
+            for batch in _chunks(rows, batch_size):
+                written += await tx.fundingratecache.create_many(
+                    data=batch, skip_duplicates=True
+                )
+        return written
+
     async def get_inventory(
         self, *, exchange: str, resolution: str, step_seconds: int
     ) -> list[dict]:

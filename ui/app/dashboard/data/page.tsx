@@ -41,7 +41,7 @@ export default function DataPage() {
         <p className="mb-6 text-sm text-muted">
           The cached OHLCV &amp; funding history the scan, simulation, fast-forward,
           and backtest engines replay. Price data always comes from the dYdX mainnet
-          indexer. Fetching new date ranges is coming soon.
+          indexer. Fetch new date ranges below to extend coverage.
         </p>
         <DataInventoryPanel />
       </section>

@@ -150,6 +150,24 @@ class FakeOhlcvCacheRepository:
             {m for (ex, m, res) in self.candles if ex == exchange and res == resolution}
         )
 
+    async def merge_candles_range(
+        self, market, rows, *, exchange, resolution, start, end
+    ) -> int:
+        key = (exchange, market, resolution)
+        kept = [
+            r for r in self.candles.get(key, []) if not (start <= r["timestamp"] <= end)
+        ]
+        self.candles[key] = kept + list(rows)
+        return len(rows)
+
+    async def merge_funding_range(self, market, rows, *, exchange, start, end) -> int:
+        key = (exchange, market)
+        kept = [
+            r for r in self.funding.get(key, []) if not (start <= r["timestamp"] <= end)
+        ]
+        self.funding[key] = kept + list(rows)
+        return len(rows)
+
     async def get_inventory(self, *, exchange, resolution, step_seconds) -> list[dict]:
         from datetime import datetime
 

@@ -35,4 +35,24 @@ test.describe("Data — historical-data inventory (#80)", () => {
     await expect(page.getByTestId("di-row").first()).toBeVisible();
     await expect(page.getByTestId("di-row").first()).toContainText("%");
   });
+
+  test("fetch control validates the range before hitting the indexer (#81)", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.getByTestId("nav-data").click();
+    await expect(page.getByTestId("data-fetch")).toBeVisible({ timeout: 15_000 });
+
+    // Client-side guard: start ≥ end.
+    await page.getByTestId("fetch-start").fill("2024-02-01");
+    await page.getByTestId("fetch-end").fill("2024-01-01");
+    await page.getByTestId("fetch-start-btn").click();
+    await expect(page.getByTestId("fetch-error")).toContainText(/before/i);
+
+    // Server-side cap: an over-long span is rejected (422) before any fetch runs.
+    await page.getByTestId("fetch-start").fill("2020-01-01");
+    await page.getByTestId("fetch-end").fill("2024-01-01");
+    await page.getByTestId("fetch-start-btn").click();
+    await expect(page.getByTestId("fetch-error")).toContainText(/range too large/i);
+  });
 });
