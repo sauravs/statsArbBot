@@ -27,12 +27,14 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
   build:
     name: build + push images
     runs-on: ubuntu-latest
+    # Gated like the deploy job below: the whole workflow stays dormant (no image
+    # builds) until prod deploy is opted in. GHCR repo names must be lowercase.
+    if: ${{ vars.DEPLOY_PRODUCTION == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
@@ -42,8 +44,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build & push backend + ui
         run: |
+          prefix="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           for svc in backend ui; do
-            img="${IMAGE_PREFIX}-${svc}"
+            img="${prefix}-${svc}"
             docker build -t "$img:${{ github.sha }}" -t "$img:production" "./$svc"
             docker push "$img:${{ github.sha }}"
             docker push "$img:production"
