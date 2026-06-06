@@ -4,6 +4,8 @@
 
 > ⚠️ **Read [§7 Pre-Production / Mainnet Checklist](#7--pre-production--mainnet-checklist) before pointing this at real funds.** The live dYdX order path has never executed against a real exchange (the Phase-5a pre-production checkpoint); secrets in the dev `.env` are testnet-scoped and must be rotated before mainnet.
 
+> 📋 **Branching, CI gate, and the staging→production promotion flow live in [CICD.md](./CICD.md).** This file is the *host runbook* (how the box runs); CICD.md is the *process* (how a change reaches the box).
+
 ---
 
 ## 1 · Topology
