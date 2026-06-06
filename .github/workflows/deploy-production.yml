@@ -1,0 +1,79 @@
+name: Deploy · production
+
+# Deploys vetted releases to PRODUCTION. Triggered only by a push to the
+# `production` branch (which only ever receives reviewed promotions from `main`).
+# The `production` GitHub Environment MUST require manual approval, so a human
+# explicitly authorizes every prod release.
+#
+# PRODUCTION RUNS THE BOT AGAINST dYdX MAINNET (real money). A deploy MUST leave
+# the bot in a safe/disabled state — enabling live trading is a separate,
+# deliberate action (ENVIRONMENT=mainnet + activation), never a deploy side
+# effect. See docs/DEPLOYMENT.md §7 (mainnet checklist).
+#
+# SKELETON: image build+push works; host-deploy is gated behind repo variable
+# `DEPLOY_PRODUCTION == 'true'`.
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production    # never run two prod deploys at once
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: build + push images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push backend + ui
+        run: |
+          for svc in backend ui; do
+            img="${IMAGE_PREFIX}-${svc}"
+            docker build -t "$img:${{ github.sha }}" -t "$img:production" "./$svc"
+            docker push "$img:${{ github.sha }}"
+            docker push "$img:production"
+          done
+
+  deploy:
+    name: deploy → production host
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production    # configure REQUIRED REVIEWERS on this environment
+    if: ${{ vars.DEPLOY_PRODUCTION == 'true' }}
+    steps:
+      # 1) BACK UP THE DB BEFORE MIGRATIONS. Prod Postgres runs on the host
+      #    (docs/DEPLOYMENT.md §11 — pg_dump backups), so the safety step is a
+      #    pg_dump taken over SSH *before* the new api container migrates.
+      #    e.g. ssh prod 'pg_dump statsarb | gzip > /var/backups/statsarb/predeploy-$(date +%s).sql.gz'
+      - name: Backup production DB (placeholder)
+        run: |
+          echo "TODO ssh prod -> pg_dump statsarb before deploy (recoverable migration)"
+
+      # 2) ROLL OUT. ssh prod -> docker compose pull && docker compose up -d
+      #    (api applies prisma migrate deploy on start, after the backup above).
+      #    Requires secrets: PROD_SSH_HOST / PROD_SSH_USER / PROD_SSH_KEY.
+      - name: Deploy (placeholder)
+        run: |
+          echo "TODO ssh prod -> docker compose pull && up -d (see docs/CICD.md + docs/DEPLOYMENT.md)"
+
+      # 3) VERIFY. Smoke-check the prod health endpoint; fail (and alert) if it is
+      #    unhealthy so rollback (redeploy previous SHA / restore pg_dump) is
+      #    triggered deliberately.
+      - name: Post-deploy smoke check (placeholder)
+        run: |
+          echo "TODO curl https://<prod>/health and assert 200"

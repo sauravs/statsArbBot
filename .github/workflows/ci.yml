@@ -1,0 +1,85 @@
+name: CI
+
+# Quality gate for every change. Runs on PRs into the protected branches and on
+# direct pushes to them. Branch protection requires these jobs to pass before a
+# merge into `main` or `production` is allowed (see docs/DEPLOYMENT.md).
+on:
+  pull_request:
+    branches: [main, production]
+  push:
+    branches: [main, production]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend · pytest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: statsarb
+          POSTGRES_PASSWORD: statsarb_ci
+          POSTGRES_DB: statsarb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U statsarb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Several tests need a real DB (the same ones that fail on a bare host).
+      DATABASE_URL: postgresql://statsarb:statsarb_ci@localhost:5432/statsarb
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Prisma generate + migrate
+        run: |
+          prisma generate --schema prisma/schema.prisma
+          prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Run tests
+        run: pytest -q
+
+  frontend:
+    name: frontend · typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
