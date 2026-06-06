@@ -228,6 +228,20 @@ python scripts/ingest_historical.py            # cleans + seeds OhlcvCache/Fundi
 # To refresh from dYdX first: python scripts/refresh_dydx_data.py
 ```
 
+**Keeping the cache current.** Once seeded, top the live DB cache up to the present
+straight from the dYdX indexer with the resumable, idempotent maintenance job:
+
+```bash
+cd /opt/statsarb/app/backend && source .venv/bin/activate
+python scripts/gapfill_cache.py                 # fetch each market's missing tail → now
+python scripts/gapfill_cache.py --dry-run        # show the plan, fetch nothing
+```
+
+It only fetches each active market's missing tail, never deletes on empty, and is
+safe to re-run / resilient to disconnects (waits out an outage via a BTC sentinel
+rather than declaring false completion). Delisted markets keep their history but
+can't be extended. Schedule it (cron) to keep backtests/fast-forward on fresh data.
+
 Live trading and real-time simulation do **not** need the seed (they read live prices).
 
 ---
