@@ -17,8 +17,11 @@ services:
       POSTGRES_DB: statsarb
       POSTGRES_USER: statsarb
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Bind to localhost only — the host port is for local/debug access (psql, SSH
+    # tunnel); nothing external should reach Postgres. On a public box this keeps
+    # 5432 off all public interfaces regardless of the security group.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,8 +42,10 @@ services:
     environment:
       # Override host DATABASE_URL to reach the postgres service on the compose network.
       DATABASE_URL: postgresql://statsarb:${POSTGRES_PASSWORD}@postgres:5432/statsarb
+    # Localhost only — the UI reaches the API over the compose network
+    # (API_URL=http://api:8000), so the host port is just for local/debug use.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     command: >
       sh -c "prisma generate --schema prisma/schema.prisma &&
              prisma migrate deploy --schema prisma/schema.prisma &&
@@ -62,8 +67,10 @@ services:
       # Server-side proxy reaches the API service on the compose network.
       API_URL: http://api:8000
       NODE_ENV: production
+    # Localhost only — in production nginx (on the host) reverse-proxies
+    # 443 → 127.0.0.1:3000; the UI port is never exposed publicly itself.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
 
 volumes:
   postgres_data:
