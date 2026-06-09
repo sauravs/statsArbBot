@@ -217,3 +217,72 @@ test.describe("Manual Trading — PR-2 live prices + portfolio (#37)", () => {
     );
   });
 });
+
+test.describe("Manual Trading — chart link + entry overlay", () => {
+  // A recorded trade's row deep-links to the pair charts, carrying its entry
+  // context (Z, prices, spread, time) in the URL so the charts can overlay the
+  // entry. Self-cleaning: it deletes the trade it records, so the shared E2E DB
+  // returns to the baseline the prior tests left.
+  test("manual row → charts deep-link renders the 'your entry' overlay", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    // Record an OPEN trade to get a Manual Trades row.
+    await setThreshold(page, "0.5");
+    await page.getByTestId("record-trade-btn").first().click();
+    await expect(page.getByTestId("record-modal")).toBeVisible();
+    await page.getByTestId("capital-leg1").fill("100");
+    await page.getByTestId("capital-leg2").fill("100");
+    await page.getByTestId("record-confirm").click();
+    // Wait for the modal to close (record succeeded) before reading the list, so
+    // the newest row is our trade and no overlay intercepts the link click.
+    await expect(page.getByTestId("record-modal")).toBeHidden({ timeout: 10_000 });
+
+    const row = page.getByTestId("manual-row").first();
+    await expect(row).toBeVisible({ timeout: 10_000 });
+
+    // The row carries a blue chart deep-link with the entry context in the URL.
+    const chartsLink = row.getByTestId("manual-charts-link");
+    await expect(chartsLink).toBeVisible();
+    const href = await chartsLink.getAttribute("href");
+    expect(href).toMatch(/\/dashboard\/pair\/.+\/.+\?.*\bze=/);
+    expect(href).toMatch(/\bpb=/);
+    expect(href).toMatch(/\bpq=/);
+
+    // Open it → the "Showing your recorded entry" badge + charts render.
+    await chartsLink.click();
+    await expect(page).toHaveURL(/\/dashboard\/pair\/.+\/.+\?.+/);
+    const badge = page.getByTestId("entry-overlay-badge");
+    await expect(badge).toBeVisible();
+    await expect(badge).toContainText("Showing your recorded entry");
+    await expect(page.getByTestId("pair-charts")).toBeVisible({ timeout: 15_000 });
+
+    // The Z panel legend gained the "your entry" readout (overlay is wired through).
+    const zPanel = page.getByTestId("chart-zscore").locator("..");
+    await expect(zPanel).toContainText(/your entry/);
+
+    // Opening the same pair WITHOUT entry params shows no overlay badge.
+    await page.goto(new URL(page.url()).pathname);
+    await expect(page.getByTestId("entry-overlay-badge")).toHaveCount(0);
+
+    // Clean up: delete the trade we recorded so the DB returns to baseline.
+    await page.getByTestId("back-to-dashboard").click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page
+      .getByTestId("manual-row")
+      .first()
+      .getByTestId("delete-trade-btn")
+      .click();
+    await expect(page.getByTestId("delete-modal")).toBeVisible();
+    await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          /\/api\/proxy\/api\/manual\//.test(r.url()) &&
+          r.request().method() === "DELETE",
+      ),
+      page.getByTestId("delete-confirm").click(),
+    ]);
+  });
+});
