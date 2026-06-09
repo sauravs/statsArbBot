@@ -15,7 +15,7 @@ The live instance, so any session/teammate has the facts without re-discovery.
 
 | | |
 |---|---|
-| **Status / mode** | Live, **internal-team**. `ENVIRONMENT=testnet`, `SCAN_DATA_SOURCE=fake` (demo data) — **not trading**, cache empty. |
+| **Status / mode** | Live, **internal-team**. `ENVIRONMENT=testnet`, `SCAN_DATA_SOURCE=dydx` (live indexer); historical cache **seeded** (43 markets / ~463k OHLCV rows). **Not trading** (testnet, no real dYdX keys). |
 | **Instance** | `t4g.large` (2 vCPU / 8 GB, Graviton/arm64), Ubuntu 26.04, 40 GB gp3. id `i-0702f459eda05918e`, region `us-east-1`. |
 | **Static IP** | Elastic IP `32.194.15.173` (survives reboots). |
 | **URL** | `https://ec2-32-194-15-173.compute-1.amazonaws.com` — nginx (host) terminates TLS on 443 → `127.0.0.1:3000`. **Self-signed** cert (one-time browser warning; AWS hostnames can't get Let's Encrypt). |
