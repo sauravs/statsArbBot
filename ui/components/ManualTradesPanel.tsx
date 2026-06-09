@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   getManualPortfolio,
   getManualTrades,
@@ -17,6 +18,21 @@ const PORTFOLIO_POLL_MS = 20000;
 
 function usd(v: number): string {
   return `${v < 0 ? "-" : ""}$${Math.abs(v).toFixed(2)}`;
+}
+
+// Deep-link to the pair's chart page carrying this trade's entry context, so the
+// charts can overlay the entry Z, entry prices, entry spread, and entry moment.
+// Values ride in the URL (read back by PairCharts' `entry` prop) — no extra fetch,
+// and it keeps working even after a data-source switch filters the trades list.
+function chartHref(t: ManualTrade): string {
+  const params = new URLSearchParams({
+    ze: String(t.z_score),
+    pb: String(t.entry_price_leg1),
+    pq: String(t.entry_price_leg2),
+    sp: String(t.spread_value),
+    et: String(Math.floor(new Date(t.recorded_at).getTime() / 1000)),
+  });
+  return `/dashboard/pair/${encodeURIComponent(t.base_market)}/${encodeURIComponent(t.quote_market)}?${params.toString()}`;
 }
 
 // Separate "Manual Trades" section (PRD F4.6) — not mixed with bot trades.
@@ -181,9 +197,24 @@ export default function ManualTradesPanel({
                   className="whitespace-nowrap border-b border-border/50"
                   data-testid="manual-row"
                 >
-                  <td className="px-3 py-2 font-medium text-text">
-                    {t.base_market}
-                    <span className="text-muted"> / {t.quote_market}</span>
+                  <td className="whitespace-nowrap px-3 py-2 font-medium">
+                    <Link
+                      href={chartHref(t)}
+                      className="text-text hover:text-blue hover:underline"
+                      data-testid="manual-pair-link"
+                    >
+                      {t.base_market}
+                      <span className="text-muted"> / {t.quote_market}</span>
+                    </Link>
+                    <Link
+                      href={chartHref(t)}
+                      title="Open charts with your entry marked"
+                      aria-label="Open charts"
+                      data-testid="manual-charts-link"
+                      className="ml-1.5 font-normal text-blue hover:underline"
+                    >
+                      ›
+                    </Link>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {t.z_score.toFixed(3)}
