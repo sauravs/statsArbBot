@@ -25,8 +25,11 @@ The live instance, so any session/teammate has the facts without re-discovery.
 
 **Deploy a change** (the routine): merge to `main` → PR `main → production` → on the server:
 ```bash
-cd ~/statsArbBot && git pull && docker compose up -d
+cd ~/statsArbBot && git pull && docker compose up -d --build
 ```
+`--build` is required: the `api` and `ui` services run **locally-built images**, so a
+plain `docker compose up -d` would restart the *old* image and silently skip your code
+change. `--build` is a no-op (cache hit) when nothing changed, so it's safe to always use.
 
 **Go to live data:** set `SCAN_DATA_SOURCE=dydx` in `.env`, restart, then run
 `python scripts/gapfill_cache.py` to seed the cache. **Real trading:** only after the
