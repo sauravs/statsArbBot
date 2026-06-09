@@ -1,10 +1,36 @@
 # statsArbBot — AWS EC2 Deployment Guide
 
-**Status:** Reference documentation (Phase 10). **Not executed** — live AWS deployment is an explicit PRD non-goal (PRD §1.2). This guide is the runbook for when the operator chooses to host the bot themselves.
+**Status:** **Live** — deployed to AWS EC2 on **2026-06-09** for internal-team use (self-hosting; live AWS deploy was a PRD §1.2 non-goal the operator opted into). See [§0 Current deployment](#0--current-deployment) for the running setup; the sections below are the full host runbook.
 
 > ⚠️ **Read [§7 Pre-Production / Mainnet Checklist](#7--pre-production--mainnet-checklist) before pointing this at real funds.** The live dYdX order path has never executed against a real exchange (the Phase-5a pre-production checkpoint); secrets in the dev `.env` are testnet-scoped and must be rotated before mainnet.
 
 > 📋 **Branching, CI gate, and the staging→production promotion flow live in [CICD.md](./CICD.md).** This file is the *host runbook* (how the box runs); CICD.md is the *process* (how a change reaches the box).
+
+---
+
+## 0 · Current deployment
+
+The live instance, so any session/teammate has the facts without re-discovery.
+**Non-secrets only** — the SSH key and `.env` values are never committed.
+
+| | |
+|---|---|
+| **Status / mode** | Live, **internal-team**. `ENVIRONMENT=testnet`, `SCAN_DATA_SOURCE=fake` (demo data) — **not trading**, cache empty. |
+| **Instance** | `t4g.large` (2 vCPU / 8 GB, Graviton/arm64), Ubuntu 26.04, 40 GB gp3. id `i-0702f459eda05918e`, region `us-east-1`. |
+| **Static IP** | Elastic IP `32.194.15.173` (survives reboots). |
+| **URL** | `https://ec2-32-194-15-173.compute-1.amazonaws.com` — nginx (host) terminates TLS on 443 → `127.0.0.1:3000`. **Self-signed** cert (one-time browser warning; AWS hostnames can't get Let's Encrypt). |
+| **SSH** | `ssh -i <key>.pem ubuntu@32.194.15.173` (key is operator-local, not in repo). |
+| **Security group** | inbound: 22 (operator IP only — dynamic, re-set "My IP" if it changes), 80+443 (all). 8000/5432 not public; also bound to `127.0.0.1` in compose. |
+| **App on box** | repo at `~/statsArbBot`, tracks the **`production`** branch; runs `docker compose up -d` (postgres + api + ui, `restart: unless-stopped`); `.env` at `~/statsArbBot/.env` (mode 600). |
+
+**Deploy a change** (the routine): merge to `main` → PR `main → production` → on the server:
+```bash
+cd ~/statsArbBot && git pull && docker compose up -d
+```
+
+**Go to live data:** set `SCAN_DATA_SOURCE=dydx` in `.env`, restart, then run
+`python scripts/gapfill_cache.py` to seed the cache. **Real trading:** only after the
+[§7 mainnet checklist](#7--pre-production--mainnet-checklist) (`ENVIRONMENT=mainnet`).
 
 ---
 
