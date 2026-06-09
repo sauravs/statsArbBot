@@ -223,7 +223,92 @@ always a data-source/date-range mismatch, not a broken strategy — see
 
 ---
 
-## Part 5 — Tips, caveats & hard-won lessons
+## Part 5 — Perpetual-futures mechanics & the real costs
+
+Pairs trading here happens on dYdX **perpetual futures** ("perps"), not spot. Perps
+add mechanics that hit P&L directly — above all **funding**. These are often what
+turns a "profitable" spread backtest into a losing live trade.
+
+### Perpetual futures & the funding rate — "rent that pulls prices home"
+A perp never expires, so an anchor keeps its price near the underlying **spot**
+price: the **funding rate**, a small payment exchanged **between longs and shorts**
+(on dYdX, **hourly**).
+- Perp **above** spot (premium) → **positive** funding → **longs pay shorts**.
+- Perp **below** spot (discount) → **negative** funding → **shorts pay longs**.
+
+> **Analogy — rent on a crowded side.** When everyone crowds the long side
+> (bullish), being long charges *rent* (you pay funding); that rent nudges traders
+> to trim longs / add shorts, dragging the perp back toward spot. Funding tethers
+> perp→spot, much like cointegration tethers asset→asset.
+
+Math: hourly funding P&L ≈ `funding_rate × position_notional`. A `0.01%/hr` rate on
+a \$10k position = \$1/hr ≈ **\$24/day** — paid or received *every hour you hold*.
+
+### Funding inside a *pair* — it cuts both ways
+A market-neutral pair is **long one leg, short the other**, so you sit on **both**
+sides of funding at once:
+```
+net funding per hour ≈ (funding_rate_short_leg − funding_rate_long_leg) × notional
+```
+You **receive** funding on the short leg (when its funding is positive) and **pay**
+on the long leg. So a pair can **earn carry** or **bleed it**. Over a multi-day hold
+(long half-life!), **funding can dwarf the spread profit** — which is exactly why
+the bot caches funding history and why the half-life cap matters: *the longer you
+hold, the more funding, not the spread, decides your P&L.*
+
+### Liquidity, depth & slippage — "how big a splash you make"
+**Liquidity** = how much you can trade without moving the price. The order book has
+**depth** at each level; a market order eats through it and fills at progressively
+worse prices = **slippage**.
+
+> **Analogy — pond vs ocean.** Drop a rock (your order) in a small pond (thin
+> market) → big splash (price moves against you). Same rock in the ocean (deep
+> market) → barely a ripple. What matters is **your size relative to the depth.**
+
+In this bot: the live path places **market orders with a 5% price buffer**
+(`ORDER_PRICE_BUFFER`) and short-lived orders to ensure fills — but **backtests
+assume clean fills**, so live results are typically *worse* than backtests,
+especially on thin pairs. Always discount a backtest for real slippage.
+
+### Volume & open interest — "traffic flow vs cars parked"
+- **Volume** = amount traded over a period (the *flow*). Higher volume → tighter
+  bid/ask, easier fills, more trustworthy prices.
+- **Open interest (OI)** = contracts currently open (the *stock* of positions).
+  Large, lopsided OI → bigger funding swings.
+- The scan filters illiquid markets via `MIN_LIQUIDITY_USD` (**\$10k** 24h volume),
+  because thin markets have wide spreads, **gappy candles** (which break the
+  cointegration alignment and drop the market from the scan), and erratic funding.
+
+**How they interrelate:** high volume + deep liquidity → low slippage, stable basis,
+modest funding. Thin/low-volume → high slippage, jumpy basis, volatile funding, and
+missing bars that disqualify the market entirely. So liquidity quietly governs
+*both* your execution cost *and* whether a pair even qualifies to trade.
+
+### Leverage, margin & liquidation — "the amplifier with a tripwire"
+Perps let a small **collateral** (margin) control a large notional = **leverage**.
+It scales P&L *and* risk: move far enough against the position and you hit
+**liquidation** (a forced close at a loss). Even a market-neutral pair has
+leg-level liquidation risk if one side gaps. Keep leverage modest and respect the
+account's minimum-collateral setting (`USD_MIN_COLLATERAL`).
+
+### Sizing the legs — dollar-neutral vs beta-neutral
+- **Dollar-neutral:** equal \$ long and short (e.g. \$5k each). Simple — but if one
+  leg is twice as volatile, you're secretly net-long/short the market.
+- **Beta-neutral:** size by the **hedge ratio (β)** from the cointegration fit so
+  your exposure is the *spread itself*, not market direction. **This is the correct
+  way** to make a pair genuinely market-neutral.
+
+### Fees & basis — the smaller, constant drains
+- **Fees:** every entry *and* exit pays a taker fee; round-trips compound, and
+  high-frequency / low-edge configs (low entry |Z|) bleed the most. Sanity check:
+  does the average winning trade clear the **round-trip cost** (fees + slippage +
+  funding)?
+- **Basis** = perp − spot. It wobbles with leverage demand; a large/erratic basis
+  signals stressed conditions where a "clean" spread is anything but.
+
+---
+
+## Part 6 — Tips, caveats & hard-won lessons
 
 - **Finding trades ≠ making money.** On real crypto perps, naive cointegration
   pairs are typically **net-negative after fees + funding** (documented in our own
