@@ -97,6 +97,15 @@ export default function DashboardPage() {
             <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-yellow align-middle" />
             Live Bot
           </Link>
+          {/* Guide → the plain-English trading concepts doc, rendered in-app.
+              Fully operational (read-only docs), so no non-operational marker. */}
+          <Link
+            href="/dashboard/guide"
+            data-testid="nav-guide"
+            className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
+          >
+            Guide
+          </Link>
           <button
             onClick={logout}
             className="rounded-lg whitespace-nowrap border border-border px-3 py-1.5 text-muted hover:text-text hover:border-blue/60 transition-colors"
