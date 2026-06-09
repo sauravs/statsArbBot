@@ -38,8 +38,9 @@ The rest of this guide details **Option A**. Option B is a one-liner once Docker
 
 ## 2 · Prerequisites
 
-- **EC2 instance:** `t3.small` (2 vCPU / 2 GB) is sufficient for a single operator; `t3.medium` if you also run backtests/fast-forward sweeps on the box. Add ~5 GB for the `OhlcvCache` seed.
-- **OS:** Ubuntu 22.04 or 24.04 LTS.
+- **EC2 instance:** **`t4g.large`** (2 vCPU / 8 GB, Graviton/ARM) — recommended default; runs the full stack including backtests with headroom. `t4g.medium` (4 GB) only if you run **no** backtests/fast-forward sweeps on the box. Enable T **unlimited** mode so a long backtest isn't throttled by burst credits. See [§2.1 Instance sizing](#21--instance-sizing-measured) for the rationale and tiers.
+- **Root volume:** **40 GB gp3** SSD (not 5 GB). Docker images alone are ~6.3 GB; the rest covers DB growth, `pg_dump` backups, build cache, and logs — and avoids the disk-full failure mode.
+- **OS:** Ubuntu 22.04 or 24.04 LTS (use the **arm64** AMI for `t4g`).
 - **Security group:** inbound `443` (HTTPS) and `22` (SSH, ideally IP-restricted) only. **Do not** expose `8000` (API) or `5432` (Postgres) publicly — they stay bound to localhost / the instance.
 - **DNS + TLS:** a domain pointing at the instance's Elastic IP for nginx + Let's Encrypt.
 - **Toolchain:** Python 3.12, Node 18+ (for the Next.js UI and the Prisma CLI), PostgreSQL 16.
@@ -53,6 +54,50 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt install -y nodejs
 sudo npm install -g prisma
 ```
+
+### 2.1 · Instance sizing (measured)
+
+Sizing is driven by the **measured** footprint of the running Compose stack, not a
+guess. Snapshot (idle, single operator):
+
+| Component | Idle RAM | Note |
+|---|---|---|
+| api (FastAPI/uvicorn) | **~893 MB** | the heavy tier — *before* any backtest |
+| postgres 16 | ~330 MB | DB on disk ~356 MB (funding 204 + ohlcv 144) |
+| ui (Next.js) | ~53 MB | light |
+| **Total idle** | **~1.3 GB** | |
+| Docker images | ~6.3 GB | api image alone ~2.5 GB (pandas/statsmodels/dYdX) |
+
+**RAM is the binding constraint.** Walk-forward cointegration sweeps load ~40
+markets × thousands of bars into pandas and run pairwise Engle-Granger / OU
+regressions, so the api process spikes well past its ~893 MB idle. Therefore
+2 GB (the old `t3.small`) **will OOM**, 4 GB is tight, and **8 GB is the
+comfortable target**. CPU is not the constraint — the bot is mostly idle with
+periodic bursts — so 2 vCPU suffices.
+
+| Tier | Instance | vCPU / RAM | ~$/mo (on-demand) | When |
+|---|---|---|---|---|
+| Minimum | `t4g.medium` | 2 / 4 GB | ~$25 | Live-trading only, **no** backtests on-box (OOM-risky otherwise) |
+| **Recommended** | **`t4g.large`** | **2 / 8 GB** | **~$49** | Full stack incl. backtests, with headroom |
+| Heavy sweeps | `t4g.xlarge` / `m7g.large` | 4/16 or 2/8 (non-burst) | ~$98 / ~$60 | Frequent/parallel backtests, or to avoid burst credits entirely |
+
+Notes:
+- **Graviton (`t4g`/`m7g`, ARM64)** is ~20–40% better price/perf than x86
+  (`t3.large` ≈ $61/mo). The whole stack (Python, Node, Postgres, Docker, Prisma,
+  dYdX client) runs natively on ARM64 — just build the images **on the instance**
+  (or multi-arch); the Dockerfiles build from source, so this is trivial.
+- Add a **2 GB swapfile** as an OOM cushion — turns a backtest memory spike into
+  "slow" rather than "killed".
+- A trading bot runs 24/7, so a **1-year Compute Savings Plan / Reserved** cuts
+  ~30–40% (`t4g.large` → ~$30/mo).
+- Use **gp3** (cheaper than gp2; 3000 IOPS / 125 MB/s baseline included).
+- Optional later: offload Postgres to managed **RDS `db.t4g.micro`** and shrink
+  the app box. For a single operator, one box with local Postgres is simpler and
+  cheaper to start.
+
+> Figures measured Jun 2026 against the live Colima/Compose stack (43 markets,
+> ~463k OHLCV bars, ~766k funding rows). Re-measure (`docker stats`,
+> `pg_database_size`) as the dataset grows.
 
 ---
 
