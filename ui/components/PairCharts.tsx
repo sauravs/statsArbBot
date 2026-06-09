@@ -91,16 +91,18 @@ type PriceLevel = { price: number; color: string; text: string };
  * place our own left-edge labels here. ``reposition`` re-aligns them whenever the
  * price scale changes (zoom / resize); returns a cleanup that removes the nodes.
  */
-function attachLeftLabels(
+function attachEdgeLabels(
   container: HTMLDivElement,
   series: ISeriesApi<"Line">,
   levels: PriceLevel[],
+  side: "left" | "right" = "left",
 ) {
+  const edge = side === "right" ? "right:2px" : "left:2px";
   const els = levels.map((lvl) => {
     const el = document.createElement("div");
     el.textContent = lvl.text;
     el.style.cssText =
-      "position:absolute;left:2px;transform:translateY(-50%);font-size:10px;" +
+      `position:absolute;${edge};transform:translateY(-50%);font-size:10px;` +
       "font-weight:600;line-height:1;pointer-events:none;z-index:3;padding:1px 3px;" +
       "border-radius:3px;white-space:nowrap;";
     el.style.color = lvl.color;
@@ -138,6 +140,35 @@ function zLineData(data: PairSeries) {
   });
 }
 
+/**
+ * Snap an entry timestamp (epoch seconds) to the latest bar at/under it, so a
+ * "your entry" marker lands on a real bar. Entry is usually recorded at ~now,
+ * so it typically snaps to the most recent bar (the right edge). Returns null
+ * for an empty series.
+ */
+function snapToBar(series: TimePoint[], target: number): number | null {
+  if (series.length === 0) return null;
+  let chosen = series[0].time;
+  for (const p of series) {
+    if (p.time <= target) chosen = p.time;
+    else break;
+  }
+  return chosen;
+}
+
+/**
+ * Optional "your entry" overlay drawn when the pair-detail page is opened from a
+ * recorded manual trade (Manual Trades panel). All fields are optional; each
+ * overlay is drawn only when its value is a finite number.
+ */
+export type EntryOverlay = {
+  z?: number; // Z-score at entry → horizontal line on the Z panel
+  priceBase?: number; // base leg entry price → line on the raw panel (left axis)
+  priceQuote?: number; // quote leg entry price → line on the raw panel (right axis)
+  spread?: number; // spread value at entry → line on the spread panel
+  time?: number; // entry epoch seconds → marker mirrored across all panels
+};
+
 function baseChartOptions() {
   return {
     layout: {
@@ -169,9 +200,11 @@ function baseChartOptions() {
 export default function PairCharts({
   base,
   quote,
+  entry,
 }: {
   base: string;
   quote: string;
+  entry?: EntryOverlay;
 }) {
   const [data, setData] = useState<PairSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -376,36 +409,113 @@ export default function PairCharts({
     zLineAt(data.stop_threshold, C.red, LineStyle.Dashed, "+stop");
     zLineAt(-data.stop_threshold, C.red, LineStyle.Dashed, "−stop");
 
-    if (data.zscore.markers.length > 0) {
-      const markers: SeriesMarker<Time>[] = data.zscore.markers.map((m) =>
-        m.kind === "entry"
-          ? {
-              time: m.time as UTCTimestamp,
-              position: "belowBar" as const,
-              color: C.blue,
-              shape: "arrowUp" as const,
-              text: m.side === "LONG_SPREAD" ? "long" : "short",
-            }
-          : {
-              time: m.time as UTCTimestamp,
-              position: "aboveBar" as const,
-              color: m.reason === "TAKE_PROFIT" ? C.green : C.red,
-              shape: "arrowDown" as const,
-              text: m.reason === "TAKE_PROFIT" ? "exit" : "stop",
-            },
-      );
-      createSeriesMarkers(zLine, markers);
+    // ── "Your entry" overlay (opened from a recorded manual trade) ────────────
+    // Yellow lines for the trade's entry Z, entry prices (one per leg/axis on the
+    // raw panel), and entry spread; plus a time marker mirrored across all panels.
+    // Each piece is drawn only when its value is present, so the scan-table route
+    // (no entry context) renders the charts unchanged.
+    const rawEntryLabels: {
+      series: ISeriesApi<"Line">;
+      level: PriceLevel;
+      side: "left" | "right";
+    }[] = [];
+    let snappedEntry: UTCTimestamp | null = null;
+    if (entry) {
+      const entryLine = (series: ISeriesApi<"Line">, price: number) =>
+        series.createPriceLine({
+          price,
+          color: C.yellow,
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: false,
+        });
+      if (entry.z != null && Number.isFinite(entry.z)) {
+        entryLine(zLine, entry.z);
+        zLevels.push({ price: entry.z, color: C.yellow, text: "entry" });
+      }
+      if (entry.spread != null && Number.isFinite(entry.spread)) {
+        entryLine(spreadLine, entry.spread);
+        spreadLevels.push({ price: entry.spread, color: C.yellow, text: "entry" });
+      }
+      if (entry.priceBase != null && Number.isFinite(entry.priceBase)) {
+        entryLine(baseRaw, entry.priceBase);
+        rawEntryLabels.push({
+          series: baseRaw,
+          level: { price: entry.priceBase, color: C.yellow, text: "entry" },
+          side: "left",
+        });
+      }
+      if (entry.priceQuote != null && Number.isFinite(entry.priceQuote)) {
+        entryLine(quoteRaw, entry.priceQuote);
+        rawEntryLabels.push({
+          series: quoteRaw,
+          level: { price: entry.priceQuote, color: C.yellow, text: "entry" },
+          side: "right",
+        });
+      }
+      if (entry.time != null && Number.isFinite(entry.time)) {
+        const t = snapToBar(data.spread.series, entry.time);
+        if (t != null) {
+          snappedEntry = t as UTCTimestamp;
+          // Mirror the entry-time marker on the non-Z panels; the Z panel folds it
+          // into its own marker set below so it coexists with entry/exit arrows.
+          const mark: SeriesMarker<Time> = {
+            time: snappedEntry,
+            position: "aboveBar",
+            color: C.yellow,
+            shape: "circle",
+            text: "entry",
+          };
+          createSeriesMarkers(baseLine, [mark]);
+          createSeriesMarkers(baseRaw, [mark]);
+          createSeriesMarkers(spreadLine, [mark]);
+        }
+      }
     }
 
-    // Left-edge band/threshold labels (issue #69), re-aligned on scale changes.
+    // ── Z-panel markers: backtest entry/exit arrows + the "your entry" marker ──
+    const zMarkers: SeriesMarker<Time>[] = data.zscore.markers.map((m) =>
+      m.kind === "entry"
+        ? {
+            time: m.time as UTCTimestamp,
+            position: "belowBar" as const,
+            color: C.blue,
+            shape: "arrowUp" as const,
+            text: m.side === "LONG_SPREAD" ? "long" : "short",
+          }
+        : {
+            time: m.time as UTCTimestamp,
+            position: "aboveBar" as const,
+            color: m.reason === "TAKE_PROFIT" ? C.green : C.red,
+            shape: "arrowDown" as const,
+            text: m.reason === "TAKE_PROFIT" ? "exit" : "stop",
+          },
+    );
+    if (snappedEntry != null) {
+      zMarkers.push({
+        time: snappedEntry,
+        position: "aboveBar",
+        color: C.yellow,
+        shape: "circle",
+        text: "entry",
+      });
+    }
+    if (zMarkers.length > 0) createSeriesMarkers(zLine, zMarkers);
+
+    // Edge band/threshold labels (issue #69), re-aligned on scale changes.
+    const labelManagers: { reposition: () => void; remove: () => void }[] = [];
     spreadRef.current.style.position = "relative";
     zRef.current.style.position = "relative";
-    const spreadLabels = attachLeftLabels(spreadRef.current, spreadLine, spreadLevels);
-    const zLabels = attachLeftLabels(zRef.current, zLine, zLevels);
-    const repositionLabels = () => {
-      spreadLabels.reposition();
-      zLabels.reposition();
-    };
+    labelManagers.push(attachEdgeLabels(spreadRef.current, spreadLine, spreadLevels));
+    labelManagers.push(attachEdgeLabels(zRef.current, zLine, zLevels));
+    if (rawEntryLabels.length > 0) {
+      const rawEl = rawRef.current;
+      rawEl.style.position = "relative";
+      for (const { series, level, side } of rawEntryLabels) {
+        labelManagers.push(attachEdgeLabels(rawEl, series, [level], side));
+      }
+    }
+    const repositionLabels = () => labelManagers.forEach((m) => m.reposition());
 
     // ── Sync the visible time range across all panels ─────────────────────────
     const charts: IChartApi[] = [normChart, rawChart, spreadChart, zChart];
@@ -435,14 +545,13 @@ export default function PairCharts({
       cancelAnimationFrame(raf);
       ro.disconnect();
       crosshairUnsubs.forEach((unsub) => unsub());
-      spreadLabels.remove();
-      zLabels.remove();
+      labelManagers.forEach((m) => m.remove());
       subs.forEach(({ src, handler }) =>
         src.timeScale().unsubscribeVisibleLogicalRangeChange(handler),
       );
       charts.forEach((c) => c.remove());
     };
-  }, [data]);
+  }, [data, entry]);
 
   if (error) {
     return (
@@ -494,6 +603,12 @@ export default function PairCharts({
               color={C.blue}
               label={`${data.quote_market} ${fmtPrice(rawAt.quote)}`}
             />
+            {entry && (entry.priceBase != null || entry.priceQuote != null) && (
+              <Legend
+                color={C.yellow}
+                label={`entry ${entry.priceBase != null ? fmtPrice(entry.priceBase) : "—"} / ${entry.priceQuote != null ? fmtPrice(entry.priceQuote) : "—"}`}
+              />
+            )}
           </>
         }
         innerRef={rawRef}
@@ -505,6 +620,12 @@ export default function PairCharts({
           <span className="text-muted">
             spread <span className="text-text">{fmtNum(spreadAt)}</span> · mean{" "}
             {data.spread.mean.toFixed(2)} · σ {data.spread.std.toFixed(2)}
+            {entry?.spread != null && (
+              <>
+                {" "}
+                · <span className="text-yellow">entry {entry.spread.toFixed(2)}</span>
+              </>
+            )}
           </span>
         }
         innerRef={spreadRef}
@@ -517,6 +638,12 @@ export default function PairCharts({
             Z <span className="text-text">{fmtNum(zAt)}</span> · entry ±
             {data.entry_threshold} · exit ±{data.exit_threshold} · stop ±
             {data.stop_threshold}
+            {entry?.z != null && (
+              <>
+                {" "}
+                · <span className="text-yellow">your entry {entry.z.toFixed(2)}</span>
+              </>
+            )}
           </span>
         }
         innerRef={zRef}
