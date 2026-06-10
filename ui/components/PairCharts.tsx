@@ -473,24 +473,30 @@ export default function PairCharts({
       }
     }
 
-    // ── Z-panel markers: backtest entry/exit arrows + the "your entry" marker ──
-    const zMarkers: SeriesMarker<Time>[] = data.zscore.markers.map((m) =>
-      m.kind === "entry"
-        ? {
-            time: m.time as UTCTimestamp,
-            position: "belowBar" as const,
-            color: C.blue,
-            shape: "arrowUp" as const,
-            text: m.side === "LONG_SPREAD" ? "long" : "short",
-          }
-        : {
-            time: m.time as UTCTimestamp,
-            position: "aboveBar" as const,
-            color: m.reason === "TAKE_PROFIT" ? C.green : C.red,
-            shape: "arrowDown" as const,
-            text: m.reason === "TAKE_PROFIT" ? "exit" : "stop",
-          },
-    );
+    // ── Z-panel markers: model entry/exit arrows + the "your entry" marker ────
+    // When opened from a recorded trade (entry overlay present) we suppress the
+    // model's simulated long/short/exit/stop markers so the user's own entry is
+    // the only marker on the panel — they were easy to mistake for the trade's
+    // own exit. Opened from the scan table (no entry), they render as before.
+    const zMarkers: SeriesMarker<Time>[] = entry
+      ? []
+      : data.zscore.markers.map((m) =>
+          m.kind === "entry"
+            ? {
+                time: m.time as UTCTimestamp,
+                position: "belowBar" as const,
+                color: C.blue,
+                shape: "arrowUp" as const,
+                text: m.side === "LONG_SPREAD" ? "long" : "short",
+              }
+            : {
+                time: m.time as UTCTimestamp,
+                position: "aboveBar" as const,
+                color: m.reason === "TAKE_PROFIT" ? C.green : C.red,
+                shape: "arrowDown" as const,
+                text: m.reason === "TAKE_PROFIT" ? "exit" : "stop",
+              },
+        );
     if (snappedEntry != null) {
       zMarkers.push({
         time: snappedEntry,
