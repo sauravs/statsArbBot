@@ -347,3 +347,74 @@ account's minimum-collateral setting (`USD_MIN_COLLATERAL`).
 > (**high |z|**); bet on the snap-back; take profit when it's normal again
 > (**low |z|**); and cut it if the leash breaks (**stop**) or the snap never comes
 > (**time-stop**) — all tested **out-of-sample** (**walk-forward**), after costs.
+
+---
+
+## Part 7 — FAQ: straight answers to questions the desk actually asked
+
+Real questions from the team, answered in the same plain English as the rest of this
+guide. (If you ask a new one, it gets logged and may land here.)
+
+### "Quick scan vs Full scan — what's the difference, and which do I trust?"
+Both do the **same job**: sweep every eligible dYdX perp pair, test for cointegration,
+fit the leash (**β / α**), and keep the pairs that are statistically real *and* snap back
+fast (`p < 0.05`, half-life ≤ 72h). The only difference is **how much history they read**:
+
+| | History | ≈ Span (1h candles) | Use it for |
+|---|---|---|---|
+| **Quick scan** | 2 pages | ~200h ≈ **8 days** | A fast first look |
+| **Full scan** | 4 pages | ~400h ≈ **16–17 days** | The real result (saved to the DB, survives reload) |
+
+> **Analogy — the route preview.** Quick scan is the **instant ETA** your maps app shows
+> the second you type a destination — good enough to decide if the trip is worth it. Full
+> scan is the route **after it pulls live traffic**: slower, but the one you actually
+> drive. A pair that looks tied together over 8 days can fall apart over 16 — so **scan
+> Quick to browse, Full before you risk anything.**
+
+### "Why does it say BUY base / SELL quote here, but the opposite there?"
+Because the **sign of the z-score** sets the direction, and the trade always bets the gap
+**closes** (mean reversion). Back to the leash:
+
+- **`Z < 0`** — the spread is unusually *low*: the **base dog lagged behind**. Bet it
+  catches up → **BUY base, SELL quote.**
+- **`Z > 0`** — the spread is unusually *high*: the **base dog ran ahead**. Bet it falls
+  back → **SELL base, BUY quote.**
+
+You're never betting on either coin's *direction* — only on the **leash pulling them level
+again**. That's why both legs go on at once and the quote leg is scaled by **β** (so a
+market-wide move roughly cancels out). The app reads the entry z-score and labels the
+direction for you — the same rule the live bot uses.
+
+> **Worked example.** `SOL/ETH`, β = 2. Spread hits **Z = −2.1** (past the 1.5 entry) → Z
+> is negative → **BUY ~$100 of SOL / SELL ~$200 of ETH**. It reverts to **Z = −0.3**
+> (inside the 0.5 exit) → close both legs, pocket the snap-back. Negative-Z set the whole
+> direction.
+
+### "What's the Z-threshold slider actually for?"
+It's your **sensitivity dial** for what counts as a tradable signal. A pair only lights up
+(shows a BUY/SELL signal and a **Record** button) when **`|Z| ≥ your threshold`**. Slide it
+**down** (toward 0.5) to surface more — and weaker — signals; slide it **up** (toward 4.0)
+to see only the most extreme, high-conviction dislocations. The table re-filters live.
+
+> **Analogy — the metal-detector knob.** Turn sensitivity **up** and it only beeps for big,
+> deep targets (few false alarms, but you miss small finds). Turn it **down** and it beeps
+> at every bottle cap (you see everything, mostly noise). **1.5 is the researched sweet
+> spot** — wide enough to be a real dislocation, tight enough that you still trade.
+
+> ⚠️ The slider only changes **what you see**. The bot's safety rails are fixed regardless:
+> **take-profit at `|Z| < 0.5`** and **stop-loss at `|Z| ≥ 4.0`** (or age > 3 × half-life).
+
+### "On the pair chart — what is 'Normalized price (rebased to 100)'?"
+The top panel of the 3-chart pair view rescales **each leg so its first bar in the window
+= 100**, then plots everything relative to that (`price ÷ first price × 100`). So **112
+means "up 12% since the window started"**; **95 means "down 5%."**
+
+> **Why bother.** The two legs trade at wildly different prices — BTC near $60,000, SOL
+> near $150. On a raw axis the cheap one is a flat line on the floor and the expensive one
+> dominates; you simply can't *see* them move together. Rebasing both to 100 puts them on
+> the same percentage ruler, so the **co-move — and the divergence — jump out at a glance.**
+> It's the human-eye version of the spread and z-score panels below it.
+
+**One caveat:** that overlay is **diagnostic only** — it doesn't generate signals. The
+trade fires off the **spread** and the **z-score** (the bottom panel, the one you actually
+trade). The rebased-to-100 line just makes the leash *visible*.
