@@ -46,3 +46,32 @@ Running log of `/feature-qa` questions and answers.
 - Caveat: the slider sets *your view's* entry threshold; the bot's enforced **stop-loss `|Z| ≥ 4.0`** and **take-profit `|Z| < 0.5`** stay fixed regardless (`docs/USER_GUIDE.md:27-28`).
 
 ---
+
+## 2026-06-11 — "Z thresholds entry/exit/stop [Edit]" control: what it changes & where
+
+**Q:** related to manual trading section, what is this value "Z thresholds entry ±1.5 · exit ±0.5 · stop ±4 (edit)" button, how is it affecting other parts of this manual trading section? What happens when we edit these values and where exactly do its effects take place?
+
+**A:**
+
+**What it is:** the `StrategyThresholdsControl` badge + Edit button (`ui/components/StrategyThresholdsControl.tsx`). Edits the **Option-B entry/exit/stop Z thresholds app-wide at runtime** (issue #74). It is **distinct** from the dashboard's "Active when |Z|" **slider**, which is a separate client-only filter (`ZThresholdSlider.tsx:3-5`; noted at `StrategyThresholdsControl.tsx:6-8`).
+
+**Edit → Apply flow:**
+1. Client guard rejects anything not `exit < entry < stop` (`StrategyThresholdsControl.tsx:51`).
+2. POST `api/system/thresholds` (`ui/lib/api.ts:74-79`) → `backend/routers/system.py:109`.
+3. Backend re-validates (422 on violation), then `config.set_signal_thresholds()` mutates live globals `ZSCORE_THRESH/EXIT_ZSCORE/STOP_LOSS_ZSCORE` (`config.py:97-98`). Consumers read at call time → **immediate, no restart** (`system.py:114-116`).
+4. Persists to `BotConfigHistory` so it survives restart (`system.py:127`); DB hiccup keeps the runtime value and returns `persisted:false` without error (`system.py:134-139`).
+
+**Where effects land (read config at call time):**
+- **Pair-detail Z chart** — `/api/pairs/.../series` builds reference lines + entry/exit markers from `config.ZSCORE_THRESH/EXIT_ZSCORE/STOP_LOSS_ZSCORE` (`pair_series.py:407-409`, markers `:283-294`). Lines/markers redraw on next chart load.
+- **Live bot + sims (real-time, fast-forward)** — same globals as default signal rules.
+- **statcore signal eval** — `evaluate_entry`/exit (`pair_series.py:309-321`).
+
+**Effect on the Manual Trading section specifically:**
+- ✅ Changes the **pair-detail Z chart** you study before recording (lines + markers) — the only visible manual-section effect.
+- ❌ Does **not** change which pairs are active/recordable — that's the separate "Active when |Z|" slider.
+- ❌ Does **not** alter already-recorded trades — `backend/routers/manual.py` doesn't read these thresholds; a recorded trade captures β/half-life/current-Z/spread/entry prices, direction inferred from Z sign.
+- ❌ Does **not** trigger any automatic action — manual trades have no auto-exit; you "Mark closed" yourself.
+
+**One-liner:** it sets the app-wide strategy entry/exit/stop (live in config, persisted to DB, read by chart + live bot + sims). In the manual section its only effect is cosmetic-on-the-chart; it deliberately does NOT drive the recordable-pairs filter, recorded trades, or any automatic manual-trade action. (Easy-to-conflate UX: the "[Edit]" badge = real strategy thresholds; the slider = view-only table filter.)
+
+---
