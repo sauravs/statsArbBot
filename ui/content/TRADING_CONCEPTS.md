@@ -418,3 +418,29 @@ means "up 12% since the window started"**; **95 means "down 5%."**
 **One caveat:** that overlay is **diagnostic only** — it doesn't generate signals. The
 trade fires off the **spread** and the **z-score** (the bottom panel, the one you actually
 trade). The rebased-to-100 line just makes the leash *visible*.
+
+### "What's the 'Z thresholds · entry / exit / stop · Edit' badge — and what changes if I edit it?"
+That badge shows the **strategy's actual signal rules** — the entry, exit and stop **|Z|**
+levels (the "rules of the round trip" from Part 1). Hit **Edit**, change the numbers, and
+**Apply** and they update **everywhere at once, instantly** (no restart), and are **saved** so
+they survive a reboot. (It enforces `exit < entry < stop`, so you can't set nonsensical rules.)
+
+**What moves when you change it:**
+- The **entry / exit / stop reference lines** — and the entry/exit markers — on **every pair's
+  Z-score chart**, redrawn to your new levels the next time you open a pair.
+- The **default rules the live bot and the simulations** (real-time + fast-forward) trade by.
+
+**What it deliberately does *not* touch:**
+- It is **not** the **"Active when |Z| ≥ threshold" slider** beside the pairs table. That slider
+  is only a *view filter* — it decides which pairs are highlighted and get a **Record** button,
+  and it lives **only in your browser**. Editing the strategy thresholds won't add or remove
+  Record buttons.
+- It **doesn't rewrite trades you've already recorded** — a manual trade snapshots its numbers
+  at the moment you record it.
+- It **triggers no automatic action** — manual trades have no auto-exit; you still close them
+  yourself with **Mark closed**.
+
+> **Rule of thumb — two Z controls, two jobs.** The **[Edit] badge** is the *real* strategy
+> entry/exit/stop: global, saved, and what the bot and charts actually use. The **slider** is a
+> *throwaway lens* for browsing the table. Edit the badge to **retune the strategy**; nudge the
+> slider just to **see more or fewer candidates.**
