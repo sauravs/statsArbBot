@@ -21,3 +21,28 @@ Running log of `/feature-qa` questions and answers.
 **Key caveat:** the normalized overlay is **purely visual/diagnostic** — it does NOT generate signals. Trade logic runs off the **Spread** (`S1 − β·S2 − α`) and **Z-score** (Panel 3, "the chart you trade off", `docs/USER_GUIDE.md:106`). The rebased-to-100 panel just makes the relationship legible to a human.
 
 ---
+
+## 2026-06-11 — Quick vs Full scan, signal direction (BUY/SELL base), Z-threshold slider
+
+**Q:** related to manual trading section, how quick and full scan different to each other, what is its purpose, how and why BUY base SELL quote or vice versa signal got generated, purpose of Z threshold slider. Please explain with analogies and examples.
+
+**A:**
+
+**Quick vs Full scan** — same job (sweep dYdX perp pairs, Engle-Granger cointegration test, fit β/α, compute spread + half-life, keep pairs with `p < 0.05` and `half-life ≤ 72h`); the only difference is history depth:
+- **Quick scan** = `SCAN_QUICK_PAGES = 2` ≈ 200h ≈ **8 days** — fast, rough look.
+- **Full scan** = `NUM_HISTORICAL_PAGES = 4` ≈ 400h ≈ **16–17 days** — slower, the trustworthy result; persists in the DB (survives reload).
+- Sources: `backend/config.py:130-133`, `backend/routers/scan.py:24-33`, `docs/USER_GUIDE.md:75-76`.
+- Analogy: Quick = Google Maps' instant route estimate; Full = the route after it pulls live traffic — the one you actually drive. A pair cointegrated over 8 days may fall apart over 16; Full is what you trust before risking money.
+
+**Signal direction (`Z<0` → BUY base/SELL quote; `Z>0` → SELL base/BUY quote)** — `docs/USER_GUIDE.md:26`. Z measures how far the spread `S1 − β·S2 − α` is from its mean in σ; the trade always bets the spread reverts:
+- `Z < 0` = spread abnormally low = base **cheap** vs quote → buy base, sell quote.
+- `Z > 0` = spread abnormally high = base **expensive** vs quote → sell base, buy quote.
+- Market-neutral: you bet on the *relationship* snapping back, not either coin's absolute direction (quote leg scaled by β so the two legs cancel market moves).
+- Analogy: two dogs on a leash (cointegrated). When one sprints ahead (spread stretches), bet the leash pulls them back. `Z<0` = base dog lagged → back base / fade quote. `Z>0` = base dog ran ahead → fade base / back quote.
+- Direction is **inferred automatically from the entry z-score** — same rule the bot uses (`docs/USER_GUIDE.md:121`).
+
+**Z-threshold slider** (range 0.5–4.0, default 1.5; `docs/USER_GUIDE.md:94-96`) — your sensitivity dial for what counts as a signal. A pair goes "active" (shows BUY/SELL Signal + Record button) only when `|Z| ≥ threshold`. Lower it → more, weaker signals; raise it → fewer, higher-conviction ones. Re-filters the table live.
+- Analogy: the sensitivity knob on a metal detector — high = only big targets (few false alarms, may miss small finds); low = beeps at every bottle cap (see everything, mostly noise). 1.5 is the research-backed "Option-B" sweet spot.
+- Caveat: the slider sets *your view's* entry threshold; the bot's enforced **stop-loss `|Z| ≥ 4.0`** and **take-profit `|Z| < 0.5`** stay fixed regardless (`docs/USER_GUIDE.md:27-28`).
+
+---
