@@ -728,6 +728,23 @@ class FakeManualTradeRepository:
         row = self.store.get(trade_id)
         return dict(row) if row is not None else None
 
+    async def get_latest_for_pair(
+        self, *, exchange, mode, base_market, quote_market, data_source=None
+    ) -> dict | None:
+        rows = [
+            r
+            for r in self.store.values()
+            if r["exchange"] == exchange
+            and r["mode"] == mode
+            and r["base_market"] == base_market
+            and r["quote_market"] == quote_market
+            and (data_source is None or r.get("data_source") == data_source)
+        ]
+        if not rows:
+            return None
+        # Mirror PrismaManualTradeRepository: newest first.
+        return dict(max(rows, key=lambda r: r["recorded_at"]))
+
     async def close(
         self, trade_id, *, exit_price_leg1, exit_price_leg2, pnl, closed_at
     ) -> dict | None:

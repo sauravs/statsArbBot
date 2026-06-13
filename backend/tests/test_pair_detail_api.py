@@ -12,9 +12,11 @@ from fastapi.testclient import TestClient
 
 import config
 import db.scan_repository as scan_repo_module
+import manual.repository as manual_repo_module
 from app import create_app
 from tests.conftest import (
     FakeDydxClient,
+    FakeManualTradeRepository,
     FakeScanRepository,
     make_cointegrated_series,
     make_independent_walk,
@@ -31,6 +33,9 @@ def client(monkeypatch, tmp_path):
 
     fake_repo = FakeScanRepository()
     monkeypatch.setattr(scan_repo_module, "_repo", fake_repo)
+    # The series endpoint falls back to a recorded manual trade when the pair is
+    # not in the latest scan (issue #137); patch its repo to an in-memory fake.
+    monkeypatch.setattr(manual_repo_module, "_repo", FakeManualTradeRepository())
 
     s1, s2 = make_cointegrated_series()
     noise = make_independent_walk()
@@ -130,4 +135,50 @@ def test_series_unknown_pair_404(client):
 
 def test_series_before_scan_404(client):
     resp = client.get("/api/pairs/AAA-USD/BBB-USD/series", headers=AUTH)
+    assert resp.status_code == 404
+
+
+async def _record_trade(base, quote):
+    """Seed a manual trade in the fake repo for the (issue #137) fallback path."""
+    from datetime import datetime, timezone
+
+    await manual_repo_module.get_manual_trade_repository().create(
+        {
+            "exchange": config.DEFAULT_EXCHANGE,
+            "mode": config.DEFAULT_MODE,
+            "data_source": config.SCAN_DATA_SOURCE,
+            "base_market": base,
+            "quote_market": quote,
+            "hedge_ratio": 1.5,
+            "half_life": 12.0,
+            "z_score": -1.2,
+            "spread_value": 3.4,
+            "entry_price_leg1": 100.0,
+            "entry_price_leg2": 50.0,
+            "capital_leg1_usd": 100.0,
+            "capital_leg2_usd": 100.0,
+            "recorded_at": datetime.now(timezone.utc),
+        }
+    )
+
+
+def test_series_falls_back_to_recorded_trade(client):
+    """A pair that left the latest scan but has a recorded trade still charts."""
+    import asyncio
+
+    # No scan was run, so the scan lookup misses — but a trade exists for the pair.
+    asyncio.run(_record_trade("AAA-USD", "BBB-USD"))
+    resp = client.get("/api/pairs/AAA-USD/BBB-USD/series", headers=AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["base_market"] == "AAA-USD"
+    # The fallback reuses the trade's stored β and defaults intercept (α) to 0.
+    assert body["hedge_ratio"] == 1.5
+    assert body["intercept"] == 0.0
+    assert body["count"] >= 1
+
+
+def test_series_no_scan_no_trade_still_404(client):
+    """Never scanned *and* never traded → still a 404 (fallback finds nothing)."""
+    resp = client.get("/api/pairs/ZZZ-USD/AAA-USD/series", headers=AUTH)
     assert resp.status_code == 404
