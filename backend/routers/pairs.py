@@ -21,6 +21,7 @@ import config
 from auth import require_api_key
 from db.scan_repository import get_scan_repository
 from exchanges import make_data_client
+from manual.repository import get_manual_trade_repository
 from marketdata.pair_series import build_pair_series, current_prices
 
 logger = logging.getLogger(__name__)
@@ -110,10 +111,15 @@ async def get_pair_series(
     """
     Chart series for one cointegrated pair (PRD F3).
 
-    The pair must already exist in the latest scan — its stored β/α/half-life are
-    reused so the chart's spread matches what the scan computed (404 otherwise).
-    Prices are fetched from the configured data source (live dYdX, or the demo
-    source under ``SCAN_DATA_SOURCE=fake``) and assembled into the three panels.
+    The pair's β/α/half-life come from the latest scan, so the chart's spread
+    matches what the scan computed. If the pair has rolled out of the latest scan
+    it falls back to the pair's most recent **recorded manual trade** (issue #137)
+    — a manual trade is a durable record whose chart must keep rendering for its
+    life, even after the ephemeral scan no longer lists the pair. The fallback
+    reuses the trade's stored β/half-life (intercept defaults to 0.0, which leaves
+    the rolling Z-score unchanged); only a pair that was never scanned *and* never
+    traded 404s. Prices are fetched from the configured data source (live dYdX, or
+    the demo source under ``SCAN_DATA_SOURCE=fake``) and assembled into three panels.
     """
     try:
         record = await get_scan_repository().get_pair(
@@ -124,9 +130,27 @@ async def get_pair_series(
         raise HTTPException(status_code=503, detail="Could not read pairs from the database.")
 
     if record is None:
+        # Not in the latest scan — fall back to a recorded manual trade for this
+        # pair so its chart still renders (issue #137). Scoped to the active data
+        # source so a demo trade's chart uses demo params, a live trade's live.
+        try:
+            record = await get_manual_trade_repository().get_latest_for_pair(
+                exchange=exchange,
+                mode=mode,
+                base_market=base,
+                quote_market=quote,
+                data_source=config.SCAN_DATA_SOURCE,
+            )
+        except Exception as exc:
+            logger.error("get_pair_series manual fallback read failed: %s", exc)
+            raise HTTPException(
+                status_code=503, detail="Could not read trades from the database."
+            )
+
+    if record is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Pair {base}/{quote} not found in the latest scan.",
+            detail=f"Pair {base}/{quote} not found in the latest scan or recorded trades.",
         )
 
     client = make_data_client()
@@ -136,6 +160,8 @@ async def get_pair_series(
             base_market=base,
             quote_market=quote,
             hedge_ratio=record["hedge_ratio"],
+            # A manual-trade fallback row has no intercept (α); default to 0.0,
+            # which leaves the rolling Z-score unchanged (a constant spread shift).
             intercept=record.get("intercept", 0.0) or 0.0,
             half_life=record.get("half_life"),
             # Fast path (issue #61): a small, concurrently-fetched page count so a

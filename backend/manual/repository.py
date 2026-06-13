@@ -59,6 +59,37 @@ class PrismaManualTradeRepository:
         record = await db.manualtrade.find_unique(where={"id": trade_id})
         return self._to_dict(record) if record is not None else None
 
+    async def get_latest_for_pair(
+        self,
+        *,
+        exchange: str,
+        mode: str,
+        base_market: str,
+        quote_market: str,
+        data_source: str | None = None,
+    ) -> dict | None:
+        """Most recent recorded trade for one pair (newest first), or None.
+
+        Lets the chart endpoint reuse a recorded trade's stored β/half-life when
+        the pair has rolled out of the latest scan, so a recorded entry's chart
+        keeps rendering for the life of the trade (issue #137).
+        """
+        from db.client import get_db
+
+        db = await get_db()
+        where: dict = {
+            "exchange": exchange,
+            "mode": mode,
+            "base_market": base_market,
+            "quote_market": quote_market,
+        }
+        if data_source is not None:
+            where["data_source"] = data_source
+        record = await db.manualtrade.find_first(
+            where=where, order=[{"recorded_at": "desc"}]
+        )
+        return self._to_dict(record) if record is not None else None
+
     async def close(
         self,
         trade_id: str,
