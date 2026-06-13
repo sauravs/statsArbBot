@@ -13,13 +13,19 @@
 The live instance, so any session/teammate has the facts without re-discovery.
 **Non-secrets only** — the SSH key and `.env` values are never committed.
 
+> **Migrated 2026-06-13 from the individual AWS account to the company AWS account.** Same
+> instance spec and config; new instance/EIP/URL/key (table below). The DB (seeded cache +
+> manual trades) was `pg_dump`→restored, nginx self-signed TLS + 2 GB swap reprovisioned, and
+> the GitHub deploy key copied so the `git pull` deploy flow works. The old box was terminated
+> and its EIP released.
+
 | | |
 |---|---|
 | **Status / mode** | Live, **internal-team**. `ENVIRONMENT=testnet`, `SCAN_DATA_SOURCE=dydx` (live indexer); historical cache **seeded** (43 markets / ~463k OHLCV rows). **Not trading** (testnet, no real dYdX keys). |
-| **Instance** | `t4g.large` (2 vCPU / 8 GB, Graviton/arm64), Ubuntu 26.04, 40 GB gp3. id `i-0702f459eda05918e`, region `us-east-1`. |
-| **Static IP** | Elastic IP `32.194.15.173` (survives reboots). |
-| **URL** | `https://ec2-32-194-15-173.compute-1.amazonaws.com` — nginx (host) terminates TLS on 443 → `127.0.0.1:3000`. **Self-signed** cert (one-time browser warning; AWS hostnames can't get Let's Encrypt). |
-| **SSH** | `ssh -i <key>.pem ubuntu@32.194.15.173` (key is operator-local, not in repo). |
+| **Instance** | `t4g.large` (2 vCPU / 8 GB, Graviton/arm64), Ubuntu 26.04, 40 GB gp3. id `i-005b4a418a0c82fd6`, region `us-east-1` (AZ `us-east-1b`). **On the company AWS account** (migrated 2026-06-13; see note above). |
+| **Static IP** | Elastic IP `13.219.54.108` (survives reboots). |
+| **URL** | `https://ec2-13-219-54-108.compute-1.amazonaws.com` — nginx (host) terminates TLS on 443 → `127.0.0.1:3000`. **Self-signed** cert (one-time browser warning; AWS hostnames can't get Let's Encrypt). |
+| **SSH** | `ssh -i <key>.pem ubuntu@13.219.54.108` (key is operator-local, not in repo). |
 | **Security group** | inbound: 22 (operator IP only — dynamic, re-set "My IP" if it changes), 80+443 (all). 8000/5432 not public; also bound to `127.0.0.1` in compose. |
 | **App on box** | repo at `~/statsArbBot`, tracks the **`production`** branch; runs `docker compose up -d` (postgres + api + ui, `restart: unless-stopped`); `.env` at `~/statsArbBot/.env` (mode 600). |
 
