@@ -8,6 +8,25 @@ Living status doc for future agents. See
 
 ---
 
+## ⛳ PHASE SCOPE (read first)
+**This phase delivers Hyperliquid for the _Manual Trading_ and _Backtest_ sections
+ONLY.** In scope: HL market-data scan, historical-data ingest, backtest, and the
+manual-trade journal (record/close), plus the UI to select HL (Slice 5).
+
+**Explicitly OUT of scope this phase → PENDING a future phase (do NOT develop now):**
+- **LiveBot** (automated live/forward-test trading) for HL
+- **Fast-Forward** replay for HL
+- **Simulation** for HL
+- **Testnet / live automated order placement** (Slice 4b)
+
+The HL **trade client (Slice 4a) is already built + unit-tested** from an earlier
+pass, but it is **PARKED**: HL `live_modes=[]` so the LiveBot/live path rejects HL
+(routers/live.py). Leave it parked — a future phase activates LiveBot/FF/Sim. (FF
+& Sim are sim-only and technically reachable via `integrated=True`, which Backtest
+needs, but are **not validated this phase** — treat as pending.)
+
+---
+
 ## Decisions locked
 - **Venue:** Hyperliquid (mirrors dYdX v4: DEX + EIP-712; no KYC; no US geo-block).
 - **Backtest data:** **Hyperliquid-native** (price + funding) — venue-consistent.
@@ -38,11 +57,12 @@ Living status doc for future agents. See
 | 2 | Ingest: parameterise `make_fetch_client(exchange)` + thread `exchange` through fetch/data router | ✅ Done (3 tests green) |
 | 2 | Registry: HL `integrated=True` (data-only; `live_modes=[]`) + live-trade guard | ✅ Done (live-reject test) |
 | 2 | **Validate ingest + backtest on live HL data** (local dev stack) | ✅ PASS — see Slice 2 note |
-| 3 | Deep history via S3 archive backfill (deferred — funding already proven on 60d live) | ⬜ (deferred) |
-| 4a | `HyperliquidTradeClient` + SDK dep + config + `make_trade_client` dispatch + registry `forward_test` | ✅ Done (10 tests + live-testnet read-path verified) |
-| 4b | Forward-test e2e: place + close a position (needs operator funded testnet wallet) | 🔶 Awaiting operator wallet |
-| 5 | UI Trading Context bar + venue/source decouple | ⬜ |
+| 5 | **UI: expose HL for Manual Trading + Backtest** (selector / Trading Context bar) + venue/source decouple | ⬜ ← next, IN SCOPE |
 | 5 | ADR-0011 + guide updates | ⬜ |
+| — | `HyperliquidTradeClient` (Slice 4a) — built + unit-tested, **PARKED** (live_modes=[]) | ✅ Built · ⏸ parked (out of phase) |
+| — | LiveBot / Fast-Forward / Simulation for HL | ⏸ PENDING (future phase — do not develop) |
+| — | Testnet/live order placement (was Slice 4b) | ⏸ PENDING (future phase) |
+| — | Deep history via S3 archive (was Slice 3) | ⏸ deferred (funding already proven on 60d live) |
 
 Legend: ✅ done · 🔶 in progress · ⬜ not started
 
@@ -100,7 +120,11 @@ strategy read its own exchange's cache regardless of the global toggle.
 Stack restored to `fake` baseline. HL cache rows + a few smoke-test strategies
 remain in the dev DB (harmless).
 
-## Slice 4a validation (2026-06-14, local dev stack)
+## Slice 4a validation (2026-06-14) — ⏸ PARKED (out of current phase)
+> The HL trade client below was built + verified in an earlier pass, then **parked**
+> (registry `live_modes=[]`) because LiveBot/live trading is out of this phase. Kept
+> for the future LiveBot phase. Not active; the live path rejects HL.
+
 `HyperliquidTradeClient` (TradeClient protocol) wraps `hyperliquid-python-sdk`
 (`Exchange`/`Info`), every SDK call run via `asyncio.to_thread` (the SDK is sync);
 `Exchange`/`Info` are injected so tests use fakes. Orders go through
@@ -141,13 +165,16 @@ can't be self-tested (needs funds) → Slice 4b.
 - **SDK version:** pin `hyperliquid-python-sdk` (≥ v0.18.0) and confirm testnet URL.
 
 ## Next action
-Two parallel tracks:
-  * **Slice 4b (operator):** run the testnet place+close runbook above with a funded
-    testnet wallet — the only thing left to fully prove HL trading.
-  * **Slice 5 (agent):** UI Trading Context bar + venue/source decouple — makes HL
-    selectable in the dashboard and closes the "fake-mode silently backtests demo"
-    gap. This is the recommended next agent slice.
-Slice 3 (S3 deep history) remains deferred until a multi-year backtest is needed.
+**Slice 5 — UI for HL Manual Trading + Backtest** (the only in-scope work left this
+phase): expose Hyperliquid as a selectable venue in the dashboard (Trading Context
+bar) so the user can run HL backtests and record HL manual trades, and decouple
+venue from the global `SCAN_DATA_SOURCE` toggle (closes the "fake-mode silently
+backtests demo" gap; lets an HL backtest read the HL cache without flipping the
+global switch). LiveBot/FF/Sim/testnet, the parked trade client, and S3 deep
+history are all out of this phase (see PHASE SCOPE).
+
+The Slice 4b testnet runbook below is retained for the **future** LiveBot phase —
+not part of this phase.
 
 ## Changelog
 - 2026-06-14 — Research complete; venue + venue-consistent-data decision locked;

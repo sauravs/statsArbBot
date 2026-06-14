@@ -54,15 +54,17 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
     "hyperliquid": ExchangeInfo(
         id="hyperliquid",
         label="Hyperliquid",
-        # Data integrated (Slices 1–2): scan, historical fetch, backtest, sim and
-        # fast-forward run on live HL `/info` data. Trade client added in Slice 4:
-        # `forward_test` (testnet) is enabled; `production` (mainnet / real money)
-        # is deliberately withheld until the testnet path is validated — going live
-        # is a separate, deliberate step (see CLAUDE.md / DEPLOYMENT.md §7).
+        # This phase delivers HL **Manual Trading + Backtest** only (data is
+        # integrated: scan / historical fetch / backtest run on live HL `/info`
+        # data). `live_modes` is intentionally EMPTY — LiveBot / Fast-Forward /
+        # Simulation and any testnet/live automated trading for HL are PENDING a
+        # future phase, so live trading is cleanly rejected (routers/live.py). The
+        # HL trade client (Slice 4a) is built + tested but PARKED behind this gate.
+        # `integrated` here means "data integrated", not "tradeable".
         integrated=True,
         has_testnet=True,
-        live_modes=["forward_test"],
-        integration_note="Data + testnet forward_test integrated; production (mainnet) withheld pending validation",
+        live_modes=[],
+        integration_note="Data + Manual Trading + Backtest (this phase); LiveBot/FF/Sim/live-trading pending",
     ),
 }
 
