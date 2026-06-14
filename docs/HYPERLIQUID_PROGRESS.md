@@ -71,16 +71,34 @@ Flipped HL `integrated=True` (data-only, `live_modes=[]`) and added a
 `live_modes` guard in `routers/live.py` so a HL live start is cleanly 422'd
 (can't reach `make_trade_client`).
 
-**e2e PASS:** `POST /api/data/fetch {exchange:hyperliquid, 5-day window}` ingested
-**all 179 HL markets** → cache shows **21,601 OHLCV bars + 21,480 funding rows**
-under `exchange=hyperliquid` (`/api/data/inventory?exchange=hyperliquid`). A
-backtest (`exchange=hyperliquid`) **COMPLETED** reading that cache (history span
-matched the ingest window). **Caveat:** 0 trades fired — 5 days of hourly data is
-too short for cointegration entry signals, so HL *funding-on-a-trade* wasn't
-exercised. The funding is ingested + read by venue; a trade firing needs deeper
-history → **deferred to Slice 3** (S3 archive backfill). Stack left on the
-`hyperliquid` branch build in `fake` mode (demo behaviour); HL cache rows + a few
-smoke-test backtest strategies remain in the dev DB (harmless).
+**Ingest e2e PASS:** `POST /api/data/fetch {exchange:hyperliquid}` ingested **all
+179 HL markets** for both a 5-day and a 60-day window → cache holds real HL OHLCV
++ funding under `exchange=hyperliquid` (`/api/data/inventory?exchange=hyperliquid`;
+60-day ≈ 1,441 bars + 1,440 funding rows per market).
+
+⚠️ **Correction to first attempt.** The initial backtest "validation" was run with
+`SCAN_DATA_SOURCE=fake` and therefore read **DEMO** data, not the HL cache — because
+`replay/candle_source.make_candle_source` returns `DemoCandleSource()` whenever the
+global toggle is `fake`, *ignoring* the strategy's exchange (and `DemoCandleSource`
+has **no funding** at all). **By design, `fake` mode is fully offline/demo;** to
+backtest real HL data the runtime must be in a live mode. In any non-fake mode the
+backtest correctly reads `OhlcvCacheSource(exchange=strategy.exchange)`.
+
+**Backtest e2e PASS (redone in `hyperliquid` mode):** a 60-day backtest
+(`exchange=hyperliquid`, 30d scan / 10d trade) **COMPLETED with 7,335 trades over
+Hyperliquid-coin pairs** (`2Z/S`, `ACE/W`, `ADA/W`, …), full exit lifecycle
+(TAKE_PROFIT / STOP_LOSS_ZSCORE / STOP_LOSS_TIME / END_OF_WINDOW). **Funding
+proven sourced from HL:** `make_candle_source(exchange='hyperliquid').get_funding`
+(the cost-model path) returned **1,440/1,440 non-zero** real HL hourly rates for
+ADA. Venue-consistent funding confirmed.
+
+**Key gap for Slice 5:** the backtest replay source is gated by the global
+`SCAN_DATA_SOURCE` toggle, not per-strategy — so in `fake` mode an HL strategy
+*silently* backtests demo data. The venue/source decouple (Slice 5) should let a
+strategy read its own exchange's cache regardless of the global toggle.
+
+Stack restored to `fake` baseline. HL cache rows + a few smoke-test strategies
+remain in the dev DB (harmless).
 
 ## Open questions / risks
 - **Source/exchange decoupling:** `SCAN_DATA_SOURCE` conflates "data source"
@@ -92,11 +110,16 @@ smoke-test backtest strategies remain in the dev DB (harmless).
   ~7-day windows.
 - **SDK version:** pin `hyperliquid-python-sdk` (≥ v0.18.0) and confirm testnet URL.
 
-## Next action
-**Slice 3** — deep HL history via the S3 archive (`s3://hyperliquid-archive/`)
-backfill, building candles offline past the ~5k-candle live cap. A long-enough
-window also lets the backtest fire trades and finally exercises HL funding in the
-cost model (the one thing Slice 2 couldn't prove on 5 days of data).
+## Next action (recommend: defer Slice 3, do Slice 4 or 5)
+Funding-on-trade is now **proven without S3** — the live `/info` API returns ~5,000
+bars/request (~208 days at 1h), and a 60-day fetch already fired 7,335 trades with
+HL funding. **Slice 3 (S3 archive) only buys history beyond ~208 days** (multi-year
+studies) and is heavy (lz4 + L2→candle aggregation + AWS). Recommend **deferring
+Slice 3** until a multi-year backtest is actually needed, and proceeding to:
+  * **Slice 4** — HL trade client (testnet) for forward-test, the next user-facing
+    capability; or
+  * **Slice 5** — UI Trading Context bar + the venue/source decouple, which also
+    closes the "fake-mode silently backtests demo" gap above.
 
 ## Changelog
 - 2026-06-14 — Research complete; venue + venue-consistent-data decision locked;
