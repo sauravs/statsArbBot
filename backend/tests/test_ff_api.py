@@ -99,6 +99,15 @@ def test_endpoints_require_auth(ctx):
     assert ctx.client.post("/api/ff/simulations", json={}).status_code == 401
 
 
+def test_hyperliquid_ff_rejected(ctx):
+    # HL Fast-Forward is pending this phase (sim_enabled=False) → cleanly 422'd.
+    r = ctx.client.post(
+        "/api/ff/simulations", json={**_BODY, "exchange": "hyperliquid"}, headers=AUTH
+    )
+    assert r.status_code == 422
+    assert "does not support fast-forward" in r.json()["detail"]
+
+
 @pytest.mark.parametrize("body", [
     {"entry_threshold": 0.1},                 # below 0.5
     {"stop_threshold": 0.0},                  # below 1.0

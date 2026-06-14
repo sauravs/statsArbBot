@@ -75,3 +75,20 @@ Running log of `/feature-qa` questions and answers.
 **One-liner:** it sets the app-wide strategy entry/exit/stop (live in config, persisted to DB, read by chart + live bot + sims). In the manual section its only effect is cosmetic-on-the-chart; it deliberately does NOT drive the recordable-pairs filter, recorded trades, or any automatic manual-trade action. (Easy-to-conflate UX: the "[Edit]" badge = real strategy thresholds; the slider = view-only table filter.)
 
 ---
+
+## 2026-06-14 — Why so many cointegrated pairs on Hyperliquid vs dYdX?
+
+**Q:** why so many cointegrated markets i am able to see in hyperliquid manual section as compared to dydx inspite of that in hyperliquid we have just last 2 month historical record right?
+
+**A:** The premise has a hidden flaw, then three real reasons.
+
+**The scan window is NOT 2 months.** The cointegration scan that fills the manual section uses `NUM_HISTORICAL_PAGES=4 × CANDLES_PER_PAGE=100 ≈ 400 hourly bars ≈ ~16 days` (full scan; `SCAN_QUICK_PAGES=2 ≈ ~8 days` quick) — `backend/scan/orchestrator.py:139`, `config.py:153-155`. The **60-day window in the Data tab is the *backtest* cache, not the scan window**; both dYdX and HL scans run over the same ~2-week window. The HL scan covered **176 markets → ~15,400 candidate pairs, 1,986 passed `p<0.05`** (`PVALUE_MAX`, `config.py:101`; filter at `orchestrator.py:71,90`).
+
+Three reasons HL shows so many:
+1. **Quadratic in universe size.** Pairs ≈ N(N−1)/2. HL lists far more liquid perps (176 here, after the `MIN_LIQUIDITY_USD=10k` filter, `config.py:182`) than dYdX, so even at the same survival rate it yields many more. (Dev DB currently has **no real dYdX scan** — `/api/pairs?exchange=dydx` → 0 — so run a dYdX scan to compare apples-to-apples.)
+2. **Less history → MORE spurious cointegration, not fewer.** Counter-intuitive: over a short sample the Engle–Granger/ADF test has low power + high false-positive rate, so more pairs pass `p<0.05` by chance. *More* history is a *stricter* filter. So a short window inflates the count.
+3. **Alt/meme-heavy universe.** HL's `kPEPE`/`kSHIB`/`2Z`/`0G`/`ASTER` carry high BTC/ETH beta and co-move → manufactured cointegration.
+
+**Takeaway:** 1,986 is mostly noise; the high count warrants *more* skepticism. Filter hard on low p-value AND short half-life, and re-validate a candidate on the 60-day HL backtest (out-of-sample) before trusting it.
+
+---

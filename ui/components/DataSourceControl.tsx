@@ -3,12 +3,20 @@
 import { useState } from "react";
 import { setDataSource } from "@/lib/api";
 
-// Market-data source indicator + runtime toggle (issues #42 / #43; extracted to a
-// shared component in #92 so the Backtest page can show the same DEMO/LIVE control
-// the dashboard header uses). The badge shows synthetic demo data vs the live dYdX
-// indexer; the switch flips it app-wide without a restart (no orders — a read-only
-// data change). Switching clears the current pairs (they belong to the old source)
-// → a re-scan is prompted.
+// Venue / market-data source selector (issues #42 / #43; extended to Hyperliquid
+// on the `hyperliquid` branch, Slice 5). Sets the app-wide market-data source; the
+// whole stack — scan, Backtest, Manual Trading — then follows the selected venue
+// (the backend resolves the active exchange from this source). "Demo" is the
+// network-free synthetic source; dYdX / Hyperliquid are live read-only data.
+//
+// Switching is a deliberate two-step (select → Switch) because it clears the
+// current pairs (they belong to the old source) → a re-scan is prompted.
+const SOURCES: { id: string; label: string; live: boolean }[] = [
+  { id: "fake", label: "Demo", live: false },
+  { id: "dydx", label: "dYdX", live: true },
+  { id: "hyperliquid", label: "Hyperliquid", live: true },
+];
+
 export default function DataSourceControl({
   source,
   onSwitched,
@@ -16,7 +24,7 @@ export default function DataSourceControl({
   source?: string;
   onSwitched: (next: string) => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -32,17 +40,21 @@ export default function DataSourceControl({
       </span>
     );
   }
-  const isDemo = source === "fake";
-  const target = isDemo ? "dydx" : "fake";
-  const targetLabel = isDemo ? "Live" : "Demo";
 
-  async function doSwitch() {
+  const current = SOURCES.find((s) => s.id === source);
+  const isDemo = !current?.live;
+  // Fake → "DEMO DATA" (kept stable for #42 E2E); a live venue → "<VENUE> LIVE".
+  const badgeText = isDemo
+    ? "DEMO DATA"
+    : `${(current?.label ?? source).toUpperCase()} LIVE`;
+
+  async function doSwitch(target: string) {
     setBusy(true);
     setErr(null);
     try {
       const res = await setDataSource(target);
       onSwitched(res.data_source);
-      setConfirming(false);
+      setPending(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Switch failed");
     } finally {
@@ -57,13 +69,13 @@ export default function DataSourceControl({
         title={
           isDemo
             ? "Synthetic demo data (SCAN_DATA_SOURCE=fake)"
-            : "Live dYdX market data"
+            : `Live ${current?.label} market data`
         }
         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
           isDemo ? "bg-yellow/20 text-yellow" : "bg-green/20 text-green"
         }`}
       >
-        {isDemo ? "DEMO DATA" : "LIVE DATA"}
+        {badgeText}
       </span>
 
       {busy ? (
@@ -73,37 +85,38 @@ export default function DataSourceControl({
           data-testid="data-source-switching"
         >
           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue/30 border-t-blue" />
-          Switching to {targetLabel}…
-        </span>
-      ) : confirming ? (
-        <span className="flex items-center gap-1">
-          <button
-            onClick={doSwitch}
-            data-testid="data-source-confirm"
-            title={`Switch to ${targetLabel} data — clears the current pairs; re-scan after.`}
-            className="rounded border border-blue px-1.5 py-0.5 text-blue hover:bg-blue/10 disabled:opacity-40"
-          >
-            {`Confirm ${targetLabel}`}
-          </button>
-          <button
-            onClick={() => {
-              setConfirming(false);
-              setErr(null);
-            }}
-            className="rounded border border-border px-1.5 py-0.5 text-muted hover:text-text"
-          >
-            Cancel
-          </button>
+          Switching…
         </span>
       ) : (
-        <button
-          onClick={() => setConfirming(true)}
-          data-testid="data-source-toggle"
-          title={`Switch the app-wide market-data source to ${targetLabel}`}
-          className="rounded border border-border px-1.5 py-0.5 text-muted transition-colors hover:border-blue/60 hover:text-text"
-        >
-          Use {targetLabel}
-        </button>
+        <span className="flex items-center gap-1">
+          <select
+            data-testid="data-source-select"
+            aria-label="Market-data venue"
+            value={pending ?? source}
+            onChange={(e) => {
+              const v = e.target.value;
+              setErr(null);
+              setPending(v === source ? null : v);
+            }}
+            className="rounded border border-border bg-bg px-1.5 py-0.5 text-xs text-text transition-colors hover:border-blue/60"
+          >
+            {SOURCES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          {pending && pending !== source && (
+            <button
+              onClick={() => doSwitch(pending)}
+              data-testid="data-source-confirm"
+              title="Switch venue — clears the current pairs; re-scan after."
+              className="rounded border border-blue px-1.5 py-0.5 text-blue hover:bg-blue/10 disabled:opacity-40"
+            >
+              Switch
+            </button>
+          )}
+        </span>
       )}
       {err && <span className="text-red">{err}</span>}
     </span>

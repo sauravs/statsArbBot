@@ -48,7 +48,7 @@ class RecordBody(BaseModel):
     quote_market: str
     capital_leg1_usd: float = Field(gt=0)
     capital_leg2_usd: float = Field(gt=0)
-    exchange: str = config.DEFAULT_EXCHANGE
+    exchange: str | None = None  # None → the active source's venue (active_exchange)
     mode: str = config.DEFAULT_MODE
 
 
@@ -60,10 +60,11 @@ class CloseBody(BaseModel):
 
 @router.post("/record", status_code=201)
 async def record_manual_trade(body: RecordBody) -> dict:
-    _validate_market_scope(body.exchange, body.mode)
+    exchange = body.exchange or config.active_exchange()
+    _validate_market_scope(exchange, body.mode)
     try:
         record = await get_scan_repository().get_pair(
-            exchange=body.exchange,
+            exchange=exchange,
             mode=body.mode,
             base_market=body.base_market,
             quote_market=body.quote_market,
@@ -108,7 +109,7 @@ async def record_manual_trade(body: RecordBody) -> dict:
         )
 
     data = {
-        "exchange": body.exchange,
+        "exchange": exchange,
         "mode": body.mode,
         # Stamp the active data source so demo trades stay separable from live
         # ones in the dashboard (issue #43 follow-up).
@@ -131,9 +132,10 @@ async def record_manual_trade(body: RecordBody) -> dict:
 
 @router.get("")
 async def list_manual_trades(
-    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    exchange: str | None = Query(default=None),
     mode: str = Query(default=config.DEFAULT_MODE),
 ) -> dict:
+    exchange = exchange or config.active_exchange()
     _validate_market_scope(exchange, mode)
     try:
         # Only trades recorded under the active data source — so demo trades

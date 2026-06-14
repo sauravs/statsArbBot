@@ -107,9 +107,15 @@ def _parse_dt(value) -> datetime | None:
 
 @router.post("/strategies", status_code=201)
 async def create_strategy(body: StrategyBody) -> dict:
-    _validate_exchange(body.exchange)
+    # The venue follows the active data source (e.g. hyperliquid when the source is
+    # HL) so the backtest engine reads that venue's cache; otherwise an HL-mode
+    # strategy would default to dydx and read an empty/ wrong cache. The UI selects
+    # the venue via the data-source switch, not the strategy form (this phase).
+    exchange = config.active_exchange()
+    _validate_exchange(exchange)
     _normalise_span(body.start_time, body.end_time)
     params = body.model_dump()
+    params["exchange"] = exchange
     params["status"] = "PENDING"
     # Stamp the active market-data source so the list stays scoped to demo/live
     # (issue #98), mirroring how manual trades are stamped on record.
@@ -267,7 +273,7 @@ def _default_strategies() -> list[dict]:
     ]
     return [
         {
-            "exchange": config.DEFAULT_EXCHANGE,
+            "exchange": config.active_exchange(),
             "data_source": config.SCAN_DATA_SOURCE,
             "name": name,
             "description": desc,

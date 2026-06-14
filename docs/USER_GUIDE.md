@@ -65,6 +65,7 @@ The login screen shows **six passcode boxes**. Type your `DASHBOARD_PASSWORD` di
 **Main body** (the home dashboard):
 - **Cointegrated Pairs** panel — the scan controls, the z-threshold slider, and the pairs table. This is where you start.
 - **Manual Trades** panel — your recorded manual trades and their P&L lifecycle.
+- **Market data** control (in the controls row) — a **venue selector**: **Demo** (synthetic, offline), **dYdX**, or **Hyperliquid**. It sets the data source app-wide, so the scan, **Manual Trading**, and **Backtest** all operate on the venue you pick (badge shows `DEMO DATA` / `DYDX LIVE` / `HYPERLIQUID LIVE`). Switching clears the current pairs — re-scan after. *(Hyperliquid is enabled for Backtest + Manual Trading; its Live Bot / Simulation / Fast-Forward are not available yet.)*
 
 ---
 

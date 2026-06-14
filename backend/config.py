@@ -125,6 +125,30 @@ DYDX_TESTNET_INDEXER: str = _env(
 # Indexer used for the cointegration scan's historical candles (real liquidity).
 DYDX_DATA_INDEXER: str = DYDX_MAINNET_INDEXER
 
+# ── Hyperliquid (second venue — branch `hyperliquid`) ─────────────────────────
+# Read-only market data uses the public `/info` endpoint (no key/KYC). Like dYdX,
+# price/candle data always reads from MAINNET for real liquidity & volume; the
+# testnet URL is for account/order operations under ENVIRONMENT (Phase 2). See
+# docs/HYPERLIQUID_PLAN.md.
+HYPERLIQUID_MAINNET_API_URL: str = _env(
+    "HYPERLIQUID_MAINNET_API_URL", default="https://api.hyperliquid.xyz"
+)
+HYPERLIQUID_TESTNET_API_URL: str = _env(
+    "HYPERLIQUID_TESTNET_API_URL", default="https://api.hyperliquid-testnet.xyz"
+)
+# API used for Hyperliquid historical candles (mainnet — real liquidity).
+HYPERLIQUID_DATA_API_URL: str = HYPERLIQUID_MAINNET_API_URL
+# Process-wide cap on concurrent `/info` requests (mirrors the dYdX #65 gate).
+HYPERLIQUID_INFO_MAX_CONCURRENCY: int = _env(
+    "HYPERLIQUID_INFO_MAX_CONCURRENCY", default=6, cast=int
+)
+# Trade-client wallet (Slice 4). The private key signs EIP-712 actions; the
+# account address defaults to the signer's address but can differ when using an
+# agent/API wallet (signer ≠ funded account). Gitignored — never commit. Trading
+# follows ENVIRONMENT (testnet for forward_test, mainnet for production).
+HYPERLIQUID_PRIVATE_KEY: str = _env("HYPERLIQUID_PRIVATE_KEY", default="")
+HYPERLIQUID_ACCOUNT_ADDRESS: str = _env("HYPERLIQUID_ACCOUNT_ADDRESS", default="")
+
 CANDLE_RESOLUTION: str = _env("CANDLE_RESOLUTION", default="1HOUR")
 CANDLES_PER_PAGE: int = _env("CANDLES_PER_PAGE", default=100, cast=int)
 # Pages of history fetched per market for the full scan (~100h each at 1HOUR).
@@ -171,7 +195,9 @@ DEFAULT_MODE: str = _env("DEFAULT_MODE", default="forward_test")
 SCAN_DATA_SOURCE: str = _env("SCAN_DATA_SOURCE", default="dydx")
 
 # The market-data sources the runtime toggle (issue #43) may switch between.
-VALID_DATA_SOURCES: tuple[str, ...] = ("fake", "dydx")
+# "hyperliquid" reads the live Hyperliquid `/info` API (branch `hyperliquid`,
+# Slice 1) — read-only data only; trading lands in Slice 4.
+VALID_DATA_SOURCES: tuple[str, ...] = ("fake", "dydx", "hyperliquid")
 
 
 def set_scan_data_source(value: str) -> None:
@@ -187,6 +213,24 @@ def set_scan_data_source(value: str) -> None:
     if value not in VALID_DATA_SOURCES:
         raise ValueError(f"data source must be one of {VALID_DATA_SOURCES}")
     SCAN_DATA_SOURCE = value
+
+
+# Real trading venues a data source maps to. Offline/synthetic sources ("fake")
+# have no venue of their own, so they fall back to DEFAULT_EXCHANGE.
+_SOURCE_EXCHANGES: frozenset[str] = frozenset({"dydx", "hyperliquid"})
+
+
+def active_exchange() -> str:
+    """The exchange the *currently selected* data source belongs to.
+
+    The scan stamps its rows with this so live Hyperliquid data is labelled
+    ``hyperliquid`` (not silently ``dydx``) — the source↔exchange link that
+    ``SCAN_DATA_SOURCE`` alone conflates. ``fake`` has no venue, so it maps to
+    ``DEFAULT_EXCHANGE`` (unchanged demo behaviour). Read at call time so a runtime
+    source switch is reflected without a restart. The full venue/source decouple
+    (UI Trading Context bar) is Slice 5; this is the minimal write-side fix.
+    """
+    return SCAN_DATA_SOURCE if SCAN_DATA_SOURCE in _SOURCE_EXCHANGES else DEFAULT_EXCHANGE
 
 # CSV half of the dual-write (PRD §3.1 step 7). Relative to the backend dir.
 COINTEGRATED_PAIRS_CSV: str = _env(

@@ -31,9 +31,12 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 
 @router.get("/api/pairs")
 async def get_pairs(
-    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    exchange: str | None = Query(default=None),
     mode: str = Query(default=config.DEFAULT_MODE),
 ) -> dict:
+    # Default to the venue of the active data source (e.g. hyperliquid when the
+    # source is HL), not a hardcoded dydx, so the table follows the selected venue.
+    exchange = exchange or config.active_exchange()
     try:
         pairs = await get_scan_repository().get_latest_pairs(
             exchange=exchange, mode=mode
@@ -65,7 +68,7 @@ async def get_pairs(
 
 @router.get("/api/pairs/prices")
 async def get_pair_prices(
-    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    exchange: str | None = Query(default=None),
     mode: str = Query(default=config.DEFAULT_MODE),
 ) -> dict:
     """
@@ -76,6 +79,7 @@ async def get_pair_prices(
     Stays 200 with ``prices: {}`` + an ``error`` string on a DB / fetch failure
     so the table still renders (prices just show "—").
     """
+    exchange = exchange or config.active_exchange()
     try:
         pairs = await get_scan_repository().get_latest_pairs(exchange=exchange, mode=mode)
     except Exception as exc:
@@ -105,7 +109,7 @@ async def get_pair_prices(
 async def get_pair_series(
     base: str,
     quote: str,
-    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    exchange: str | None = Query(default=None),
     mode: str = Query(default=config.DEFAULT_MODE),
 ) -> dict:
     """
@@ -121,6 +125,7 @@ async def get_pair_series(
     traded 404s. Prices are fetched from the configured data source (live dYdX, or
     the demo source under ``SCAN_DATA_SOURCE=fake``) and assembled into three panels.
     """
+    exchange = exchange or config.active_exchange()
     try:
         record = await get_scan_repository().get_pair(
             exchange=exchange, mode=mode, base_market=base, quote_market=quote

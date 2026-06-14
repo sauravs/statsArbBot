@@ -19,9 +19,13 @@ from dataclasses import dataclass, field
 class ExchangeInfo:
     id: str
     label: str
-    integrated: bool
+    integrated: bool  # data integrated: scan / historical fetch / backtest / manual
     has_testnet: bool
-    live_modes: list[str] = field(default_factory=list)
+    live_modes: list[str] = field(default_factory=list)  # live/automated trading modes
+    # Whether the Simulation + Fast-Forward (paper-trading) sections are available.
+    # Separate from `integrated` (data) so a venue can have backtest/manual without
+    # its sim/replay paths being validated/enabled. Empty live_modes ≠ no sim.
+    sim_enabled: bool = False
     integration_note: str | None = None
 
     def to_dict(self) -> dict:
@@ -31,6 +35,7 @@ class ExchangeInfo:
             "integrated": self.integrated,
             "has_testnet": self.has_testnet,
             "live_modes": self.live_modes,
+            "sim_enabled": self.sim_enabled,
             "integration_note": self.integration_note,
         }
 
@@ -42,6 +47,7 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
         integrated=True,
         has_testnet=True,
         live_modes=["forward_test", "simulation", "production"],
+        sim_enabled=True,
     ),
     "binance": ExchangeInfo(
         id="binance",
@@ -54,10 +60,17 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
     "hyperliquid": ExchangeInfo(
         id="hyperliquid",
         label="Hyperliquid",
-        integrated=False,
-        has_testnet=False,
+        # This phase delivers HL **Manual Trading + Backtest** only (data is
+        # integrated: scan / historical fetch / backtest run on live HL `/info`
+        # data). `live_modes` is intentionally EMPTY — LiveBot / Fast-Forward /
+        # Simulation and any testnet/live automated trading for HL are PENDING a
+        # future phase, so live trading is cleanly rejected (routers/live.py). The
+        # HL trade client (Slice 4a) is built + tested but PARKED behind this gate.
+        # `integrated` here means "data integrated", not "tradeable".
+        integrated=True,
+        has_testnet=True,
         live_modes=[],
-        integration_note="Hyperliquid — deferred (out of scope this rewrite)",
+        integration_note="Data + Manual Trading + Backtest (this phase); LiveBot/FF/Sim/live-trading pending",
     ),
 }
 
