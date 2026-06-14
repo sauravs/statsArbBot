@@ -43,6 +43,7 @@ class FetchState:
     running: bool = False
     cancel_requested: bool = False
     cancelled: bool = False
+    exchange: str | None = None
     start: str | None = None
     end: str | None = None
     total_markets: int = 0
@@ -57,6 +58,7 @@ class FetchState:
             "running": self.running,
             "cancel_requested": self.cancel_requested,
             "cancelled": self.cancelled,
+            "exchange": self.exchange,
             "start": self.start,
             "end": self.end,
             "total_markets": self.total_markets,
@@ -81,10 +83,17 @@ def request_cancel() -> None:
         _state.cancel_requested = True
 
 
-def make_fetch_client() -> DydxDataClient:
-    """The indexer client a fetch uses (mainnet — price data is always mainnet).
-    Indirected so tests can monkeypatch in a fake."""
-    return DydxDataClient(data_url=config.DYDX_MAINNET_INDEXER)
+def make_fetch_client(exchange: str | None = None):
+    """The data client a fetch uses, dispatched by venue (price data is always
+    mainnet for real liquidity). Indirected so tests can monkeypatch in a fake."""
+    exchange = exchange or config.DEFAULT_EXCHANGE
+    if exchange == "hyperliquid":
+        from exchanges.hyperliquid.client import HyperliquidDataClient
+
+        return HyperliquidDataClient(data_url=config.HYPERLIQUID_DATA_API_URL)
+    if exchange == "dydx":
+        return DydxDataClient(data_url=config.DYDX_MAINNET_INDEXER)
+    raise ValueError(f"unsupported fetch exchange {exchange!r}")
 
 
 def _validate(start: datetime, end: datetime) -> None:
@@ -99,22 +108,32 @@ def _validate(start: datetime, end: datetime) -> None:
         )
 
 
-async def start_fetch(start: datetime, end: datetime) -> dict:
-    """Validate + launch a background fetch. Raises ValueError (bad range) /
-    RuntimeError (already running). Returns the initial state snapshot."""
+async def start_fetch(
+    start: datetime, end: datetime, exchange: str | None = None
+) -> dict:
+    """Validate + launch a background fetch for ``exchange`` (default
+    ``DEFAULT_EXCHANGE``). Raises ValueError (bad range) / RuntimeError (already
+    running). Returns the initial state snapshot."""
     global _state
+    exchange = exchange or config.DEFAULT_EXCHANGE
     _validate(start, end)
     if _state.running:
         raise RuntimeError("a fetch is already running")
     # Claim + reset (no await between the guard above and here → atomic on the loop).
-    _state = FetchState(running=True, start=start.isoformat(), end=end.isoformat())
-    asyncio.create_task(_run(start, end))
+    _state = FetchState(
+        running=True,
+        exchange=exchange,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
+    asyncio.create_task(_run(start, end, exchange))
     return _state.snapshot()
 
 
-async def _run(start: datetime, end: datetime) -> None:
+async def _run(start: datetime, end: datetime, exchange: str) -> None:
     try:
-        client = make_fetch_client()
+        _state.exchange = exchange  # reflect the venue even if _run is entered directly
+        client = make_fetch_client(exchange)
         async with client:
             tickers = sorted((await client.get_markets()).keys())
             _state.total_markets = len(tickers)
@@ -128,7 +147,7 @@ async def _run(start: datetime, end: datetime) -> None:
                 _state.current_market = ticker
                 result = by_market[ticker]
                 try:
-                    await _fetch_one(client, repo, ticker, start, end, result)
+                    await _fetch_one(client, repo, ticker, start, end, result, exchange)
                 except Exception as exc:  # one bad market can't sink the run
                     result.status = "error"
                     result.error = str(exc)
@@ -143,7 +162,9 @@ async def _run(start: datetime, end: datetime) -> None:
         _state.finished_at = datetime.now(timezone.utc).isoformat()
 
 
-async def _fetch_one(client, repo, market, start, end, result: MarketResult) -> None:
+async def _fetch_one(
+    client, repo, market, start, end, result: MarketResult, exchange: str
+) -> None:
     raw = await client.fetch_ohlcv_range(market, start, end)
     if raw:
         df = pd.DataFrame(
@@ -166,12 +187,12 @@ async def _fetch_one(client, repo, market, start, end, result: MarketResult) -> 
             drop_zero_volume=config.INGEST_DROP_ZERO_VOLUME,
         )
         clean_df = _within(clean_df, start, end)
-        rows = _candle_rows(clean_df, market)
+        rows = _candle_rows(clean_df, market, exchange)
         if rows:
             result.bars = await repo.merge_candles_range(
                 market,
                 rows,
-                exchange=config.DEFAULT_EXCHANGE,
+                exchange=exchange,
                 resolution=config.CANDLE_RESOLUTION,
                 start=start,
                 end=end,
@@ -186,12 +207,12 @@ async def _fetch_one(client, repo, market, start, end, result: MarketResult) -> 
             fdf["timestamp"] = pd.to_datetime(fdf["timestamp"], utc=True)
             fclean, _, _ = clean_funding(fdf)
             fclean = _within(fclean, start, end)
-            frows = _funding_rows(fclean, market)
+            frows = _funding_rows(fclean, market, exchange)
             if frows:
                 result.funding_rows = await repo.merge_funding_range(
                     market,
                     frows,
-                    exchange=config.DEFAULT_EXCHANGE,
+                    exchange=exchange,
                     start=start,
                     end=end,
                 )
@@ -206,10 +227,10 @@ def _within(df: pd.DataFrame, start, end) -> pd.DataFrame:
     return df[(df["timestamp"] >= lo) & (df["timestamp"] <= hi)]
 
 
-def _candle_rows(df: pd.DataFrame, market: str) -> list[dict]:
+def _candle_rows(df: pd.DataFrame, market: str, exchange: str) -> list[dict]:
     return [
         {
-            "exchange": config.DEFAULT_EXCHANGE,
+            "exchange": exchange,
             "market": market,
             "resolution": config.CANDLE_RESOLUTION,
             "timestamp": r.timestamp.to_pydatetime(),
@@ -223,10 +244,10 @@ def _candle_rows(df: pd.DataFrame, market: str) -> list[dict]:
     ]
 
 
-def _funding_rows(df: pd.DataFrame, market: str) -> list[dict]:
+def _funding_rows(df: pd.DataFrame, market: str, exchange: str) -> list[dict]:
     return [
         {
-            "exchange": config.DEFAULT_EXCHANGE,
+            "exchange": exchange,
             "market": market,
             "timestamp": r.timestamp.to_pydatetime(),
             "funding_rate": float(r.funding_rate),

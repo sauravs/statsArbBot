@@ -35,14 +35,14 @@ Living status doc for future agents. See
 | 1 | Config: `VALID_DATA_SOURCES` += `hyperliquid` (decouple deferred to Slice 5) | ✅ Done |
 | 1 | `make_data_client()` venue dispatch (+ `make_trade_client` rejects HL) | ✅ Done (4 tests green) |
 | 1 | **Validate scan on live HL data** (local dev stack) | ✅ PASS — see note ⚠️ exchange-stamp bug |
-| 2 | Ingest: parameterise `make_fetch_client(exchange)`, `data/hyperliquid/`, refresh script | ⬜ |
-| 2 | Registry: `integrated=True` (after backtest works) | ⬜ |
-| 2 | Validate backtest on Hyperliquid data | ⬜ |
-| 2 | `HyperliquidTradeClient` (TradeClient, testnet) | ⬜ |
-| 2 | `make_trade_client()` venue dispatch + wallet config | ⬜ |
-| 2 | Forward-test e2e on local dev stack | ⬜ |
-| 3 | UI exchange selector (`ui/lib/api.ts` + components) | ⬜ |
-| 4 | Tests + ADR-0011 + guide updates | ⬜ |
+| 2 | Ingest: parameterise `make_fetch_client(exchange)` + thread `exchange` through fetch/data router | ✅ Done (3 tests green) |
+| 2 | Registry: HL `integrated=True` (data-only; `live_modes=[]`) + live-trade guard | ✅ Done (live-reject test) |
+| 2 | **Validate ingest + backtest on live HL data** (local dev stack) | ✅ PASS — see Slice 2 note |
+| 3 | Deep history via S3 archive backfill (also lets a trade fire → exercises HL funding) | ⬜ |
+| 4 | `HyperliquidTradeClient` (TradeClient, testnet) + `make_trade_client` dispatch + wallet config | ⬜ |
+| 4 | Forward-test e2e on local dev stack | ⬜ |
+| 5 | UI Trading Context bar + venue/source decouple | ⬜ |
+| 5 | ADR-0011 + guide updates | ⬜ |
 
 Legend: ✅ done · 🔶 in progress · ⬜ not started
 
@@ -63,6 +63,25 @@ while the pre-fix run's 1930 `dydx`-mislabeled rows linger in the dev DB (cleanu
 optional — a real dYdX scan overwrites them). 3 unit tests added. Full venue/source
 decouple (UI) is still Slice 5; this is the minimal write-side fix.
 
+## Slice 2 validation (2026-06-14, local dev stack)
+Threaded `exchange` through the ingest job (`make_fetch_client(exchange)`,
+`historical_fetch._run/_fetch_one`, row writers) and the data router
+(`/api/data/fetch` + `/api/data/inventory` take `exchange`, registry-validated).
+Flipped HL `integrated=True` (data-only, `live_modes=[]`) and added a
+`live_modes` guard in `routers/live.py` so a HL live start is cleanly 422'd
+(can't reach `make_trade_client`).
+
+**e2e PASS:** `POST /api/data/fetch {exchange:hyperliquid, 5-day window}` ingested
+**all 179 HL markets** → cache shows **21,601 OHLCV bars + 21,480 funding rows**
+under `exchange=hyperliquid` (`/api/data/inventory?exchange=hyperliquid`). A
+backtest (`exchange=hyperliquid`) **COMPLETED** reading that cache (history span
+matched the ingest window). **Caveat:** 0 trades fired — 5 days of hourly data is
+too short for cointegration entry signals, so HL *funding-on-a-trade* wasn't
+exercised. The funding is ingested + read by venue; a trade firing needs deeper
+history → **deferred to Slice 3** (S3 archive backfill). Stack left on the
+`hyperliquid` branch build in `fake` mode (demo behaviour); HL cache rows + a few
+smoke-test backtest strategies remain in the dev DB (harmless).
+
 ## Open questions / risks
 - **Source/exchange decoupling:** `SCAN_DATA_SOURCE` conflates "data source"
   (fake vs live) with "which exchange". Decide whether to split cleanly now or
@@ -74,12 +93,10 @@ decouple (UI) is still Slice 5; this is the minimal write-side fix.
 - **SDK version:** pin `hyperliquid-python-sdk` (≥ v0.18.0) and confirm testnet URL.
 
 ## Next action
-Plan **Phase 1, step 2–3**: extend `config.VALID_DATA_SOURCES` to include
-`hyperliquid` (decide source/exchange decoupling) and teach
-`make_data_client()` in `backend/exchanges/__init__.py` to dispatch by venue, then
-parameterise `make_fetch_client(exchange)` in `ingest/historical_fetch.py`.
-Note: `get_free_collateral`/account methods are deferred to Phase 2 (trade client,
-needs wallet/`user_state`).
+**Slice 3** — deep HL history via the S3 archive (`s3://hyperliquid-archive/`)
+backfill, building candles offline past the ~5k-candle live cap. A long-enough
+window also lets the backtest fire trades and finally exercises HL funding in the
+cost model (the one thing Slice 2 couldn't prove on 5 days of data).
 
 ## Changelog
 - 2026-06-14 — Research complete; venue + venue-consistent-data decision locked;

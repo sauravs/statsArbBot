@@ -104,9 +104,9 @@ async def test_rejects_oversized_range():
 async def test_run_fetches_cleans_and_merges(monkeypatch):
     monkeypatch.setattr(hf, "_state", hf.FetchState(running=True))
     monkeypatch.setattr(
-        hf, "make_fetch_client", lambda: FakeFetchClient(["ADA-USD", "BTC-USD"])
+        hf, "make_fetch_client", lambda exchange=None: FakeFetchClient(["ADA-USD", "BTC-USD"])
     )
-    await hf._run(START, END)
+    await hf._run(START, END, config.DEFAULT_EXCHANGE)
 
     st = hf.get_state()
     assert st["running"] is False
@@ -124,6 +124,23 @@ async def test_run_fetches_cleans_and_merges(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_run_stamps_target_exchange(monkeypatch):
+    """A Hyperliquid fetch caches rows under exchange='hyperliquid', not the default."""
+    monkeypatch.setattr(hf, "_state", hf.FetchState(running=True))
+    monkeypatch.setattr(
+        hf, "make_fetch_client", lambda exchange=None: FakeFetchClient(["BTC", "ETH"])
+    )
+    await hf._run(START, END, "hyperliquid")
+
+    repo = cache_repo_module._repo
+    assert len(repo.candles[("hyperliquid", "BTC", config.CANDLE_RESOLUTION)]) == 4
+    assert len(repo.funding[("hyperliquid", "BTC")]) == 4
+    # Nothing leaked under the default exchange.
+    assert not any(k[0] == config.DEFAULT_EXCHANGE for k in repo.candles)
+    assert hf.get_state()["exchange"] == "hyperliquid"
+
+
+@pytest.mark.asyncio
 async def test_merge_preserves_out_of_window_bars(monkeypatch):
     repo = FakeOhlcvCacheRepository()
     # Pre-existing bar OUTSIDE the fetch window must survive the merge.
@@ -132,9 +149,9 @@ async def test_merge_preserves_out_of_window_bars(monkeypatch):
     repo.candles[key] = [{"timestamp": older, "close": 1.0}]
     monkeypatch.setattr(cache_repo_module, "_repo", repo)
     monkeypatch.setattr(hf, "_state", hf.FetchState(running=True))
-    monkeypatch.setattr(hf, "make_fetch_client", lambda: FakeFetchClient(["ADA-USD"]))
+    monkeypatch.setattr(hf, "make_fetch_client", lambda exchange=None: FakeFetchClient(["ADA-USD"]))
 
-    await hf._run(START, END)
+    await hf._run(START, END, config.DEFAULT_EXCHANGE)
 
     timestamps = [r["timestamp"] for r in repo.candles[key]]
     assert older in timestamps  # untouched
@@ -148,9 +165,9 @@ async def test_cancel_stops_at_next_market(monkeypatch):
     monkeypatch.setattr(
         hf,
         "make_fetch_client",
-        lambda: FakeFetchClient(["A-USD", "B-USD", "C-USD"], on_fetch=lambda m: hf.request_cancel()),
+        lambda exchange=None: FakeFetchClient(["A-USD", "B-USD", "C-USD"], on_fetch=lambda m: hf.request_cancel()),
     )
-    await hf._run(START, END)
+    await hf._run(START, END, config.DEFAULT_EXCHANGE)
 
     st = hf.get_state()
     assert st["cancelled"] is True

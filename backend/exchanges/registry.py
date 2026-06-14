@@ -54,10 +54,15 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
     "hyperliquid": ExchangeInfo(
         id="hyperliquid",
         label="Hyperliquid",
-        integrated=False,
-        has_testnet=False,
+        # Data integrated (branch `hyperliquid`, Slices 1–2): scan, historical
+        # fetch, backtest, sim and fast-forward all run on live HL `/info` data.
+        # `live_modes` is empty until the HL trade client lands (Slice 4), so live
+        # trading is cleanly rejected (see routers/live.py) — `integrated` here
+        # means "data integrated", not "tradeable".
+        integrated=True,
+        has_testnet=True,
         live_modes=[],
-        integration_note="Hyperliquid — deferred (out of scope this rewrite)",
+        integration_note="Data integrated (scan/backtest/sim/ff); trading lands in Slice 4",
     ),
 }
 
