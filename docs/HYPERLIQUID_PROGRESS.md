@@ -60,7 +60,8 @@ phase flips it on. This removed the reachable-but-unvalidated path.
 | 2 | Ingest: parameterise `make_fetch_client(exchange)` + thread `exchange` through fetch/data router | ✅ Done (3 tests green) |
 | 2 | Registry: HL `integrated=True` (data-only; `live_modes=[]`) + live-trade guard | ✅ Done (live-reject test) |
 | 2 | **Validate ingest + backtest on live HL data** (local dev stack) | ✅ PASS — see Slice 2 note |
-| 5 | **UI: expose HL for Manual Trading + Backtest** (selector / Trading Context bar) + venue/source decouple | ⬜ ← next, IN SCOPE |
+| 5a | Backend decouple: pairs/manual/backtest default `exchange` → `active_exchange()` (follows source) | ✅ Done (suite green) |
+| 5b | UI venue selector (Demo / dYdX / Hyperliquid) in the market-data control | ✅ Done (tsc clean, e2e spec updated) |
 | 5 | ADR-0011 + guide updates | ⬜ |
 | — | `HyperliquidTradeClient` (Slice 4a) — built + unit-tested, **PARKED** (live_modes=[]) | ✅ Built · ⏸ parked (out of phase) |
 | — | LiveBot / Fast-Forward / Simulation for HL | ⏸ PENDING (future phase — do not develop) |
@@ -167,17 +168,31 @@ can't be self-tested (needs funds) → Slice 4b.
   ~7-day windows.
 - **SDK version:** pin `hyperliquid-python-sdk` (≥ v0.18.0) and confirm testnet URL.
 
-## Next action
-**Slice 5 — UI for HL Manual Trading + Backtest** (the only in-scope work left this
-phase): expose Hyperliquid as a selectable venue in the dashboard (Trading Context
-bar) so the user can run HL backtests and record HL manual trades, and decouple
-venue from the global `SCAN_DATA_SOURCE` toggle (closes the "fake-mode silently
-backtests demo" gap; lets an HL backtest read the HL cache without flipping the
-global switch). LiveBot/FF/Sim/testnet, the parked trade client, and S3 deep
-history are all out of this phase (see PHASE SCOPE).
+## Slice 5 validation (2026-06-14, local dev stack)
+**5a (backend decouple):** the in-scope read/write paths (pairs ×3, manual
+record/list, backtest create + seed) now resolve `exchange` to
+`config.active_exchange()` at call time instead of a static `DEFAULT_EXCHANGE`, so
+the whole section follows the selected venue. Backward-compatible (fake/dydx →
+`dydx`); suite 378 passed / 14 pre-existing.
+**5b (UI):** `DataSourceControl` is now a venue **selector** (Demo / dYdX /
+Hyperliquid) driving the app-wide source; badge shows `DEMO DATA` / `DYDX LIVE` /
+`HYPERLIQUID LIVE`. `tsc --noEmit` clean; `e2e/data-source-toggle.spec.ts` updated
+to drive the selector incl. Hyperliquid.
+**e2e PASS:** with source=`hyperliquid`, `GET /api/pairs` (no exchange param)
+returned **1,986 HL-stamped pairs** (HL coin markets) — the table/manual/backtest
+all follow the selected venue with no UI param change. Restored to fake baseline.
 
-The Slice 4b testnet runbook below is retained for the **future** LiveBot phase —
-not part of this phase.
+This delivers the phase goal: **HL is selectable in the dashboard for Backtest +
+Manual Trading.** Remaining: ADR-0011 + Guide copy (docs only).
+
+## Next action
+Phase deliverable (HL Manual Trading + Backtest) is functionally **complete and
+validated**. Remaining is docs-only: **ADR-0011** recording the venue/active-exchange
+decisions + a short **Guide/USER_GUIDE** note that HL is selectable. Then the phase
+is ready for operator review → PR → main → production per CLAUDE.md (operator-gated).
+
+Out of this phase (future): LiveBot/FF/Sim, the parked HL trade client (Slice 4a) +
+testnet runbook below, and S3 deep history.
 
 ## Changelog
 - 2026-06-14 — Research complete; venue + venue-consistent-data decision locked;
