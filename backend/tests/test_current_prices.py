@@ -35,6 +35,45 @@ async def test_empty_markets_returns_empty():
 
 
 @pytest.mark.asyncio
+async def test_uses_bulk_get_current_prices_when_client_provides_it():
+    """A venue that exposes ``get_current_prices`` (Hyperliquid's one-shot
+    ``allMids``) is used directly — the per-market candle loop is bypassed so a
+    large pairs set costs one request, not one per market (issue #142)."""
+
+    class BulkClient(FakeDydxClient):
+        def __init__(self):
+            super().__init__({})
+            self.bulk_calls = 0
+            self.per_market_calls = 0
+
+        async def get_current_prices(self, markets):
+            self.bulk_calls += 1
+            return {m: 7.0 for m in markets if m != "MISSING"}
+
+        async def get_historical_closes(self, market, *, num_pages=None, now=None):
+            self.per_market_calls += 1
+            return await super().get_historical_closes(market, num_pages=num_pages, now=now)
+
+    client = BulkClient()
+    prices = await current_prices(client, ["AAA", "BBB", "MISSING", "AAA"])
+    assert prices == {"AAA": 7.0, "BBB": 7.0}
+    assert client.bulk_calls == 1
+    assert client.per_market_calls == 0  # per-market path never touched
+
+
+@pytest.mark.asyncio
+async def test_bulk_failure_is_resilient_returns_empty():
+    """A failing bulk call yields an empty column, never a 500 (issue #142)."""
+
+    class BrokenBulkClient(FakeDydxClient):
+        async def get_current_prices(self, markets):
+            raise RuntimeError("allMids blip")
+
+    prices = await current_prices(BrokenBulkClient({}), ["AAA", "BBB"])
+    assert prices == {}
+
+
+@pytest.mark.asyncio
 async def test_one_market_raising_does_not_blank_the_batch():
     # A market whose fetch *raises* (e.g. a network error) must not take down the
     # whole batch — the others still resolve (issue #50).

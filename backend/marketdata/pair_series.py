@@ -252,8 +252,23 @@ async def current_prices(
     is simply omitted, so the others still render. Concurrency is capped so a
     large pairs set doesn't burst the indexer into rate-limiting right after a
     scan (a likely cause of an all-"—" column).
+
+    Bulk fast path (issue #142): a venue with a single-request "all current
+    prices" endpoint (Hyperliquid's ``allMids``) exposes ``get_current_prices``;
+    when present we use it so a large pairs set costs ONE request instead of one
+    per market. The per-market loop below stays the path for dYdX / demo, which
+    have no such endpoint.
     """
     unique = list(dict.fromkeys(markets))  # de-dupe, preserve order
+
+    bulk = getattr(client, "get_current_prices", None)
+    if callable(bulk):
+        try:
+            return await bulk(unique)
+        except Exception as exc:  # resilient: an empty column beats a 500
+            logger.warning("bulk current_prices failed: %s", exc)
+            return {}
+
     sem = asyncio.Semaphore(_PRICE_FETCH_CONCURRENCY)
 
     async def _one(market: str) -> tuple[str, float] | None:

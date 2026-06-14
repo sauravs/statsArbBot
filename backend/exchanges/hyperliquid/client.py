@@ -311,6 +311,36 @@ class HyperliquidDataClient:
             for ts, close in sorted(by_datetime.items())
         ]
 
+    async def get_current_prices(self, markets: list[str]) -> dict[str, float]:
+        """Latest mid price for many markets in a **single** ``/info`` request.
+
+        Hyperliquid's ``allMids`` returns ``{coin: priceStr}`` for the whole
+        universe in one call (~0.4s), so the dashboard's price poll costs one
+        request regardless of how many pairs the scan found — instead of one
+        ``candleSnapshot`` per market. That fan-out (~179 requests every 20s for
+        HL's large universe) was saturating the ``/info`` rate budget into 429s
+        and starving the manual-record snapshot (issue #142). dYdX has no such
+        bulk endpoint, so it keeps the per-market path; ``current_prices`` picks
+        whichever a client provides.
+
+        Markets absent from ``allMids`` (or with an unparseable price) are simply
+        omitted — the caller renders "—". Returns ``{}`` on a fetch failure.
+        """
+        data = await self._info({"type": "allMids"})
+        if not isinstance(data, dict):
+            logger.warning("allMids returned no data")
+            return {}
+        out: dict[str, float] = {}
+        for market in dict.fromkeys(markets):  # de-dupe, preserve order
+            raw = data.get(market)
+            if raw is None:
+                continue
+            try:
+                out[market] = float(raw)
+            except (TypeError, ValueError):
+                continue
+        return out
+
     async def fetch_ohlcv_range(self, market: str, start, end) -> list[dict]:
         """Fetch full OHLCV candles for ``market`` over [start, end].
 

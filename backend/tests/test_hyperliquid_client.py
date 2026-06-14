@@ -63,6 +63,14 @@ def _route(request: httpx.Request) -> httpx.Response:
             ],
         )
 
+    if qtype == "allMids":
+        # {coin: priceStr} for the whole universe in one response (perps keyed by
+        # coin; spot pairs by "@idx"). Only the requested coins are returned.
+        return httpx.Response(
+            200,
+            json={"BTC": "50000.5", "ETH": "3000.0", "@1": "1.0"},
+        )
+
     return httpx.Response(404, json={"error": "unhandled"})
 
 
@@ -116,6 +124,27 @@ async def test_fetch_funding_range_normalises_to_dydx_keys():
         funding = await client.fetch_funding_range("BTC", start, end)
     assert funding == [{"effectiveAt": funding[0]["effectiveAt"], "rate": 0.0000125}]
     assert funding[0]["effectiveAt"].endswith("Z")
+
+
+@pytest.mark.asyncio
+async def test_get_current_prices_bulk_maps_allmids(monkeypatch):
+    """One ``allMids`` call → {market: float} for the requested markets; absent
+    markets omitted (issue #142 — replaces the per-market candleSnapshot fan-out)."""
+    calls: list[str] = []
+
+    async def _spy(self, body):
+        calls.append(body.get("type"))
+        return await _orig_info(self, body)
+
+    _orig_info = HyperliquidDataClient._info
+    monkeypatch.setattr(HyperliquidDataClient, "_info", _spy)
+
+    async with _client() as client:
+        prices = await client.get_current_prices(["BTC", "ETH", "MISSING", "BTC"])
+
+    assert prices == {"BTC": 50000.5, "ETH": 3000.0}  # MISSING omitted, de-duped
+    assert all(isinstance(v, float) for v in prices.values())
+    assert calls == ["allMids"], "must be a single bulk request, not per-market"
 
 
 @pytest.mark.asyncio
