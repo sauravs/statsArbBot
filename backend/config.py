@@ -189,7 +189,9 @@ DEFAULT_MODE: str = _env("DEFAULT_MODE", default="forward_test")
 SCAN_DATA_SOURCE: str = _env("SCAN_DATA_SOURCE", default="dydx")
 
 # The market-data sources the runtime toggle (issue #43) may switch between.
-VALID_DATA_SOURCES: tuple[str, ...] = ("fake", "dydx")
+# "hyperliquid" reads the live Hyperliquid `/info` API (branch `hyperliquid`,
+# Slice 1) — read-only data only; trading lands in Slice 4.
+VALID_DATA_SOURCES: tuple[str, ...] = ("fake", "dydx", "hyperliquid")
 
 
 def set_scan_data_source(value: str) -> None:

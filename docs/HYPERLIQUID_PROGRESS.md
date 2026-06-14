@@ -32,11 +32,12 @@ Living status doc for future agents. See
 | 0 | Docs (research / plan / progress) | ✅ Done |
 | 1 | `HyperliquidDataClient` (PriceSource: markets/closes/ohlcv/funding) | ✅ Done (5 tests green) |
 | 1 | Config: `HYPERLIQUID_*` endpoints + concurrency | ✅ Done |
-| 1 | Config: `VALID_DATA_SOURCES`, source/exchange decouple | ⬜ |
-| 1 | `make_data_client()` venue dispatch | ⬜ |
-| 1 | Ingest: parameterise `make_fetch_client()`, `data/hyperliquid/`, refresh script | ⬜ |
-| 1 | Registry: `integrated=True` | ⬜ |
-| 1 | Validate scan + backtest on Hyperliquid data | ⬜ |
+| 1 | Config: `VALID_DATA_SOURCES` += `hyperliquid` (decouple deferred to Slice 5) | ✅ Done |
+| 1 | `make_data_client()` venue dispatch (+ `make_trade_client` rejects HL) | ✅ Done (4 tests green) |
+| 1 | **Validate scan on live HL data** (local dev stack) | 🔶 Awaiting operator e2e run |
+| 2 | Ingest: parameterise `make_fetch_client(exchange)`, `data/hyperliquid/`, refresh script | ⬜ |
+| 2 | Registry: `integrated=True` (after backtest works) | ⬜ |
+| 2 | Validate backtest on Hyperliquid data | ⬜ |
 | 2 | `HyperliquidTradeClient` (TradeClient, testnet) | ⬜ |
 | 2 | `make_trade_client()` venue dispatch + wallet config | ⬜ |
 | 2 | Forward-test e2e on local dev stack | ⬜ |
@@ -70,4 +71,12 @@ needs wallet/`user_state`).
   `get_markets`, `get_historical_closes`, `fetch_ohlcv_range`, `fetch_funding_range`)
   normalising Hyperliquid's native shapes onto the dYdX-shaped keys the ingest path
   reads; `HYPERLIQUID_*` config added; 5 unit tests green
-  (`tests/test_hyperliquid_client.py`). Not yet wired into the factory/ingest.
+  (`tests/test_hyperliquid_client.py`). Committed `d5f677e`.
+- 2026-06-14 — Slice 1 wiring: `make_data_client()` → explicit dispatch map
+  (fake/dydx/hyperliquid, raises on unknown); `make_trade_client()` explicitly
+  rejects `hyperliquid` (NotImplementedError) until Slice 4 so HL data can be live
+  without ever routing HL orders to dYdX; `VALID_DATA_SOURCES` += `hyperliquid`;
+  4 factory tests green (`tests/test_exchange_factory.py`). Full suite: 361 passed,
+  14 failed — the 14 are **pre-existing on `main`** (local env, not this change).
+  **Next: operator runs a scan with `SCAN_DATA_SOURCE=hyperliquid` on the local
+  dev stack to validate Slice 1 end-to-end.**
