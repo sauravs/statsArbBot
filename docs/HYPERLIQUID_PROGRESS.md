@@ -34,7 +34,7 @@ Living status doc for future agents. See
 | 1 | Config: `HYPERLIQUID_*` endpoints + concurrency | ✅ Done |
 | 1 | Config: `VALID_DATA_SOURCES` += `hyperliquid` (decouple deferred to Slice 5) | ✅ Done |
 | 1 | `make_data_client()` venue dispatch (+ `make_trade_client` rejects HL) | ✅ Done (4 tests green) |
-| 1 | **Validate scan on live HL data** (local dev stack) | 🔶 Awaiting operator e2e run |
+| 1 | **Validate scan on live HL data** (local dev stack) | ✅ PASS — see note ⚠️ exchange-stamp bug |
 | 2 | Ingest: parameterise `make_fetch_client(exchange)`, `data/hyperliquid/`, refresh script | ⬜ |
 | 2 | Registry: `integrated=True` (after backtest works) | ⬜ |
 | 2 | Validate backtest on Hyperliquid data | ⬜ |
@@ -45,6 +45,23 @@ Living status doc for future agents. See
 | 4 | Tests + ADR-0011 + guide updates | ⬜ |
 
 Legend: ✅ done · 🔶 in progress · ⬜ not started
+
+## Slice 1 e2e validation (2026-06-14, local dev stack)
+Rebuilt `api` with `SCAN_DATA_SOURCE=hyperliquid`, `/api/system/health` →
+`data_source: hyperliquid`. Quick scan finished in ~81s → **1930 pairs over live
+Hyperliquid markets** (coin-name IDs `0G`/`AAVE`/`kPEPE`/`kSHIB`, the `k`-prefix is
+HL's 1000× naming; **zero** dYdX `-USD` tickers). Data path **PASS**. Stack
+restored to the `fake` baseline afterwards.
+
+⚠️→✅ **Bug found AND fixed — exchange mislabel.** `scan/orchestrator.py` stamped
+every scan row `DEFAULT_EXCHANGE` (`dydx`) regardless of the live source, so HL
+pairs were written `exchange=dydx`. **Fixed** with `config.active_exchange()`
+(`dydx→dydx`, `hyperliquid→hyperliquid`, `fake→DEFAULT_EXCHANGE`, read at call
+time); the scan now stamps that. **Re-verified in the live stack:** post-fix HL
+scan wrote **1986 pairs all stamped `hyperliquid`** (`?exchange=hyperliquid`),
+while the pre-fix run's 1930 `dydx`-mislabeled rows linger in the dev DB (cleanup
+optional — a real dYdX scan overwrites them). 3 unit tests added. Full venue/source
+decouple (UI) is still Slice 5; this is the minimal write-side fix.
 
 ## Open questions / risks
 - **Source/exchange decoupling:** `SCAN_DATA_SOURCE` conflates "data source"

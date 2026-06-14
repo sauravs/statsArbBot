@@ -208,6 +208,24 @@ def set_scan_data_source(value: str) -> None:
         raise ValueError(f"data source must be one of {VALID_DATA_SOURCES}")
     SCAN_DATA_SOURCE = value
 
+
+# Real trading venues a data source maps to. Offline/synthetic sources ("fake")
+# have no venue of their own, so they fall back to DEFAULT_EXCHANGE.
+_SOURCE_EXCHANGES: frozenset[str] = frozenset({"dydx", "hyperliquid"})
+
+
+def active_exchange() -> str:
+    """The exchange the *currently selected* data source belongs to.
+
+    The scan stamps its rows with this so live Hyperliquid data is labelled
+    ``hyperliquid`` (not silently ``dydx``) — the source↔exchange link that
+    ``SCAN_DATA_SOURCE`` alone conflates. ``fake`` has no venue, so it maps to
+    ``DEFAULT_EXCHANGE`` (unchanged demo behaviour). Read at call time so a runtime
+    source switch is reflected without a restart. The full venue/source decouple
+    (UI Trading Context bar) is Slice 5; this is the minimal write-side fix.
+    """
+    return SCAN_DATA_SOURCE if SCAN_DATA_SOURCE in _SOURCE_EXCHANGES else DEFAULT_EXCHANGE
+
 # CSV half of the dual-write (PRD §3.1 step 7). Relative to the backend dir.
 COINTEGRATED_PAIRS_CSV: str = _env(
     "COINTEGRATED_PAIRS_CSV", default="data/cointegrated_pairs.csv"

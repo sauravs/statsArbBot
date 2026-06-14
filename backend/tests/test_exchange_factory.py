@@ -51,3 +51,17 @@ async def test_make_trade_client_unknown_source_raises(monkeypatch):
     monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "bogus")
     with pytest.raises(ValueError, match="unknown SCAN_DATA_SOURCE"):
         await make_trade_client()
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("dydx", "dydx"),
+        ("hyperliquid", "hyperliquid"),
+        ("fake", "dydx"),  # offline source has no venue → DEFAULT_EXCHANGE
+    ],
+)
+def test_active_exchange_follows_data_source(monkeypatch, source, expected):
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", source)
+    monkeypatch.setattr(config, "DEFAULT_EXCHANGE", "dydx")
+    assert config.active_exchange() == expected
