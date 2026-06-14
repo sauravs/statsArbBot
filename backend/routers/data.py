@@ -51,9 +51,12 @@ _RESOLUTION_SECONDS = {
 
 @router.get("/api/data/inventory", dependencies=[Depends(require_api_key)])
 async def data_inventory(
-    exchange: str = Query(default=config.DEFAULT_EXCHANGE),
+    exchange: str | None = Query(default=None),
 ) -> dict:
     """Per-market cache coverage + a funding summary for the Data section."""
+    # Follow the active venue (e.g. hyperliquid) so the Data tab matches the
+    # selected source, consistent with pairs/manual/backtest (Slice 5a).
+    exchange = exchange or config.active_exchange()
     _validate_exchange(exchange)
     resolution = config.CANDLE_RESOLUTION
     step = _RESOLUTION_SECONDS.get(resolution, 3600)
