@@ -47,6 +47,16 @@ def _validate_scope(exchange: str, mode: str) -> None:
         raise HTTPException(
             status_code=422, detail=f"Mode must be one of {sorted(_VALID_MODES)}."
         )
+    # `integrated` means data is integrated; live trading additionally requires the
+    # mode to be in the exchange's live_modes. Hyperliquid has live_modes=[] until
+    # its trade client lands (Slice 4), so this cleanly 422s an HL live start rather
+    # than letting it reach make_trade_client and 500 — a data-only venue must never
+    # look tradeable at the front door.
+    if mode not in EXCHANGE_REGISTRY[exchange].live_modes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Exchange '{exchange}' does not support live trading yet.",
+        )
 
 
 class ScopeBody(BaseModel):

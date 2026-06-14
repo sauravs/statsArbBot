@@ -103,6 +103,19 @@ def test_invalid_mode_rejected(ctx):
     assert r.status_code == 422
 
 
+def test_hyperliquid_live_rejected(ctx):
+    # This phase ships HL Manual Trading + Backtest only; LiveBot/live trading for HL
+    # is PENDING (live_modes=[]), so any live start — even forward_test — must be
+    # cleanly 422'd. The HL trade client exists but is parked behind this gate.
+    r = ctx.client.post(
+        "/api/live/session/start",
+        json={"exchange": "hyperliquid", "mode": "forward_test"},
+        headers=AUTH,
+    )
+    assert r.status_code == 422
+    assert "does not support live trading" in r.json()["detail"]
+
+
 @pytest.mark.parametrize(
     "body",
     [

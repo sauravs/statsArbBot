@@ -1,5 +1,6 @@
 # ── Exchange / quant core ────────────────────────────────────────────────────
 dydx-v4-client==1.1.6
+hyperliquid-python-sdk>=0.18.0  # Hyperliquid trade client (branch `hyperliquid`, Slice 4)
 pandas>=2.0.0
 numpy>=1.24.0
 statsmodels>=0.14.0

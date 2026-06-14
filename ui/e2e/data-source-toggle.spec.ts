@@ -22,19 +22,25 @@ test.describe("Manual Trading — data-source toggle (#43)", () => {
       .catch(() => {});
   });
 
-  test("switches DEMO ↔ LIVE from the header (no restart)", async ({ page }) => {
+  test("selects Demo / dYdX / Hyperliquid from the header (no restart)", async ({ page }) => {
     await login(page);
 
     const badge = page.getByTestId("data-source-badge");
+    const select = page.getByTestId("data-source-select");
     await expect(badge).toHaveText("DEMO DATA");
 
-    // Switch to live (two-step confirm).
-    await page.getByTestId("data-source-toggle").click();
+    // Switch to dYdX (two-step: select → Switch).
+    await select.selectOption("dydx");
     await page.getByTestId("data-source-confirm").click();
-    await expect(badge).toHaveText("LIVE DATA");
+    await expect(badge).toHaveText("DYDX LIVE");
 
-    // Switch back to demo.
-    await page.getByTestId("data-source-toggle").click();
+    // Switch to Hyperliquid (the new venue, Slice 5).
+    await select.selectOption("hyperliquid");
+    await page.getByTestId("data-source-confirm").click();
+    await expect(badge).toHaveText("HYPERLIQUID LIVE");
+
+    // Back to demo.
+    await select.selectOption("fake");
     await page.getByTestId("data-source-confirm").click();
     await expect(badge).toHaveText("DEMO DATA");
   });

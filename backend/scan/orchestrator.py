@@ -131,7 +131,10 @@ async def run_scan(
     Always settles the state (``finish`` or ``fail``) before returning.
     """
     repository = repository or get_scan_repository()
-    exchange = exchange or config.DEFAULT_EXCHANGE
+    # Stamp rows with the venue the active data source belongs to (e.g. live
+    # Hyperliquid data → "hyperliquid"), not a blanket DEFAULT_EXCHANGE — otherwise
+    # HL-sourced pairs are mislabelled "dydx". Explicit callers still override.
+    exchange = exchange or config.active_exchange()
     mode = mode or config.DEFAULT_MODE
     pages = num_pages or (config.SCAN_QUICK_PAGES if quick else config.NUM_HISTORICAL_PAGES)
 
