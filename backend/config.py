@@ -125,6 +125,24 @@ DYDX_TESTNET_INDEXER: str = _env(
 # Indexer used for the cointegration scan's historical candles (real liquidity).
 DYDX_DATA_INDEXER: str = DYDX_MAINNET_INDEXER
 
+# ── Hyperliquid (second venue — branch `hyperliquid`) ─────────────────────────
+# Read-only market data uses the public `/info` endpoint (no key/KYC). Like dYdX,
+# price/candle data always reads from MAINNET for real liquidity & volume; the
+# testnet URL is for account/order operations under ENVIRONMENT (Phase 2). See
+# docs/HYPERLIQUID_PLAN.md.
+HYPERLIQUID_MAINNET_API_URL: str = _env(
+    "HYPERLIQUID_MAINNET_API_URL", default="https://api.hyperliquid.xyz"
+)
+HYPERLIQUID_TESTNET_API_URL: str = _env(
+    "HYPERLIQUID_TESTNET_API_URL", default="https://api.hyperliquid-testnet.xyz"
+)
+# API used for Hyperliquid historical candles (mainnet — real liquidity).
+HYPERLIQUID_DATA_API_URL: str = HYPERLIQUID_MAINNET_API_URL
+# Process-wide cap on concurrent `/info` requests (mirrors the dYdX #65 gate).
+HYPERLIQUID_INFO_MAX_CONCURRENCY: int = _env(
+    "HYPERLIQUID_INFO_MAX_CONCURRENCY", default=6, cast=int
+)
+
 CANDLE_RESOLUTION: str = _env("CANDLE_RESOLUTION", default="1HOUR")
 CANDLES_PER_PAGE: int = _env("CANDLES_PER_PAGE", default=100, cast=int)
 # Pages of history fetched per market for the full scan (~100h each at 1HOUR).
