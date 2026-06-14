@@ -38,9 +38,9 @@ Living status doc for future agents. See
 | 2 | Ingest: parameterise `make_fetch_client(exchange)` + thread `exchange` through fetch/data router | ✅ Done (3 tests green) |
 | 2 | Registry: HL `integrated=True` (data-only; `live_modes=[]`) + live-trade guard | ✅ Done (live-reject test) |
 | 2 | **Validate ingest + backtest on live HL data** (local dev stack) | ✅ PASS — see Slice 2 note |
-| 3 | Deep history via S3 archive backfill (also lets a trade fire → exercises HL funding) | ⬜ |
-| 4 | `HyperliquidTradeClient` (TradeClient, testnet) + `make_trade_client` dispatch + wallet config | ⬜ |
-| 4 | Forward-test e2e on local dev stack | ⬜ |
+| 3 | Deep history via S3 archive backfill (deferred — funding already proven on 60d live) | ⬜ (deferred) |
+| 4a | `HyperliquidTradeClient` + SDK dep + config + `make_trade_client` dispatch + registry `forward_test` | ✅ Done (10 tests + live-testnet read-path verified) |
+| 4b | Forward-test e2e: place + close a position (needs operator funded testnet wallet) | 🔶 Awaiting operator wallet |
 | 5 | UI Trading Context bar + venue/source decouple | ⬜ |
 | 5 | ADR-0011 + guide updates | ⬜ |
 
@@ -100,6 +100,36 @@ strategy read its own exchange's cache regardless of the global toggle.
 Stack restored to `fake` baseline. HL cache rows + a few smoke-test strategies
 remain in the dev DB (harmless).
 
+## Slice 4a validation (2026-06-14, local dev stack)
+`HyperliquidTradeClient` (TradeClient protocol) wraps `hyperliquid-python-sdk`
+(`Exchange`/`Info`), every SDK call run via `asyncio.to_thread` (the SDK is sync);
+`Exchange`/`Info` are injected so tests use fakes. Orders go through
+`market_open` / `market_close` (reduce_only) with szDecimals rounding; queries map
+`user_state` → positions/equity/free-collateral; never raises into the engine.
+`make_trade_client` dispatches `hyperliquid` → `connect()` (key checked **before**
+SDK import → fast clean RuntimeError if unset); registry `live_modes=["forward_test"]`
+(testnet) with **`production` (mainnet) deliberately withheld** until validated.
+
+**Verified:** 10 unit tests (fake SDK) green; full suite 376 passed / 14
+pre-existing fails. SDK installed + imports cleanly alongside `dydx-v4-client`
+(image rebuilt). **Connected to live HL testnet** with an ephemeral throwaway key:
+loaded szDecimals for 208 markets, and `get_account_equity` / `get_free_collateral`
+/ `get_open_positions` all returned correctly (empty, unfunded). Order *placement*
+can't be self-tested (needs funds) → Slice 4b.
+
+### Slice 4b — operator runbook (place + close a position on testnet)
+1. Create a Hyperliquid **testnet** wallet; fund it from the testnet faucet
+   (https://app.hyperliquid-testnet.xyz/drip).
+2. In `backend/.env` (gitignored): `HYPERLIQUID_PRIVATE_KEY=0x…`,
+   `ENVIRONMENT=testnet` (forward_test), and `SCAN_DATA_SOURCE=hyperliquid`
+   (so `make_data_client` + `make_trade_client` both target HL). Optionally set
+   `HYPERLIQUID_ACCOUNT_ADDRESS` if using an agent/API wallet.
+3. `docker compose up -d api` (recreate to read .env — no rebuild needed).
+4. Start a forward-test live session for `exchange=hyperliquid, mode=forward_test`
+   and run an entry scan → expect a real order filled on testnet; then an
+   exit-manage pass closes it. Confirm via `get_open_positions`.
+   ⚠️ Keep `ENVIRONMENT=testnet` — `production` is registry-blocked anyway.
+
 ## Open questions / risks
 - **Source/exchange decoupling:** `SCAN_DATA_SOURCE` conflates "data source"
   (fake vs live) with "which exchange". Decide whether to split cleanly now or
@@ -110,16 +140,14 @@ remain in the dev DB (harmless).
   ~7-day windows.
 - **SDK version:** pin `hyperliquid-python-sdk` (≥ v0.18.0) and confirm testnet URL.
 
-## Next action (recommend: defer Slice 3, do Slice 4 or 5)
-Funding-on-trade is now **proven without S3** — the live `/info` API returns ~5,000
-bars/request (~208 days at 1h), and a 60-day fetch already fired 7,335 trades with
-HL funding. **Slice 3 (S3 archive) only buys history beyond ~208 days** (multi-year
-studies) and is heavy (lz4 + L2→candle aggregation + AWS). Recommend **deferring
-Slice 3** until a multi-year backtest is actually needed, and proceeding to:
-  * **Slice 4** — HL trade client (testnet) for forward-test, the next user-facing
-    capability; or
-  * **Slice 5** — UI Trading Context bar + the venue/source decouple, which also
-    closes the "fake-mode silently backtests demo" gap above.
+## Next action
+Two parallel tracks:
+  * **Slice 4b (operator):** run the testnet place+close runbook above with a funded
+    testnet wallet — the only thing left to fully prove HL trading.
+  * **Slice 5 (agent):** UI Trading Context bar + venue/source decouple — makes HL
+    selectable in the dashboard and closes the "fake-mode silently backtests demo"
+    gap. This is the recommended next agent slice.
+Slice 3 (S3 deep history) remains deferred until a multi-year backtest is needed.
 
 ## Changelog
 - 2026-06-14 — Research complete; venue + venue-consistent-data decision locked;

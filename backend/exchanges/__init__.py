@@ -55,12 +55,12 @@ async def make_trade_client():
 
     Reuses the one "offline mode" switch the data client uses so a single env var
     flips the whole stack off the network. Imports are deferred so importing the
-    registry never pulls in ``dydx-v4-client``. Returns an object satisfying the
-    ``trading.broker.TradeClient`` protocol.
+    registry never pulls in ``dydx-v4-client`` / ``hyperliquid-python-sdk``. Returns
+    an object satisfying the ``trading.broker.TradeClient`` protocol.
 
-    ``hyperliquid`` is rejected here until Slice 4 (HL trade client) so a venue
-    whose data is live but whose trading isn't can never silently route orders to
-    dYdX — a wrong-venue order is exactly the costly mistake to design out.
+    ``hyperliquid`` connects via the HL trade client (Slice 4, testnet for
+    forward_test / mainnet for production per ``ENVIRONMENT``); it raises cleanly if
+    no wallet key is configured rather than silently routing orders anywhere else.
     """
     import config
 
@@ -70,10 +70,9 @@ async def make_trade_client():
 
         return DemoTradeClient()
     if source == "hyperliquid":
-        raise NotImplementedError(
-            "Hyperliquid trading is not integrated yet (lands in Slice 4); "
-            "SCAN_DATA_SOURCE=hyperliquid is read-only data for now."
-        )
+        from exchanges.hyperliquid.trade_client import HyperliquidTradeClient
+
+        return await HyperliquidTradeClient.connect()
     if source == "dydx":
         from exchanges.dydx.trade_client import DydxTradeClient
 

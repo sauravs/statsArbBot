@@ -54,15 +54,15 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
     "hyperliquid": ExchangeInfo(
         id="hyperliquid",
         label="Hyperliquid",
-        # Data integrated (branch `hyperliquid`, Slices 1–2): scan, historical
-        # fetch, backtest, sim and fast-forward all run on live HL `/info` data.
-        # `live_modes` is empty until the HL trade client lands (Slice 4), so live
-        # trading is cleanly rejected (see routers/live.py) — `integrated` here
-        # means "data integrated", not "tradeable".
+        # Data integrated (Slices 1–2): scan, historical fetch, backtest, sim and
+        # fast-forward run on live HL `/info` data. Trade client added in Slice 4:
+        # `forward_test` (testnet) is enabled; `production` (mainnet / real money)
+        # is deliberately withheld until the testnet path is validated — going live
+        # is a separate, deliberate step (see CLAUDE.md / DEPLOYMENT.md §7).
         integrated=True,
         has_testnet=True,
-        live_modes=[],
-        integration_note="Data integrated (scan/backtest/sim/ff); trading lands in Slice 4",
+        live_modes=["forward_test"],
+        integration_note="Data + testnet forward_test integrated; production (mainnet) withheld pending validation",
     ),
 }
 

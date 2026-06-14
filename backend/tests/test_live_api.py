@@ -103,13 +103,13 @@ def test_invalid_mode_rejected(ctx):
     assert r.status_code == 422
 
 
-def test_hyperliquid_live_rejected(ctx):
-    # HL data is integrated, but it has no live_modes yet (trade client = Slice 4),
-    # so a live start must be cleanly 422'd at the front door rather than reaching
-    # make_trade_client (which raises NotImplementedError → 500).
+def test_hyperliquid_production_rejected(ctx):
+    # Slice 4: HL `forward_test` (testnet) is enabled, but `production` (mainnet /
+    # real money) is withheld from live_modes until validated, so a production start
+    # must be cleanly 422'd at the front door.
     r = ctx.client.post(
         "/api/live/session/start",
-        json={"exchange": "hyperliquid", "mode": "forward_test"},
+        json={"exchange": "hyperliquid", "mode": "production"},
         headers=AUTH,
     )
     assert r.status_code == 422

@@ -40,9 +40,12 @@ def test_make_data_client_unknown_source_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_make_trade_client_rejects_hyperliquid(monkeypatch):
+async def test_make_trade_client_hyperliquid_needs_key(monkeypatch):
+    # Slice 4: the factory now connects the HL trade client, which fails fast with a
+    # clear RuntimeError when no wallet key is configured (no SDK import needed).
     monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "hyperliquid")
-    with pytest.raises(NotImplementedError, match="Hyperliquid trading"):
+    monkeypatch.setattr(config, "HYPERLIQUID_PRIVATE_KEY", "")
+    with pytest.raises(RuntimeError, match="HYPERLIQUID_PRIVATE_KEY"):
         await make_trade_client()
 
 

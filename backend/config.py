@@ -142,6 +142,12 @@ HYPERLIQUID_DATA_API_URL: str = HYPERLIQUID_MAINNET_API_URL
 HYPERLIQUID_INFO_MAX_CONCURRENCY: int = _env(
     "HYPERLIQUID_INFO_MAX_CONCURRENCY", default=6, cast=int
 )
+# Trade-client wallet (Slice 4). The private key signs EIP-712 actions; the
+# account address defaults to the signer's address but can differ when using an
+# agent/API wallet (signer ≠ funded account). Gitignored — never commit. Trading
+# follows ENVIRONMENT (testnet for forward_test, mainnet for production).
+HYPERLIQUID_PRIVATE_KEY: str = _env("HYPERLIQUID_PRIVATE_KEY", default="")
+HYPERLIQUID_ACCOUNT_ADDRESS: str = _env("HYPERLIQUID_ACCOUNT_ADDRESS", default="")
 
 CANDLE_RESOLUTION: str = _env("CANDLE_RESOLUTION", default="1HOUR")
 CANDLES_PER_PAGE: int = _env("CANDLES_PER_PAGE", default=100, cast=int)
