@@ -39,9 +39,10 @@ export default function DataPage() {
       <section className="mx-auto max-w-6xl px-6 py-8">
         <h2 className="mb-1 text-xl font-semibold text-text">Historical Data</h2>
         <p className="mb-6 text-sm text-muted">
-          The cached OHLCV &amp; funding history the scan, simulation, fast-forward,
-          and backtest engines replay. Price data always comes from the dYdX mainnet
-          indexer. Fetch new date ranges below to extend coverage.
+          The cached OHLCV &amp; funding history the scan and backtest engines replay,
+          for the <strong>currently selected venue</strong> (dYdX or Hyperliquid;
+          Demo is synthetic). Switch the venue from the dashboard&apos;s Market-data
+          control. Fetch new date ranges below to extend coverage.
         </p>
         <DataInventoryPanel />
       </section>
