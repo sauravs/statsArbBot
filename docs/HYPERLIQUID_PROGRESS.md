@@ -21,9 +21,12 @@ manual-trade journal (record/close), plus the UI to select HL (Slice 5).
 
 The HL **trade client (Slice 4a) is already built + unit-tested** from an earlier
 pass, but it is **PARKED**: HL `live_modes=[]` so the LiveBot/live path rejects HL
-(routers/live.py). Leave it parked — a future phase activates LiveBot/FF/Sim. (FF
-& Sim are sim-only and technically reachable via `integrated=True`, which Backtest
-needs, but are **not validated this phase** — treat as pending.)
+(routers/live.py). Leave it parked — a future phase activates LiveBot/FF/Sim.
+
+**FF & Sim are now hard-blocked** (not just documented): the registry has a
+`sim_enabled` capability (separate from data-`integrated`); HL `sim_enabled=False`,
+so `routers/{sim,ff}.py` return a clean 422 (`dydx` is `sim_enabled=True`). A future
+phase flips it on. This removed the reachable-but-unvalidated path.
 
 ---
 

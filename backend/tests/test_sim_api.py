@@ -106,6 +106,15 @@ def test_unknown_exchange_rejected(ctx):
     assert r.status_code == 422
 
 
+def test_hyperliquid_sim_rejected(ctx):
+    # HL data is integrated (backtest/manual this phase), but Simulation is pending
+    # (sim_enabled=False) → cleanly 422'd, not a half-validated reachable path.
+    r = ctx.client.post("/api/sim/sessions",
+                        json={"exchange": "hyperliquid", "starting_capital": 100.0}, headers=AUTH)
+    assert r.status_code == 422
+    assert "does not support simulation" in r.json()["detail"]
+
+
 def test_get_missing_session_404(ctx):
     assert ctx.client.get("/api/sim/sessions/nope", headers=AUTH).status_code == 404
     assert ctx.client.post("/api/sim/sessions/nope/tick", headers=AUTH).status_code == 404

@@ -40,6 +40,11 @@ def _validate_exchange(exchange: str) -> None:
         raise HTTPException(status_code=422, detail=f"Unknown exchange '{exchange}'.")
     if not EXCHANGE_REGISTRY[exchange].integrated:
         raise HTTPException(status_code=422, detail=f"Exchange '{exchange}' is not integrated.")
+    if not EXCHANGE_REGISTRY[exchange].sim_enabled:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Exchange '{exchange}' does not support simulation yet.",
+        )
 
 
 def _guard_db(exc: Exception) -> HTTPException:

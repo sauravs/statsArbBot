@@ -19,9 +19,13 @@ from dataclasses import dataclass, field
 class ExchangeInfo:
     id: str
     label: str
-    integrated: bool
+    integrated: bool  # data integrated: scan / historical fetch / backtest / manual
     has_testnet: bool
-    live_modes: list[str] = field(default_factory=list)
+    live_modes: list[str] = field(default_factory=list)  # live/automated trading modes
+    # Whether the Simulation + Fast-Forward (paper-trading) sections are available.
+    # Separate from `integrated` (data) so a venue can have backtest/manual without
+    # its sim/replay paths being validated/enabled. Empty live_modes ≠ no sim.
+    sim_enabled: bool = False
     integration_note: str | None = None
 
     def to_dict(self) -> dict:
@@ -31,6 +35,7 @@ class ExchangeInfo:
             "integrated": self.integrated,
             "has_testnet": self.has_testnet,
             "live_modes": self.live_modes,
+            "sim_enabled": self.sim_enabled,
             "integration_note": self.integration_note,
         }
 
@@ -42,6 +47,7 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
         integrated=True,
         has_testnet=True,
         live_modes=["forward_test", "simulation", "production"],
+        sim_enabled=True,
     ),
     "binance": ExchangeInfo(
         id="binance",
