@@ -62,7 +62,7 @@ phase flips it on. This removed the reachable-but-unvalidated path.
 | 2 | **Validate ingest + backtest on live HL data** (local dev stack) | ✅ PASS — see Slice 2 note |
 | 5a | Backend decouple: pairs/manual/backtest default `exchange` → `active_exchange()` (follows source) | ✅ Done (suite green) |
 | 5b | UI venue selector (Demo / dYdX / Hyperliquid) in the market-data control | ✅ Done (tsc clean, e2e spec updated) |
-| 5 | ADR-0011 + guide updates | ⬜ |
+| 5 | ADR-0011 + USER_GUIDE venue-selector note | ✅ Done |
 | — | `HyperliquidTradeClient` (Slice 4a) — built + unit-tested, **PARKED** (live_modes=[]) | ✅ Built · ⏸ parked (out of phase) |
 | — | LiveBot / Fast-Forward / Simulation for HL | ⏸ PENDING (future phase — do not develop) |
 | — | Testnet/live order placement (was Slice 4b) | ⏸ PENDING (future phase) |
