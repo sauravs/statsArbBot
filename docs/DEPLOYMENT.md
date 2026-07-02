@@ -322,6 +322,10 @@ safe to re-run / resilient to disconnects (waits out an outage via a BTC sentine
 rather than declaring false completion). Delisted markets keep their history but
 can't be extended. Schedule it (cron) to keep backtests/fast-forward on fresh data.
 
+> **Hyperliquid** cache: `gapfill_cache.py` is dYdX-only. For HL deep history (multi-year,
+> from the S3 archive) and the venue-aware rolling top-up cron, see
+> [HYPERLIQUID_DEEP_HISTORY.md](./HYPERLIQUID_DEEP_HISTORY.md) + [`ops/`](../ops/).
+
 Live trading and real-time simulation do **not** need the seed (they read live prices).
 
 ---
