@@ -115,11 +115,12 @@ Use this to sanity-check a signal before acting: is the spread genuinely mean-re
 The headline feature for a discretionary trader who places orders themselves but wants the system to **track and score** them.
 
 1. On an **active-signal** pair, click **Record**.
-2. A popup asks for **capital for Leg 1 (base)** and **Leg 2 (quote)** in USD (defaults $100 each). The system captures the pair's β, half-life, current z-score and spread, and the entry prices.
-3. Confirm → the trade appears in the **Manual Trades** panel as **OPEN**.
-4. When you've closed the position on the exchange, click **Mark closed**, enter the **exit price for each leg**, and the system computes and stores **realised P&L** (per leg + total), flipping the trade to **CLOSED**.
+2. A popup asks for **capital for Leg 1 (base)** and **Leg 2 (quote)** in USD (defaults $100 each). It shows the pair's β, half-life, current z-score, spread and **p-value**. The system captures these plus the entry prices. An **Entry filters (advanced)** section lets you set a **max p-value** and **max half-life** (defaulting to the scan policy, 0.05 / 72h).
+3. **Entry re-validation (#147).** On confirm, the system re-runs the cointegration + half-life test on **fresh candles** and **blocks the record (422)** if the pair now fails your thresholds — a scan is a point-in-time snapshot and cointegration can **decay** before you act, so this catches a pair that has gone stale (the same reason the backtest re-checks the filter every formation window). Tighten the thresholds for a higher-conviction entry. The p-value / half-life stored on the trade are these **fresh, re-validated** values.
+4. Confirm → the trade appears in the **Manual Trades** panel as **OPEN**.
+5. When you've closed the position on the exchange, click **Mark closed**, enter the **exit price for each leg**, and the system computes and stores **realised P&L** (per leg + total), flipping the trade to **CLOSED**.
 
-This is order-execution-free: it's your journal + P&L engine for signals you act on manually. Direction is inferred from the entry z-score (the same rule the bot uses).
+This is order-execution-free: it's your journal + P&L engine for signals you act on manually. Direction is inferred from the entry z-score (the same rule the bot uses). See `docs/adr/0012-manual-entry-cointegration-revalidation.md` for why entry re-validates on fresh data.
 
 ---
 
