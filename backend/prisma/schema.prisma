@@ -163,7 +163,8 @@ model ManualTrade {
   base_market      String
   quote_market     String
   hedge_ratio      Float
-  half_life        Float
+  half_life        Float // fresh OU half-life re-validated at record time (#147)
+  p_value          Float? // fresh Engle-Granger p-value re-validated at entry (#147)
   z_score          Float // current rolling Z of the spread at record time
   spread_value     Float // current spread (S1 − β·S2 − α) at record time
   entry_price_leg1 Float // base close captured at record time

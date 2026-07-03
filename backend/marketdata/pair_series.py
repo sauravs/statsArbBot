@@ -27,6 +27,8 @@ import numpy as np
 import config
 from marketdata.price_matrix import PriceSource
 from statcore import (
+    PairAnalysis,
+    analyze_pair,
     compute_spread,
     evaluate_entry,
     evaluate_exit,
@@ -226,6 +228,48 @@ async def current_pair_snapshot(
         spread_value=float(spread[-1]),
         z_score=float(z),
     )
+
+
+async def current_pair_analysis(
+    client: PriceSource,
+    *,
+    base_market: str,
+    quote_market: str,
+    pvalue_max: float,
+    max_half_life: float,
+    num_pages: int | None = None,
+    now=None,
+) -> PairAnalysis | None:
+    """Re-run the full cointegration / half-life filter on **fresh** candles at
+    record time (issue #147).
+
+    Manual entry re-validates the pair's *current* statistics rather than
+    trusting the (possibly stale) values the scan stored — cointegration and
+    half-life drift, and a pair that passed the scan hours ago may no longer
+    hold. This mirrors the backtest, which re-applies the filter every formation
+    window, and reuses the same ``statcore.analyze_pair`` (single source of
+    statistical truth) at the scan's own page depth so it's a like-for-like
+    re-check.
+
+    Returns ``None`` when there is no usable overlapping history or the
+    statistics can't be computed (a degenerate series) — the caller rejects the
+    record in that case rather than falling back to the stale scan values.
+    """
+    aligned = await _aligned_closes(
+        client, base_market, quote_market, num_pages=num_pages, now=now
+    )
+    if aligned is None:
+        return None
+    _, s1, s2 = aligned
+    try:
+        return analyze_pair(
+            s1, s2, pvalue_max=pvalue_max, max_half_life=max_half_life
+        )
+    except Exception as exc:  # degenerate series → unusable, don't trust the scan
+        logger.warning(
+            "fresh pair analysis failed for %s/%s: %s", base_market, quote_market, exc
+        )
+        return None
 
 
 async def current_prices(

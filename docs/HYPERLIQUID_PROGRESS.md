@@ -66,7 +66,7 @@ phase flips it on. This removed the reachable-but-unvalidated path.
 | — | `HyperliquidTradeClient` (Slice 4a) — built + unit-tested, **PARKED** (live_modes=[]) | ✅ Built · ⏸ parked (out of phase) |
 | — | LiveBot / Fast-Forward / Simulation for HL | ⏸ PENDING (future phase — do not develop) |
 | — | Testnet/live order placement (was Slice 4b) | ⏸ PENDING (future phase) |
-| — | Deep history via S3 archive (was Slice 3) | ⏸ deferred (funding already proven on 60d live) |
+| — | Deep history via S3 archive (was Slice 3) | ✅ **DONE 2026-07-02** — HL hourly 2024-01→now on prod from the S3 `asset_ctxs` dataset. See [`HYPERLIQUID_DEEP_HISTORY.md`](./HYPERLIQUID_DEEP_HISTORY.md) + `ops/`. |
 
 Legend: ✅ done · 🔶 in progress · ⬜ not started
 
@@ -162,8 +162,11 @@ can't be self-tested (needs funds) → Slice 4b.
 - **Source/exchange decoupling:** `SCAN_DATA_SOURCE` conflates "data source"
   (fake vs live) with "which exchange". Decide whether to split cleanly now or
   extend the enum minimally. Plan §1/§3 leans toward decoupling.
-- **S3 archive shape:** archive is L2/asset-contexts, not pre-baked OHLCV — must
-  aggregate to candles. Confirm format + a backfill script before relying on it.
+- ~~**S3 archive shape:**~~ **RESOLVED (2026-07-02).** `market_data/` is L2 (~1 TB, not
+  needed); **`asset_ctxs/` has per-minute `mid_px`+funding+`day_ntl_vlm`** → aggregate to
+  hourly OHLC. Backfill script `ops/hl_deep_backfill.py`; validated vs live within ~0.05%.
+  Bucket is requester-pays in us-east-1 → free from the same-region EC2 box. See
+  [`HYPERLIQUID_DEEP_HISTORY.md`](./HYPERLIQUID_DEEP_HISTORY.md).
 - **Funding windowing:** `fundingHistory` truncates long ranges — fetch in
   ~7-day windows.
 - **SDK version:** pin `hyperliquid-python-sdk` (≥ v0.18.0) and confirm testnet URL.
@@ -195,6 +198,13 @@ Out of this phase (future): LiveBot/FF/Sim, the parked HL trade client (Slice 4a
 testnet runbook below, and S3 deep history.
 
 ## Changelog
+- 2026-07-02 — **Deep history DONE.** Backfilled HL hourly OHLC + funding
+  **2024-01-01 → present on production** (179 markets, ~2.9M bars; 123 reach 2024)
+  from the S3 archive `asset_ctxs` dataset (per-minute `mid_px` → hourly OHLC,
+  `day_ntl_vlm` volume proxy), non-destructive upsert, dYdX untouched. Also added a
+  daily non-destructive cache top-up cron (`ops/topup.sh`). Tooling + doc merged in
+  PR #145 (`ops/`, `docs/HYPERLIQUID_DEEP_HISTORY.md`). Live-API hourly stays capped
+  at ~7 months; deep history now comes from the archive.
 - 2026-06-14 — Research complete; venue + venue-consistent-data decision locked;
   `hyperliquid` branch + planning docs created.
 - 2026-06-14 — Phase 1: `HyperliquidDataClient` (read-only `/info` adapter —

@@ -159,6 +159,12 @@ SCAN_QUICK_PAGES: int = _env("SCAN_QUICK_PAGES", default=2, cast=int)
 # small (and fetched concurrently) so a live chart loads in seconds rather than
 # minutes — ~2 pages ≈ 200 hourly bars ≈ 8 days, enough for the spread/Z window.
 PAIR_CHART_PAGES: int = _env("PAIR_CHART_PAGES", default=2, cast=int)
+# Pages of history re-fetched per leg to RE-VALIDATE a pair's cointegration and
+# half-life at manual-record time (issue #147). Defaults to the full-scan depth
+# (NUM_HISTORICAL_PAGES) so the fresh entry filter is a like-for-like re-check of
+# what the scan computed — not the 1-page fast path used only for the Z/entry
+# snapshot (#54). Raising it re-validates over a longer formation window.
+MANUAL_FILTER_PAGES: int = _env("MANUAL_FILTER_PAGES", default=NUM_HISTORICAL_PAGES, cast=int)
 # Max simultaneous candle-fetch requests against the indexer (rate-limit guard).
 SCAN_FETCH_CONCURRENCY: int = _env("SCAN_FETCH_CONCURRENCY", default=3, cast=int)
 # Process-wide cap on concurrent indexer candle requests across ALL callers
