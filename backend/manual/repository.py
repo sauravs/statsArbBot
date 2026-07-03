@@ -150,6 +150,7 @@ class PrismaManualTradeRepository:
             "quote_market": r.quote_market,
             "hedge_ratio": r.hedge_ratio,
             "half_life": r.half_life,
+            "p_value": r.p_value,
             "z_score": r.z_score,
             "spread_value": r.spread_value,
             "entry_price_leg1": r.entry_price_leg1,

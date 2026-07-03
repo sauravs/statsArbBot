@@ -270,6 +270,8 @@ export interface ManualTrade {
   quote_market: string;
   hedge_ratio: number;
   half_life: number;
+  /** Fresh Engle-Granger p-value re-validated at record time (#147). */
+  p_value: number | null;
   z_score: number;
   spread_value: number;
   entry_price_leg1: number;
@@ -296,6 +298,14 @@ export function recordManualTrade(input: {
   quote_market: string;
   capital_leg1_usd: number;
   capital_leg2_usd: number;
+  /**
+   * Entry filters (#147): re-validate cointegration + half-life on fresh candles
+   * at record time. Omitted → the backend applies the live scan defaults; set to
+   * tighten the gate for a higher-conviction manual entry. A pair that fails is
+   * hard-blocked (422).
+   */
+  pvalue_max?: number;
+  max_half_life_h?: number;
 }): Promise<ManualTrade> {
   return proxyPost<ManualTrade>("api/manual/record", input);
 }

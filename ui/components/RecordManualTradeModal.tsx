@@ -16,12 +16,21 @@ export default function RecordManualTradeModal({
 }) {
   const [leg1, setLeg1] = useState("100");
   const [leg2, setLeg2] = useState("100");
+  // Entry filters (#147): defaults mirror the live scan policy (also the backtest
+  // form's defaults). Recording re-validates cointegration + half-life on fresh
+  // candles against these; a decayed pair is hard-blocked server-side (422).
+  const [pvalueMax, setPvalueMax] = useState("0.05");
+  const [maxHalfLife, setMaxHalfLife] = useState("72");
+  const [showFilters, setShowFilters] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const c1 = parseFloat(leg1);
   const c2 = parseFloat(leg2);
-  const valid = c1 > 0 && c2 > 0;
+  const pMax = parseFloat(pvalueMax);
+  const hlMax = parseFloat(maxHalfLife);
+  const filtersValid = pMax > 0 && pMax <= 1 && hlMax > 0;
+  const valid = c1 > 0 && c2 > 0 && filtersValid;
 
   async function submit() {
     if (!valid) return;
@@ -33,6 +42,8 @@ export default function RecordManualTradeModal({
         quote_market: pair.quote_market,
         capital_leg1_usd: c1,
         capital_leg2_usd: c2,
+        pvalue_max: pMax,
+        max_half_life_h: hlMax,
       });
       onRecorded();
       onClose();
@@ -48,10 +59,15 @@ export default function RecordManualTradeModal({
       onClose={onClose}
       testid="record-modal"
     >
-      <p className="mb-4 text-xs text-muted">
+      <p className="mb-1 text-xs text-muted">
         Z {pair.z_score?.toFixed(3) ?? "—"} · β {pair.hedge_ratio.toFixed(4)} ·
-        half-life {pair.half_life.toFixed(1)}h. Entry prices are captured at the
+        half-life {pair.half_life.toFixed(1)}h · p-value{" "}
+        {pair.p_value?.toFixed(4) ?? "—"}. Entry prices are captured at the
         current market on record.
+      </p>
+      <p className="mb-4 text-xs text-muted/80">
+        Cointegration &amp; half-life are re-validated on fresh candles at record
+        time; a pair that has decayed since the scan is blocked (#147).
       </p>
 
       <CapitalField
@@ -68,6 +84,42 @@ export default function RecordManualTradeModal({
         disabled={busy}
         testid="capital-leg2"
       />
+
+      <button
+        type="button"
+        onClick={() => setShowFilters((v) => !v)}
+        data-testid="toggle-entry-filters"
+        className="mb-2 text-xs text-blue hover:underline"
+      >
+        {showFilters ? "▾" : "▸"} Entry filters (advanced)
+      </button>
+      {showFilters && (
+        <div className="mb-3 grid grid-cols-2 gap-3" data-testid="entry-filters">
+          <FilterField
+            label="Max p-value"
+            value={pvalueMax}
+            onChange={setPvalueMax}
+            disabled={busy}
+            step="0.01"
+            min="0.001"
+            max="1"
+            testid="filter-pvalue"
+          />
+          <FilterField
+            label="Max half-life (h)"
+            value={maxHalfLife}
+            onChange={setMaxHalfLife}
+            disabled={busy}
+            step="1"
+            min="1"
+            testid="filter-halflife"
+          />
+          <p className="col-span-2 text-xs text-muted/80">
+            Defaults match the scan. Tighten (e.g. p≤0.02, ≤24h) for a
+            higher-conviction entry; the pair is re-checked on fresh data.
+          </p>
+        </div>
+      )}
 
       {busy && (
         <p
@@ -121,6 +173,43 @@ function CapitalField({
         type="number"
         min="0"
         step="1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        data-testid={testid}
+        className="w-full rounded border border-border bg-bg px-2 py-1.5 text-sm text-text focus:border-blue focus:outline-none disabled:opacity-50"
+      />
+    </label>
+  );
+}
+
+function FilterField({
+  label,
+  value,
+  onChange,
+  disabled,
+  step,
+  min,
+  max,
+  testid,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  step: string;
+  min: string;
+  max?: string;
+  testid: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-muted">{label}</span>
+      <input
+        type="number"
+        step={step}
+        min={min}
+        max={max}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}

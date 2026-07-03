@@ -111,6 +111,126 @@ def test_record_then_list_then_close(client):
     )
 
 
+# --- issue #147: p-value + half-life re-validation at manual entry -----------
+
+
+def test_record_persists_fresh_pvalue_and_half_life(client):
+    """The fresh re-check runs at record time and its p-value + half-life are
+    persisted on the trade (the scan's stored values may be stale)."""
+    _scan(client)
+    trade = _record(client).json()
+    assert trade["p_value"] is not None and 0.0 <= trade["p_value"] < 0.05
+    assert trade["half_life"] is not None and trade["half_life"] > 0
+
+
+def test_record_blocks_when_half_life_exceeds_threshold(client):
+    """A stricter-than-scan half-life cap hard-blocks (422) a pair the scan
+    admitted — the fresh half-life is outside the operator's entry threshold."""
+    _scan(client)
+    r = client.post(
+        "/api/manual/record",
+        json={
+            "base_market": "AAA-USD", "quote_market": "BBB-USD",
+            "capital_leg1_usd": 100, "capital_leg2_usd": 100,
+            "max_half_life_h": 0.001,  # far below the pair's ~1.4h half-life
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 422, r.text
+    assert "half-life" in r.json()["detail"].lower()
+
+
+def test_record_allows_looser_pvalue_override(client):
+    _scan(client)
+    r = client.post(
+        "/api/manual/record",
+        json={
+            "base_market": "AAA-USD", "quote_market": "BBB-USD",
+            "capital_leg1_usd": 100, "capital_leg2_usd": 100,
+            "pvalue_max": 0.20,
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+
+
+def test_record_rejects_out_of_range_thresholds(client):
+    _scan(client)
+    for bad in ({"pvalue_max": 1.5}, {"pvalue_max": 0}, {"max_half_life_h": 0}):
+        r = client.post(
+            "/api/manual/record",
+            json={
+                "base_market": "AAA-USD", "quote_market": "BBB-USD",
+                "capital_leg1_usd": 100, "capital_leg2_usd": 100, **bad,
+            },
+            headers=AUTH,
+        )
+        assert r.status_code == 422, (bad, r.text)
+
+
+def test_record_forwards_thresholds_to_fresh_analysis(client, monkeypatch):
+    """The request's thresholds (and the scan-depth page count) are what the
+    fresh re-check is actually run against."""
+    import routers.manual as manual_router
+    from marketdata.pair_series import current_pair_analysis as real_analysis
+
+    captured: dict = {}
+
+    async def spy(*args, **kwargs):
+        captured.update(kwargs)
+        return await real_analysis(*args, **kwargs)
+
+    monkeypatch.setattr(manual_router, "current_pair_analysis", spy)
+    _scan(client)
+    r = client.post(
+        "/api/manual/record",
+        json={
+            "base_market": "AAA-USD", "quote_market": "BBB-USD",
+            "capital_leg1_usd": 100, "capital_leg2_usd": 100,
+            "pvalue_max": 0.123, "max_half_life_h": 48.0,
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    assert captured["pvalue_max"] == 0.123
+    assert captured["max_half_life"] == 48.0
+    assert captured["num_pages"] == config.MANUAL_FILTER_PAGES
+
+
+def test_record_blocks_on_failed_cointegration_with_pvalue_detail(client, monkeypatch):
+    """A pair whose cointegration has decayed on fresh data is hard-blocked with
+    a p-value reason in the detail — the drift the stale scan wouldn't catch."""
+    import routers.manual as manual_router
+    from statcore import PairAnalysis
+
+    async def failing(*args, **kwargs):
+        return PairAnalysis(
+            hedge_ratio=2.0, intercept=5.0, p_value=0.42,
+            t_statistic=-1.0, critical_value_5pct=-3.0,
+            half_life=10.0, zero_crossings=5, passes_filter=False,
+        )
+
+    monkeypatch.setattr(manual_router, "current_pair_analysis", failing)
+    _scan(client)
+    r = _record(client)
+    assert r.status_code == 422, r.text
+    assert "p-value" in r.json()["detail"].lower()
+
+
+def test_record_blocks_when_fresh_history_unusable(client, monkeypatch):
+    """If fresh candles can't re-validate the pair (no usable history), the
+    record is rejected rather than trusting the stale scan."""
+    import routers.manual as manual_router
+
+    async def none_analysis(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(manual_router, "current_pair_analysis", none_analysis)
+    _scan(client)
+    r = _record(client)
+    assert r.status_code == 422, r.text
+
+
 def test_record_uses_single_page_fast_path(client, monkeypatch):
     """Issue #54: recording fetches only one candle page per leg (fast path),
     not the full paginated history — so a live record completes in seconds."""

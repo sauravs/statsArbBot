@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -24,7 +25,12 @@ from db.scan_repository import get_scan_repository
 from exchanges import EXCHANGE_REGISTRY, make_data_client
 from manual.pnl import compute_manual_pnl
 from manual.repository import get_manual_trade_repository
-from marketdata.pair_series import current_pair_snapshot, current_prices
+from marketdata.pair_series import (
+    current_pair_analysis,
+    current_pair_snapshot,
+    current_prices,
+)
+from statcore import PairAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,34 @@ class RecordBody(BaseModel):
     capital_leg2_usd: float = Field(gt=0)
     exchange: str | None = None  # None → the active source's venue (active_exchange)
     mode: str = config.DEFAULT_MODE
+    # Entry filters (issue #147): re-validate cointegration + half-life on FRESH
+    # candles at record time, gated on these thresholds. Default to the live scan
+    # policy; an operator may tighten them for a higher-conviction manual entry.
+    # Bounds mirror the backtest strategy fields (routers/backtest.py).
+    pvalue_max: float = Field(default=config.PVALUE_MAX, gt=0.0, le=1.0)
+    max_half_life_h: float = Field(default=config.MAX_HALF_LIFE_H, gt=0.0, le=1000.0)
+
+
+def _entry_filter_detail(body: RecordBody, a: PairAnalysis) -> str:
+    """Human-readable 422 reason naming which fresh-stat gate(s) the pair failed
+    (issue #147) — so the operator sees the current p-value / half-life vs the
+    thresholds, not just an opaque rejection."""
+    reasons: list[str] = []
+    cointegrated = a.p_value < body.pvalue_max and a.t_statistic < a.critical_value_5pct
+    if not cointegrated:
+        reasons.append(
+            f"p-value {a.p_value:.4g} (t-stat {a.t_statistic:.2f}) fails "
+            f"cointegration at p<{body.pvalue_max:.4g}"
+        )
+    half_life_ok = np.isfinite(a.half_life) and 0 < a.half_life <= body.max_half_life_h
+    if not half_life_ok:
+        hl = f"{a.half_life:.2f}h" if np.isfinite(a.half_life) else "∞ (not mean-reverting)"
+        reasons.append(f"half-life {hl} outside (0, {body.max_half_life_h:g}h]")
+    return (
+        f"{body.base_market}/{body.quote_market} failed the fresh entry filter: "
+        + "; ".join(reasons)
+        + ". Cointegration may have decayed since the scan."
+    )
 
 
 class CloseBody(BaseModel):
@@ -81,13 +115,40 @@ async def record_manual_trade(body: RecordBody) -> dict:
 
     client = make_data_client()
     try:
+        # Entry gate (issue #147): re-validate cointegration + half-life on FRESH
+        # candles rather than trusting the (possibly stale) scan snapshot. Uses
+        # the scan's own page depth so it's a like-for-like re-check. A pair that
+        # has decayed since the scan is hard-blocked below.
+        analysis = await current_pair_analysis(
+            client,
+            base_market=body.base_market,
+            quote_market=body.quote_market,
+            pvalue_max=body.pvalue_max,
+            max_half_life=body.max_half_life_h,
+            num_pages=config.MANUAL_FILTER_PAGES,
+        )
+        if analysis is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Could not re-validate {body.base_market}/{body.quote_market} "
+                    "on fresh data (insufficient overlapping history)."
+                ),
+            )
+        if not analysis.passes_filter:
+            raise HTTPException(
+                status_code=422, detail=_entry_filter_detail(body, analysis)
+            )
+
         # Fast path (issue #54): the snapshot only needs the latest rolling Z and
         # the current entry prices, and ``latest_zscore`` is a tail computation
         # over the last ``ZSCORE_WINDOW`` (~21) bars. Fetching a single candle
         # page (~100 bars, like ``current_prices``) leaves that recent window
         # identical to the full-history scan — so the recorded Z/spread matches —
         # while turning a multi-minute live record (full paginated history per
-        # leg) into a few-second one.
+        # leg) into a few-second one. β/α stay the scan's, so the recorded spread
+        # is self-consistent with what the operator saw (the fresh p-value/
+        # half-life above are the quality re-check, captured separately below).
         snap = await current_pair_snapshot(
             client,
             base_market=body.base_market,
@@ -117,7 +178,11 @@ async def record_manual_trade(body: RecordBody) -> dict:
         "base_market": body.base_market,
         "quote_market": body.quote_market,
         "hedge_ratio": record["hedge_ratio"],
-        "half_life": record["half_life"],
+        # Fresh (re-validated) statistics captured at entry, not the stale scan
+        # values (issue #147) — so the recorded trade reflects the pair's quality
+        # at the moment it was actually entered.
+        "half_life": analysis.half_life,
+        "p_value": analysis.p_value,
         "z_score": snap.z_score,
         "spread_value": snap.spread_value,
         "entry_price_leg1": snap.base_price,
