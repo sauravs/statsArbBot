@@ -29,6 +29,19 @@ async function setThreshold(page: Page, value: string) {
   }, value);
 }
 
+// Set a React-controlled numeric input by its testid (native setter + input event).
+async function setNativeInput(page: Page, testid: string, value: string) {
+  await page.getByTestId(testid).evaluate((el, v) => {
+    const input = el as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    setter.call(input, v);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, value);
+}
+
 test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
   test("header nav, both-leg signal, base/quote header, and Charts affordance", async ({
     page,
@@ -112,6 +125,51 @@ test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
     });
     // P&L is now a number, not the em-dash placeholder.
     await expect(closedRow.getByTestId("manual-pnl")).not.toHaveText("—");
+  });
+});
+
+test.describe("Manual Trading — global p-value/half-life triage (#150)", () => {
+  test("triage controls narrow the table and reset restores it", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    const rows = page.getByTestId("pair-row");
+    const before = await rows.count();
+    expect(before).toBeGreaterThan(0);
+
+    // Tighten the half-life triage below every demo pair's half-life (~1–6h) →
+    // all pairs are filtered out, showing the distinct "filtered" empty state.
+    await setNativeInput(page, "triage-halflife", "0.1");
+    await expect(page.getByTestId("pairs-empty-filtered")).toBeVisible();
+    expect(await rows.count()).toBe(0);
+
+    // Reset to the scan default → the full set returns.
+    await setNativeInput(page, "triage-halflife", "72");
+    await expect(rows.first()).toBeVisible();
+    expect(await rows.count()).toBe(before);
+  });
+
+  test("triage p-value seeds the Record popup's entry filter", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    // A looser p-value keeps every pair visible (all already ≤0.05 ≤0.10), so
+    // this isolates the seeding behaviour from the table filter.
+    await setNativeInput(page, "triage-pvalue", "0.1");
+    // Reveal a Record button (demo max |Z| ≈ 0.95).
+    await setThreshold(page, "0.5");
+    const recordBtn = page.getByTestId("record-trade-btn").first();
+    await expect(recordBtn).toBeVisible();
+    await recordBtn.click();
+    await expect(page.getByTestId("record-modal")).toBeVisible();
+
+    // The popup's advanced entry filter is pre-filled from the global triage.
+    await page.getByTestId("toggle-entry-filters").click();
+    await expect(page.getByTestId("filter-pvalue")).toHaveValue("0.1");
   });
 });
 
