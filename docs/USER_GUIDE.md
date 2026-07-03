@@ -114,6 +114,11 @@ Use this to sanity-check a signal before acting: is the spread genuinely mean-re
 
 The headline feature for a discretionary trader who places orders themselves but wants the system to **track and score** them.
 
+The section applies p-value / half-life at **two layers** (#147, #150):
+
+- **Filter (scan-time triage) — the control row under the header.** Set **max p-value** and **max half-life** (default 0.05 / 72h) to narrow the pairs table to those meeting your quality bar, using each pair's stats **from the last scan**. This is your selection aid — collapse 30+ pairs to the handful worth trading (e.g. tighten to p≤0.02, ≤24h). The header shows *"showing X of Y"* when a filter hides pairs; **reset** restores the defaults. These same values **pre-fill** the Record popup.
+- **Gate (fresh re-validation) — at record time.** The authoritative check; see step 3. The triage filter is advisory (scan-time numbers); a recorded entry is *always* re-checked on fresh data, so a pair that looks fine in the table can still be blocked if it has decayed.
+
 1. On an **active-signal** pair, click **Record**.
 2. A popup asks for **capital for Leg 1 (base)** and **Leg 2 (quote)** in USD (defaults $100 each). It shows the pair's β, half-life, current z-score, spread and **p-value**. The system captures these plus the entry prices. An **Entry filters (advanced)** section lets you set a **max p-value** and **max half-life** (defaulting to the scan policy, 0.05 / 72h).
 3. **Entry re-validation (#147).** On confirm, the system re-runs the cointegration + half-life test on **fresh candles** and **blocks the record (422)** if the pair now fails your thresholds — a scan is a point-in-time snapshot and cointegration can **decay** before you act, so this catches a pair that has gone stale (the same reason the backtest re-checks the filter every formation window). Tighten the thresholds for a higher-conviction entry. The p-value / half-life stored on the trade are these **fresh, re-validated** values.

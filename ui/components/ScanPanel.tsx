@@ -13,8 +13,32 @@ import {
 import PairsTable from "./PairsTable";
 import ZThresholdSlider from "./ZThresholdSlider";
 import RecordManualTradeModal from "./RecordManualTradeModal";
+import InfoTip from "./InfoTip";
 
 const POLL_MS = 2000;
+
+// Scan-policy defaults — also the Manual-Trading triage defaults (mirrors
+// config.PVALUE_MAX / MAX_HALF_LIFE_H and the Backtest form).
+const DEFAULT_PVALUE_MAX = "0.05";
+const DEFAULT_MAX_HALF_LIFE = "72";
+
+/**
+ * Scan-time triage (#150): keep the pairs whose stored p-value / half-life meet
+ * the operator's bar. Pure so it's trivial to reason about and test. An empty /
+ * NaN threshold means "don't filter on that axis". This is advisory selection
+ * help only — the authoritative entry gate re-validates on fresh data (#147).
+ */
+export function filterByQuality(
+  pairs: PairRecord[],
+  maxPvalue: number,
+  maxHalfLife: number,
+): PairRecord[] {
+  return pairs.filter(
+    (p) =>
+      (Number.isNaN(maxPvalue) || p.p_value <= maxPvalue) &&
+      (Number.isNaN(maxHalfLife) || p.half_life <= maxHalfLife),
+  );
+}
 // Current prices are a light, best-effort read; refresh on a slow interval so a
 // real dydx-mode fetch stays cheap (issue #37 PR-2).
 const PRICE_POLL_MS = 20000;
@@ -31,6 +55,9 @@ export default function ScanPanel({
   const [scannedAt, setScannedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
   const [threshold, setThreshold] = useState(1.5);
+  // Scan-time triage bar (#150): narrows the table AND seeds the Record popup.
+  const [maxPvalue, setMaxPvalue] = useState(DEFAULT_PVALUE_MAX);
+  const [maxHalfLife, setMaxHalfLife] = useState(DEFAULT_MAX_HALF_LIFE);
   const [error, setError] = useState<string | null>(null);
   const [recordPair, setRecordPair] = useState<PairRecord | null>(null);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -150,6 +177,15 @@ export default function ScanPanel({
     }
   }
 
+  const visiblePairs = filterByQuality(
+    pairs,
+    parseFloat(maxPvalue),
+    parseFloat(maxHalfLife),
+  );
+  // A filter is "active" (narrowing) only when it actually hides pairs — used to
+  // pick the right empty state and show the "showing X of Y" hint.
+  const filterNarrowing = pairs.length > 0 && visiblePairs.length < pairs.length;
+
   const running = status?.running ?? false;
   const stopping = (status?.stop_requested ?? false) && running;
   const pct =
@@ -201,6 +237,59 @@ export default function ScanPanel({
         </div>
       </div>
 
+      {/* Scan-time triage controls (#150): narrow the table by cointegration
+          strength / reversion speed and seed the Record popup's entry filter.
+          Advisory only — entry re-validates on fresh data (#147). */}
+      <div
+        className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs"
+        data-testid="triage-controls"
+      >
+        <span className="uppercase tracking-wider text-muted">
+          Filter
+          <InfoTip text="Scan-time triage: narrows the pairs below using each pair's p-value / half-life from the last scan, and pre-fills the Record popup with these values. Selection aid only — a recorded entry is still re-validated on fresh data and blocked if the pair has decayed." />
+        </span>
+        <label className="flex items-center gap-1.5">
+          <span className="text-muted">max p-value</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            value={maxPvalue}
+            onChange={(e) => setMaxPvalue(e.target.value)}
+            data-testid="triage-pvalue"
+            className="w-20 rounded border border-border bg-bg px-2 py-1 text-text focus:border-blue focus:outline-none"
+          />
+        </label>
+        <label className="flex items-center gap-1.5">
+          <span className="text-muted">max half-life (h)</span>
+          <input
+            type="number"
+            step="1"
+            min="0"
+            value={maxHalfLife}
+            onChange={(e) => setMaxHalfLife(e.target.value)}
+            data-testid="triage-halflife"
+            className="w-20 rounded border border-border bg-bg px-2 py-1 text-text focus:border-blue focus:outline-none"
+          />
+        </label>
+        <button
+          onClick={() => {
+            setMaxPvalue(DEFAULT_PVALUE_MAX);
+            setMaxHalfLife(DEFAULT_MAX_HALF_LIFE);
+          }}
+          data-testid="triage-reset"
+          className="text-muted underline-offset-2 hover:text-text hover:underline"
+        >
+          reset
+        </button>
+        {filterNarrowing && (
+          <span className="text-muted/70" data-testid="triage-count">
+            showing {visiblePairs.length} of {pairs.length}
+          </span>
+        )}
+      </div>
+
       {/* Progress / status line */}
       {running && (
         <div className="mb-4" data-testid="scan-progress">
@@ -228,15 +317,18 @@ export default function ScanPanel({
       )}
 
       <PairsTable
-        pairs={pairs}
+        pairs={visiblePairs}
         threshold={threshold}
         prices={prices}
         onRecord={(p) => setRecordPair(p)}
+        filterActive={filterNarrowing}
       />
 
       {recordPair && (
         <RecordManualTradeModal
           pair={recordPair}
+          seedPvalueMax={maxPvalue}
+          seedMaxHalfLife={maxHalfLife}
           onClose={() => setRecordPair(null)}
           onRecorded={() => onManualRecorded?.()}
         />

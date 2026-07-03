@@ -73,3 +73,25 @@ incurred **only** for the filter.
   nothing; (b) configurable gate on *stored* stats — catches discretionary
   tightening but not drift; (c) display + soft-warn — no enforcement, bypass
   remains. See issue #147 for the full comparison.
+
+## Addendum (#150): two-layer model — scan-time triage → fresh gate
+
+The #147 controls lived only inside the Record popup, so they were
+undiscoverable and did nothing for **pair selection** (the real bottleneck with
+30+ pairs). #150 adds **visible global p-value / half-life controls** at the top
+of the Manual Trading section, making the model explicit **two layers**:
+
+1. **Triage (advisory, scan-time).** The header control row narrows the pairs
+   table using each pair's **stored** (scan-time) `p_value` / `half_life`, and
+   **seeds** the Record popup's thresholds. This is selection help; it is
+   deliberately labelled scan-time and can only *tighten* below the scan's
+   0.05/72 (shown pairs already cleared that).
+2. **Gate (authoritative, fresh).** Unchanged from #147 — recording re-runs
+   `analyze_pair` on fresh candles and hard-blocks (422) on failure.
+
+**Why keep them separate:** the triage filter must never masquerade as the
+safety gate. Filtering on stale scan-time numbers is fine for *narrowing what you
+look at*, but the *decision to allow an entry* must run on fresh data — otherwise
+a decayed pair that still shows good scan-time stats would slip through. So
+triage sets the bar and does selection; the fresh re-check enforces it. A pair
+can pass the table filter yet be blocked at record — by design.
