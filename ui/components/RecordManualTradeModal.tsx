@@ -7,20 +7,27 @@ import Modal from "./Modal";
 // Capital-allocation popup (PRD F4.4/F4.5): collect USD for each leg, then record.
 export default function RecordManualTradeModal({
   pair,
+  seedPvalueMax = "0.05",
+  seedMaxHalfLife = "72",
   onClose,
   onRecorded,
 }: {
   pair: PairRecord;
+  /** Seeded from the section's scan-time triage bar (#150); falls back to the
+   * scan-policy defaults when opened without a global filter. */
+  seedPvalueMax?: string;
+  seedMaxHalfLife?: string;
   onClose: () => void;
   onRecorded: () => void;
 }) {
   const [leg1, setLeg1] = useState("100");
   const [leg2, setLeg2] = useState("100");
-  // Entry filters (#147): defaults mirror the live scan policy (also the backtest
-  // form's defaults). Recording re-validates cointegration + half-life on fresh
-  // candles against these; a decayed pair is hard-blocked server-side (422).
-  const [pvalueMax, setPvalueMax] = useState("0.05");
-  const [maxHalfLife, setMaxHalfLife] = useState("72");
+  // Entry filters (#147): seeded from the global triage bar (#150), else the
+  // live scan policy (also the backtest form's defaults). Recording re-validates
+  // cointegration + half-life on fresh candles against these; a decayed pair is
+  // hard-blocked server-side (422).
+  const [pvalueMax, setPvalueMax] = useState(seedPvalueMax);
+  const [maxHalfLife, setMaxHalfLife] = useState(seedMaxHalfLife);
   const [showFilters, setShowFilters] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

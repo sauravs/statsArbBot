@@ -19,6 +19,8 @@ interface Props {
   /** Current price (latest close) per market; missing markets render "—". */
   prices?: Record<string, number>;
   onRecord?: (pair: PairRecord) => void;
+  /** True when a scan-time triage filter hid pairs (#150) — picks the empty state. */
+  filterActive?: boolean;
 }
 
 function isActive(z: number | null, threshold: number): boolean {
@@ -70,6 +72,7 @@ export default function PairsTable({
   threshold,
   prices = {},
   onRecord,
+  filterActive = false,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("zero_crossings");
   const [asc, setAsc] = useState(false);
@@ -102,6 +105,18 @@ export default function PairsTable({
   }
 
   if (pairs.length === 0) {
+    // A triage filter that hid every pair gets its own message (loosen the
+    // filter), distinct from "no pairs scanned yet" (run a scan) — #150.
+    if (filterActive) {
+      return (
+        <p
+          className="py-10 text-center text-sm text-muted"
+          data-testid="pairs-empty-filtered"
+        >
+          No pairs meet the p-value / half-life filter. Loosen the values above.
+        </p>
+      );
+    }
     return (
       <p className="py-10 text-center text-sm text-muted" data-testid="pairs-empty">
         No cointegrated pairs yet. Run a scan to populate the table.
