@@ -173,6 +173,31 @@ test.describe("Manual Trading — global p-value/half-life triage (#150)", () =>
   });
 });
 
+test.describe("Manual Trading — recorded p-value/half-life columns (#153)", () => {
+  test("a recorded trade shows its fresh at-entry p-value and half-life", async ({
+    page,
+  }) => {
+    await login(page);
+    await ensurePairs(page);
+
+    // Record a trade (demo max |Z| ≈ 0.95 → lower the threshold to reveal it).
+    await setThreshold(page, "0.5");
+    const recordBtn = page.getByTestId("record-trade-btn").first();
+    await expect(recordBtn).toBeVisible();
+    await recordBtn.click();
+    await expect(page.getByTestId("record-modal")).toBeVisible();
+    await page.getByTestId("capital-leg1").fill("100");
+    await page.getByTestId("capital-leg2").fill("100");
+    await page.getByTestId("record-confirm").click();
+
+    // The Manual Trades row shows the fresh, at-entry stats — a number, not "—".
+    const row = page.getByTestId("manual-row").first();
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    await expect(row.getByTestId("manual-halflife")).toHaveText(/\d/);
+    await expect(row.getByTestId("manual-pvalue")).toHaveText(/\d/);
+  });
+});
+
 test.describe("Manual Trading — Delete Record (#55)", () => {
   // Deletes every manual row (covers OPEN and CLOSED — prior tests leave a
   // CLOSED trade), asserting the warning + that each delete drops the count by

@@ -183,6 +183,9 @@ export default function ManualTradesPanel({
               <tr className="whitespace-nowrap border-b border-border text-xs uppercase tracking-wider text-muted">
                 <th className="px-3 py-2 text-left">Pair</th>
                 <th className="px-3 py-2 text-right">Z @ entry</th>
+                {/* Fresh, at-entry quality stats re-validated on record (#147/#153). */}
+                <th className="px-3 py-2 text-right">Half-life</th>
+                <th className="px-3 py-2 text-right">p-value</th>
                 <th className="px-3 py-2 text-right">Capital (1 / 2)</th>
                 <th className="px-3 py-2 text-right">Entry (1 / 2)</th>
                 <th className="px-3 py-2 text-right">P&L</th>
@@ -218,6 +221,18 @@ export default function ManualTradesPanel({
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {t.z_score.toFixed(3)}
+                  </td>
+                  <td
+                    className="px-3 py-2 text-right tabular-nums text-muted"
+                    data-testid="manual-halflife"
+                  >
+                    {t.half_life.toFixed(1)}h
+                  </td>
+                  <td
+                    className="px-3 py-2 text-right tabular-nums text-muted"
+                    data-testid="manual-pvalue"
+                  >
+                    {t.p_value == null ? "—" : t.p_value.toFixed(4)}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-muted">
                     {t.capital_leg1_usd.toFixed(0)} / {t.capital_leg2_usd.toFixed(0)}
