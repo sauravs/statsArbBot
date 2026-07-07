@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import config
@@ -246,6 +246,36 @@ async def stop_strategy(strategy_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Strategy not found.")
     except Exception as exc:
         raise _guard_db(exc)
+
+
+@router.get("/strategies/{strategy_id}/trades")
+async def list_trades(
+    strategy_id: str,
+    window: int | None = Query(default=None, ge=0),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """Paginated per-trade blotter for a strategy (issue #162).
+
+    ``window`` scopes to one walk-forward window (the UI drills in per window).
+    Strategies run before this feature shipped simply have no trades → empty list.
+    """
+    try:
+        engine = get_backtest_engine()
+        row = await engine.get(strategy_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Strategy not found.")
+        result = await engine.list_trades(
+            strategy_id, window_index=window, limit=limit, offset=offset
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+    return {
+        "id": strategy_id, "window": window,
+        "limit": limit, "offset": offset, **result,
+    }
 
 
 @router.get("/strategies/{strategy_id}/report")

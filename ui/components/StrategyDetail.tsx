@@ -12,7 +12,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { type Strategy } from "@/lib/api";
+import { Fragment, useEffect, useState } from "react";
+import {
+  fetchBacktestTrades,
+  type BacktestTrade,
+  type BacktestWindow,
+  type Strategy,
+} from "@/lib/api";
 import { BacktestStatusBadge } from "./StrategyList";
 import InfoTip from "./InfoTip";
 
@@ -268,55 +274,8 @@ export default function StrategyDetail({
         )}
       </div>
 
-      {/* Walk-forward windows */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
-          Walk-Forward Windows
-          <InfoTip text="Per-window breakdown: each row is one scan→trade slice with the pairs it selected, trades taken, and net P&L." />
-        </h2>
-        {perWindow.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted" data-testid="bt-perwindow-empty">
-            No windows processed yet.
-          </p>
-        ) : (
-          <table className="w-full text-sm" data-testid="bt-perwindow-table">
-            <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
-                <th className="px-2 py-2 text-left">#</th>
-                <th className="px-2 py-2 text-left">
-                  Scan (formation)
-                  <InfoTip text="The formation window the cointegration scan reads to SELECT pairs — no trading happens here." />
-                </th>
-                <th className="px-2 py-2 text-left">
-                  Trade (test)
-                  <InfoTip text="The out-of-sample window where the selected pairs are traded (data the scan never saw). Trade windows tile edge-to-edge across history." />
-                </th>
-                <th className="px-2 py-2 text-right">Pairs</th>
-                <th className="px-2 py-2 text-right">Trades</th>
-                <th className="px-2 py-2 text-right">Net P&amp;L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {perWindow.map((w) => (
-                <tr key={w.index} className="border-b border-border/50" data-testid="bt-perwindow-row">
-                  <td className="px-2 py-2 tabular-nums text-muted">{w.index}</td>
-                  <td className="px-2 py-2 text-xs text-muted">
-                    {w.scan_start.slice(0, 10)} → {w.scan_end.slice(0, 10)}
-                  </td>
-                  <td className="px-2 py-2 text-xs text-muted">
-                    {w.trade_start.slice(0, 10)} → {w.trade_end.slice(0, 10)}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-muted">{w.pairs}</td>
-                  <td className="px-2 py-2 text-right tabular-nums text-muted">{w.trades}</td>
-                  <td className={`px-2 py-2 text-right tabular-nums ${w.net_pnl >= 0 ? "text-green" : "text-red"}`}>
-                    {fmtUsd(w.net_pnl)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* Walk-forward windows — each row expands into its per-trade blotter (#162) */}
+      <WalkForwardWindows strategyId={s.id} windows={perWindow} />
 
       {/* Per-pair P&L + exit reasons */}
       <div className="grid gap-6 md:grid-cols-2">
@@ -456,6 +415,233 @@ export default function StrategyDetail({
     </div>
   );
 }
+
+// ── Walk-forward windows + per-trade blotter (issue #162) ────────────────────
+// Each window row expands into a paginated blotter of that window's closed trades
+// (lazy-loaded on first open), so the operator can see where/when each trade
+// entered & exited on the spread (Z + leg prices) and the exit rationale. Trades
+// are scoped per window server-side, so a 500-trade window loads a page at a time
+// rather than dumping everything at once.
+const TRADES_PAGE = 25;
+
+function WalkForwardWindows({
+  strategyId,
+  windows,
+}: {
+  strategyId: string;
+  windows: BacktestWindow[];
+}) {
+  const [open, setOpen] = useState<number | null>(null);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
+        Walk-Forward Windows
+        <InfoTip text="Per-window breakdown: each row is one scan→trade slice with the pairs it selected, trades taken, and net P&L. Click a row to see that window's individual trades — where/when each entered & exited, and why." />
+      </h2>
+      {windows.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted" data-testid="bt-perwindow-empty">
+          No windows processed yet.
+        </p>
+      ) : (
+        <table className="w-full text-sm" data-testid="bt-perwindow-table">
+          <thead>
+            <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
+              <th className="px-2 py-2 text-left">#</th>
+              <th className="px-2 py-2 text-left">
+                Scan (formation)
+                <InfoTip text="The formation window the cointegration scan reads to SELECT pairs — no trading happens here." />
+              </th>
+              <th className="px-2 py-2 text-left">
+                Trade (test)
+                <InfoTip text="The out-of-sample window where the selected pairs are traded (data the scan never saw). Trade windows tile edge-to-edge across history." />
+              </th>
+              <th className="px-2 py-2 text-right">Pairs</th>
+              <th className="px-2 py-2 text-right">Trades</th>
+              <th className="px-2 py-2 text-right">Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {windows.map((w) => {
+              const isOpen = open === w.index;
+              const hasTrades = w.trades > 0;
+              return (
+                <Fragment key={w.index}>
+                  <tr
+                    className={`border-b border-border/50 ${hasTrades ? "cursor-pointer hover:bg-bg/50" : ""}`}
+                    data-testid="bt-perwindow-row"
+                    onClick={() => hasTrades && setOpen(isOpen ? null : w.index)}
+                    aria-expanded={isOpen}
+                  >
+                    <td className="px-2 py-2 tabular-nums text-muted">
+                      {hasTrades && (
+                        <span className="mr-1 inline-block w-3 text-muted">{isOpen ? "▾" : "▸"}</span>
+                      )}
+                      {w.index}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-muted">
+                      {w.scan_start.slice(0, 10)} → {w.scan_end.slice(0, 10)}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-muted">
+                      {w.trade_start.slice(0, 10)} → {w.trade_end.slice(0, 10)}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums text-muted">{w.pairs}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-muted">{w.trades}</td>
+                    <td className={`px-2 py-2 text-right tabular-nums ${w.net_pnl >= 0 ? "text-green" : "text-red"}`}>
+                      {fmtUsd(w.net_pnl)}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr data-testid="bt-window-blotter">
+                      <td colSpan={6} className="bg-bg/40 px-2 py-3">
+                        <TradeBlotter strategyId={strategyId} windowIndex={w.index} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowIndex: number }) {
+  const [trades, setTrades] = useState<BacktestTrade[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadedOnce, setLoadedOnce] = useState(false);
+
+  const load = async (nextOffset: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchBacktestTrades(strategyId, {
+        window: windowIndex,
+        limit: TRADES_PAGE,
+        offset: nextOffset,
+      });
+      setTrades(res.trades);
+      setTotal(res.total);
+      setOffset(nextOffset);
+      setLoadedOnce(true);
+    } catch {
+      setError("Could not load trades for this window.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Lazy-load the first page when the blotter mounts (i.e. the row is opened).
+  useEffect(() => {
+    void load(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (loading && !loadedOnce) {
+    return <p className="py-3 text-center text-xs text-muted" data-testid="bt-blotter-loading">Loading trades…</p>;
+  }
+  if (error) {
+    return <p className="py-3 text-center text-xs text-red">{error}</p>;
+  }
+  if (loadedOnce && total === 0) {
+    return <p className="py-3 text-center text-xs text-muted">No trades in this window.</p>;
+  }
+
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + TRADES_PAGE, total);
+
+  return (
+    <div data-testid="bt-blotter">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-xs" data-testid="bt-blotter-table">
+          <thead>
+            <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
+              <th className="px-2 py-1.5 text-left">Pair</th>
+              <th className="px-2 py-1.5 text-center">Dir</th>
+              <th className="px-2 py-1.5 text-left">Entry (t · Z · px)</th>
+              <th className="px-2 py-1.5 text-left">Exit (t · Z · px)</th>
+              <th className="px-2 py-1.5 text-right">Hold</th>
+              <th className="px-2 py-1.5 text-right">Net P&amp;L</th>
+              <th className="px-2 py-1.5 text-left">Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trades.map((t) => (
+              <tr key={t.id} className="border-b border-border/40" data-testid="bt-blotter-row">
+                <td className="whitespace-nowrap px-2 py-1.5 text-text">
+                  {shortMkt(t.base_market)}/{shortMkt(t.quote_market)}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums text-muted">{dirShort(t.direction)}</td>
+                <td className="whitespace-nowrap px-2 py-1.5 text-muted">
+                  <span className="text-text">{fmtTime(t.entry_time)}</span>
+                  {" · "}z={fmtZ(t.entry_z)}
+                  {" · "}
+                  {fmtPx(t.entry_base_px)}/{fmtPx(t.entry_quote_px)}
+                </td>
+                <td className="whitespace-nowrap px-2 py-1.5 text-muted">
+                  <span className="text-text">{fmtTime(t.exit_time)}</span>
+                  {" · "}z={fmtZ(t.exit_z)}
+                  {" · "}
+                  {fmtPx(t.exit_base_px)}/{fmtPx(t.exit_quote_px)}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-muted">{Math.round(t.hold_hours)}h</td>
+                <td className={`px-2 py-1.5 text-right tabular-nums ${t.net_pnl >= 0 ? "text-green" : "text-red"}`}>
+                  {fmtUsd(t.net_pnl)}
+                </td>
+                <td className="px-2 py-1.5">
+                  <span
+                    className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px]"
+                    style={{ color: exitColor(t.exit_reason), backgroundColor: `${exitColor(t.exit_reason)}1a` }}
+                  >
+                    {t.exit_reason}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
+        <span data-testid="bt-blotter-range">
+          {from}–{to} of {total} trade{total === 1 ? "" : "s"}
+        </span>
+        <span className="flex gap-2">
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-0.5 disabled:opacity-40"
+            disabled={loading || offset === 0}
+            onClick={() => load(Math.max(0, offset - TRADES_PAGE))}
+            data-testid="bt-blotter-prev"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-0.5 disabled:opacity-40"
+            disabled={loading || to >= total}
+            onClick={() => load(offset + TRADES_PAGE)}
+            data-testid="bt-blotter-next"
+          >
+            Next
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Blotter formatting helpers.
+const shortMkt = (m: string) => m.replace(/-USD$/, "");
+const dirShort = (d: string) => (d === "LONG_BASE" ? "L/S" : d === "SHORT_BASE" ? "S/L" : d);
+const fmtTime = (iso: string) => (iso ? iso.slice(5, 16).replace("T", " ") : "—");
+const fmtZ = (z: number | null) => (z === null || z === undefined ? "—" : z.toFixed(2));
+const fmtPx = (p: number | null) =>
+  p === null || p === undefined ? "—" : p.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 // Diagnostic for a COMPLETED run that placed 0 trades (issue #87). The root cause
 // is almost always one (or both) of: the cointegration filter (p-value / half-life)

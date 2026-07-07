@@ -13,6 +13,7 @@ strategies by net P&L (F8.3). Tests inject ``FakeStrategyRepository``.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from db.serde import enum_value as _enum_value
 from db.serde import iso as _iso
@@ -21,6 +22,18 @@ logger = logging.getLogger(__name__)
 
 # JSON result columns — wrapped in prisma.Json on write, returned parsed on read.
 _JSON_FIELDS = ("equity_curve", "per_window", "per_pair_pnl", "exit_reasons")
+
+# Per-trade columns copied from an engine trade record into a BacktestTrade row.
+_TRADE_FIELDS = (
+    "base_market", "quote_market", "direction", "hold_hours", "entry_z", "exit_z",
+    "entry_base_px", "entry_quote_px", "exit_base_px", "exit_quote_px",
+    "exit_reason", "notional_usd", "gross_pnl", "fee_cost", "funding_pnl", "net_pnl",
+)
+
+
+def _dt(value):
+    """Coerce an ISO-string (or datetime) timestamp to a datetime for Prisma."""
+    return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
 class PrismaStrategyRepository:
@@ -104,6 +117,85 @@ class PrismaStrategyRepository:
         for r in records:
             if r.id not in ranked_ids and r.rank is not None:
                 await db.strategy.update(where={"id": r.id}, data={"rank": None})
+
+    # ── per-trade blotter (issue #162) ─────────────────────────────────────────
+
+    async def create_backtest_trades(
+        self, strategy_id: str, window_index: int, trades: list[dict]
+    ) -> int:
+        """Batch-insert one window's closed trades, stamped with its window index."""
+        if not trades:
+            return 0
+        from db.client import get_db
+
+        db = await get_db()
+        rows = [
+            {
+                "strategy_id": strategy_id,
+                "window_index": window_index,
+                "exchange": t["exchange"],
+                "entry_time": _dt(t["entry_time"]),
+                "exit_time": _dt(t["exit_time"]),
+                **{k: t.get(k) for k in _TRADE_FIELDS},
+            }
+            for t in trades
+        ]
+        await db.backtesttrade.create_many(data=rows)
+        return len(rows)
+
+    async def list_backtest_trades(
+        self, strategy_id: str, *, window_index: int | None = None,
+        limit: int = 50, offset: int = 0,
+    ) -> dict:
+        """Paginated trades for a strategy, optionally scoped to one window."""
+        from db.client import get_db
+
+        db = await get_db()
+        where: dict = {"strategy_id": strategy_id}
+        if window_index is not None:
+            where["window_index"] = window_index
+        total = await db.backtesttrade.count(where=where)
+        records = await db.backtesttrade.find_many(
+            where=where,
+            order=[{"entry_time": "asc"}, {"id": "asc"}],
+            take=limit,
+            skip=offset,
+        )
+        return {"trades": [self._trade_to_dict(r) for r in records], "total": total}
+
+    async def delete_backtest_trades(self, strategy_id: str) -> None:
+        """Drop all persisted trades for a strategy (fresh re-run clears priors)."""
+        from db.client import get_db
+
+        db = await get_db()
+        await db.backtesttrade.delete_many(where={"strategy_id": strategy_id})
+
+    @staticmethod
+    def _trade_to_dict(r) -> dict:
+        return {
+            "id": r.id,
+            "strategy_id": r.strategy_id,
+            "window_index": r.window_index,
+            "exchange": _enum_value(r.exchange),
+            "base_market": r.base_market,
+            "quote_market": r.quote_market,
+            "direction": r.direction,
+            "entry_time": _iso(r.entry_time),
+            "exit_time": _iso(r.exit_time),
+            "hold_hours": r.hold_hours,
+            "entry_z": r.entry_z,
+            "exit_z": r.exit_z,
+            "entry_base_px": r.entry_base_px,
+            "entry_quote_px": r.entry_quote_px,
+            "exit_base_px": r.exit_base_px,
+            "exit_quote_px": r.exit_quote_px,
+            "exit_reason": r.exit_reason,
+            "notional_usd": r.notional_usd,
+            "gross_pnl": r.gross_pnl,
+            "fee_cost": r.fee_cost,
+            "funding_pnl": r.funding_pnl,
+            "net_pnl": r.net_pnl,
+        }
 
     @staticmethod
     def _encode(data: dict) -> dict:
