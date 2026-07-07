@@ -771,6 +771,41 @@ export interface BacktestWindow {
   net_pnl: number;
 }
 
+/** One closed trade from a walk-forward backtest (issue #162) — the drill-down blotter row. */
+export interface BacktestTrade {
+  id: string;
+  strategy_id: string;
+  window_index: number;
+  exchange: string;
+  base_market: string;
+  quote_market: string;
+  direction: string;
+  entry_time: string;
+  exit_time: string;
+  hold_hours: number;
+  entry_z: number;
+  exit_z: number | null;
+  entry_base_px: number | null;
+  entry_quote_px: number | null;
+  exit_base_px: number | null;
+  exit_quote_px: number | null;
+  exit_reason: string;
+  notional_usd: number;
+  gross_pnl: number;
+  fee_cost: number;
+  funding_pnl: number;
+  net_pnl: number;
+}
+
+export interface BacktestTradesResponse {
+  id: string;
+  window: number | null;
+  limit: number;
+  offset: number;
+  trades: BacktestTrade[];
+  total: number;
+}
+
 export interface Strategy {
   id: string;
   exchange: string;
@@ -881,4 +916,23 @@ export function stopStrategy(id: string): Promise<Strategy> {
 /** Seed the S1–S4 baseline strategies. */
 export function seedDefaultStrategies(): Promise<{ created: Strategy[]; count: number }> {
   return proxyPost("api/backtest/seed-defaults");
+}
+
+/**
+ * Paginated per-trade blotter for a strategy (issue #162). Pass `window` to scope
+ * to one walk-forward window (the UI drills in per window). Strategies run before
+ * this feature shipped simply have no trades → empty list.
+ */
+export function fetchBacktestTrades(
+  id: string,
+  opts: { window?: number; limit?: number; offset?: number } = {},
+): Promise<BacktestTradesResponse> {
+  const q = new URLSearchParams();
+  if (opts.window !== undefined) q.set("window", String(opts.window));
+  if (opts.limit !== undefined) q.set("limit", String(opts.limit));
+  if (opts.offset !== undefined) q.set("offset", String(opts.offset));
+  const suffix = q.toString() ? `?${q}` : "";
+  return proxyGet<BacktestTradesResponse>(
+    `api/backtest/strategies/${encodeURIComponent(id)}/trades${suffix}`,
+  );
 }

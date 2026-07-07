@@ -611,7 +611,9 @@ class FakeStrategyRepository:
 
     def __init__(self) -> None:
         self.store: dict[str, dict] = {}
+        self.trades: list[dict] = []  # persisted BacktestTrade rows
         self._seq = 0
+        self._tseq = 0
 
     @staticmethod
     def _ser(data: dict) -> dict:
@@ -662,7 +664,39 @@ class FakeStrategyRepository:
         return dict(row)
 
     async def delete(self, strategy_id: str) -> bool:
+        # Cascade: drop the strategy's persisted trades (mirrors the FK cascade).
+        self.trades = [t for t in self.trades if t["strategy_id"] != strategy_id]
         return self.store.pop(strategy_id, None) is not None
+
+    # ── per-trade blotter (issue #162) ──────────────────────────────────────────
+
+    async def create_backtest_trades(
+        self, strategy_id: str, window_index: int, trades: list[dict]
+    ) -> int:
+        for t in trades:
+            self._tseq += 1
+            self.trades.append(
+                {
+                    **t,
+                    "id": f"bt_{self._tseq}",
+                    "strategy_id": strategy_id,
+                    "window_index": window_index,
+                }
+            )
+        return len(trades)
+
+    async def list_backtest_trades(
+        self, strategy_id: str, *, window_index: int | None = None,
+        limit: int = 50, offset: int = 0,
+    ) -> dict:
+        rows = [t for t in self.trades if t["strategy_id"] == strategy_id]
+        if window_index is not None:
+            rows = [t for t in rows if t["window_index"] == window_index]
+        rows.sort(key=lambda t: (str(t.get("entry_time")), t["id"]))
+        return {"trades": [dict(t) for t in rows[offset : offset + limit]], "total": len(rows)}
+
+    async def delete_backtest_trades(self, strategy_id: str) -> None:
+        self.trades = [t for t in self.trades if t["strategy_id"] != strategy_id]
 
     async def recompute_ranks(self) -> None:
         # Rank within each data source independently (issue #98).

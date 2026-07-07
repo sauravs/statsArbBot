@@ -115,6 +115,95 @@ async def test_backtest_completes_with_aggregates(ctx):
     assert done["rank"] == 1
 
 
+async def test_persists_per_trade_blotter(ctx):
+    """Every closed trade is persisted, stamped with its window, with Z + prices."""
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params())
+    await engine.run(row["id"])
+    done = await ctx.repo.get(row["id"])
+    assert done["total_trades"] > 0
+
+    # All trades readable back; total matches the aggregate count.
+    page = await engine.list_trades(row["id"], limit=10_000)
+    assert page["total"] == done["total_trades"]
+    trades = page["trades"]
+    assert len(trades) == done["total_trades"]
+
+    n_windows = done["total_windows"]
+    for t in trades:
+        # Stamped with a real window index.
+        assert 0 <= t["window_index"] < n_windows
+        # The "where on the spread" + rationale the UI surfaces.
+        assert t["entry_z"] is not None
+        assert t["exit_reason"]
+        # Leg fill prices (the entry/exit "spot") captured.
+        assert t["entry_base_px"] is not None and t["entry_quote_px"] is not None
+        assert t["exit_base_px"] is not None and t["exit_quote_px"] is not None
+        assert t["base_market"] == "AAA-USD" and t["quote_market"] == "BBB-USD"
+
+    # Per-window scoping matches the per_window aggregate trade counts.
+    for w in done["per_window"]:
+        scoped = await engine.list_trades(
+            row["id"], window_index=w["index"], limit=10_000
+        )
+        assert scoped["total"] == w["trades"]
+
+
+async def test_trades_pagination(ctx):
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params())
+    await engine.run(row["id"])
+    total = (await engine.list_trades(row["id"], limit=1))["total"]
+    assert total >= 2
+
+    first = await engine.list_trades(row["id"], limit=1, offset=0)
+    second = await engine.list_trades(row["id"], limit=1, offset=1)
+    assert len(first["trades"]) == 1 and len(second["trades"]) == 1
+    # Distinct rows, stable order (entry_time then id).
+    assert first["trades"][0]["id"] != second["trades"][0]["id"]
+
+
+async def test_rerun_replaces_trades(ctx):
+    """A fresh re-run clears the prior run's trades (no accumulation)."""
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params())
+    await engine.run(row["id"])
+    first = (await engine.list_trades(row["id"], limit=1))["total"]
+
+    await engine.run(row["id"])  # re-run from scratch (was COMPLETED)
+    second = (await engine.list_trades(row["id"], limit=1))["total"]
+    assert second == first  # replaced, not doubled
+
+
+async def test_resume_does_not_duplicate_trades(ctx):
+    """Pause→resume persists each window's trades exactly once (issue #162)."""
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params())
+    sid = row["id"]
+
+    orig = engine._run_window
+    seen = {"n": 0}
+
+    async def wrapped(*a, **k):
+        cap = await orig(*a, **k)
+        seen["n"] += 1
+        if seen["n"] == 1:
+            engine._control[sid] = "pause"
+        return cap
+
+    engine._run_window = wrapped
+    await engine.run(sid)  # completes window 0, then pauses
+    paused_trades = (await engine.list_trades(sid, limit=1))["total"]
+
+    engine._run_window = orig
+    await engine.run(sid)  # resume → complete
+    done = await ctx.repo.get(sid)
+    page = await engine.list_trades(sid, limit=10_000)
+    # Exactly the aggregate count — no window persisted twice.
+    assert page["total"] == done["total_trades"]
+    assert page["total"] >= paused_trades
+
+
 async def test_no_windows_fails(ctx):
     engine = BacktestEngine()
     # Span shorter than one scan+trade window (7+3=10d) → nothing to score.

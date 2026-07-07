@@ -284,6 +284,11 @@ async def _close_position(
             "hold_hours": round(age, 4),
             "entry_z": pos["entry_z"],
             "exit_z": exit_z,
+            # Per-leg fill prices — the entry/exit "spot" of each leg (issue #162).
+            "entry_base_px": pos["entry_base_px"],
+            "entry_quote_px": pos["entry_quote_px"],
+            "exit_base_px": snap.base_price,
+            "exit_quote_px": snap.quote_price,
             "exit_reason": reason,
             "notional_usd": pos["base_size"] * pos["entry_base_px"],
             **pnl,

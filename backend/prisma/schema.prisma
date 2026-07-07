@@ -314,6 +314,12 @@ model SimTrade {
   hold_hours   Float
   entry_z      Float
   exit_z       Float?
+  // Per-leg fill prices at entry/exit — the "spot" of each trade. Nullable so
+  // rows written before this was recorded (issue #162) stay valid.
+  entry_base_px  Float?
+  entry_quote_px Float?
+  exit_base_px   Float?
+  exit_quote_px  Float?
   exit_reason  String // TAKE_PROFIT | STOP_LOSS_ZSCORE | STOP_LOSS_TIME | STOPPED
   notional_usd Float
   gross_pnl    Float
@@ -464,6 +470,11 @@ model Strategy {
   report_md     String? // generated markdown report (F8.3)
   error         String?
 
+  // Per-trade blotter — each closed trade across all windows (issue #162). The
+  // engine discarded these before; persisting them lets the UI drill into a
+  // window and see where/when each trade entered/exited and why.
+  trades BacktestTrade[]
+
   created_at   DateTime  @default(now()) @db.Timestamptz
   updated_at   DateTime  @updatedAt @db.Timestamptz
   completed_at DateTime? @db.Timestamptz
@@ -471,4 +482,40 @@ model Strategy {
   @@index([exchange, data_source, status])
   @@index([rank])
   @@map("strategies")
+}
+
+// One closed trade from a walk-forward backtest (issue #162). The engine replays
+// each test window through the shared ``run_tick`` core producing full trade
+// records; before, only aggregates were kept. Persisting each trade — stamped
+// with the ``window_index`` it belongs to — powers the per-window trade blotter
+// (where/when each trade entered & exited on the spread, and the exit rationale).
+// Cascades with its Strategy so deleting a strategy removes its trades.
+model BacktestTrade {
+  id           String   @id @default(cuid())
+  strategy_id  String
+  strategy     Strategy @relation(fields: [strategy_id], references: [id], onDelete: Cascade)
+  window_index Int // which walk-forward window produced this trade
+  exchange     Exchange
+  base_market  String
+  quote_market String
+  direction    String
+  entry_time   DateTime @db.Timestamptz
+  exit_time    DateTime @db.Timestamptz
+  hold_hours   Float
+  entry_z      Float
+  exit_z       Float?
+  // Per-leg fill prices — the entry/exit "spot" of each leg.
+  entry_base_px  Float?
+  entry_quote_px Float?
+  exit_base_px   Float?
+  exit_quote_px  Float?
+  exit_reason  String // TAKE_PROFIT | STOP_LOSS_ZSCORE | STOP_LOSS_TIME | STOPPED | END_OF_WINDOW
+  notional_usd Float
+  gross_pnl    Float
+  fee_cost     Float // entry + exit fees
+  funding_pnl  Float
+  net_pnl      Float // gross − fees + funding
+
+  @@index([strategy_id, window_index])
+  @@map("backtest_trades")
 }
