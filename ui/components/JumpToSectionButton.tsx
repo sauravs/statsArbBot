@@ -47,20 +47,31 @@ export default function JumpToSectionButton({
 
   useEffect(() => {
     recompute();
-    // rAF-throttle the scroll handler so we compute at most once per frame.
+    // rAF-throttle so we compute at most once per frame.
     let frame = 0;
-    const onScroll = () => {
+    const schedule = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         recompute();
       });
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    // The page grows AFTER mount as data loads (e.g. the scan fills the pairs
+    // table with hundreds of rows) — that changes document height without ever
+    // firing scroll/resize, so without this the button would stay hidden on a
+    // page that only became scrollable once its content arrived. A
+    // ResizeObserver on <body> re-checks whenever the content height changes.
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(schedule)
+        : null;
+    ro?.observe(document.body);
     return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      ro?.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
   }, [recompute]);

@@ -83,4 +83,35 @@ test.describe("Manual Trading — jump-to-section FAB", () => {
     await expect(pairsTable).toBeInViewport();
     await expect.poll(scrollY).toBeLessThan(50);
   });
+
+  // Regression: the real page grows AFTER mount as data loads (the live scan
+  // fills the pairs table with hundreds of rows). On a full-height window the
+  // page is short at mount — not scrollable — and content arriving later never
+  // fires a scroll/resize event. The FAB must still appear once the page
+  // becomes scrollable (ResizeObserver on <body>), or it stays hidden forever
+  // on exactly the data-heavy pages that need it most.
+  test("FAB appears when the page grows scrollable after mount", async ({
+    page,
+  }) => {
+    // Tall viewport so the demo page fits with no scrollbar → FAB hidden.
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await login(page);
+    await ensurePairs(page);
+    await waitForStableHeight(page);
+
+    const fab = page.getByTestId("jump-nav-btn");
+    await expect(fab).toHaveCount(0); // page fits → nothing to jump to
+
+    // Grow the page past the fold WITHOUT a scroll/resize event (mimics rows
+    // streaming in). Only the body-size observer can notice this.
+    await page.evaluate(() => {
+      const spacer = document.createElement("div");
+      spacer.style.height = "2000px";
+      spacer.setAttribute("data-testid", "test-spacer");
+      document.body.appendChild(spacer);
+    });
+
+    await expect(fab).toBeVisible({ timeout: 5_000 });
+    await expect(fab).toHaveAttribute("data-direction", "down");
+  });
 });
