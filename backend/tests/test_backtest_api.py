@@ -183,6 +183,45 @@ def test_run_completes_and_reports(ctx):
     assert rep["report_md"] and "Backtest Report" in rep["report_md"]
 
 
+def test_trades_endpoint_blotter(ctx):
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    ctx.client.post(f"/api/backtest/strategies/{sid}/run", headers=AUTH)
+    detail = ctx.client.get(f"/api/backtest/strategies/{sid}", headers=AUTH).json()
+
+    # Full blotter: total matches the aggregate, rows carry Z + prices + rationale.
+    page = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?limit=500", headers=AUTH
+    ).json()
+    assert page["total"] == detail["total_trades"]
+    assert len(page["trades"]) == detail["total_trades"]
+    t0 = page["trades"][0]
+    for k in ("window_index", "entry_time", "exit_time", "entry_z",
+              "exit_reason", "entry_base_px", "exit_base_px", "net_pnl"):
+        assert k in t0
+
+    # Window scoping matches the per-window counts.
+    w0 = detail["per_window"][0]
+    scoped = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?window={w0['index']}&limit=500",
+        headers=AUTH,
+    ).json()
+    assert scoped["total"] == w0["trades"]
+
+    # Pagination.
+    p = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?limit=1&offset=0", headers=AUTH
+    ).json()
+    assert len(p["trades"]) == 1 and p["limit"] == 1
+
+
+def test_trades_endpoint_404_and_auth(ctx):
+    assert ctx.client.get("/api/backtest/strategies/nope/trades").status_code == 401
+    assert (
+        ctx.client.get("/api/backtest/strategies/nope/trades", headers=AUTH).status_code
+        == 404
+    )
+
+
 async def test_run_rejects_double_launch(ctx):
     sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
     # Force the row into RUNNING so a second run is rejected.

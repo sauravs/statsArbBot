@@ -61,6 +61,14 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     expect(Number(trades)).toBeGreaterThan(0);
     await expect(page.getByTestId("bt-rank")).toBeVisible();
 
+    // Drill into a window's per-trade blotter (#162): click a window row that has
+    // trades (marked with ▸) → the blotter lazy-loads its trades with the
+    // entry/exit + reason columns and a paginated range read.
+    await page.getByTestId("bt-perwindow-row").filter({ hasText: "▸" }).first().click();
+    await expect(page.getByTestId("bt-blotter")).toBeVisible();
+    await expect(page.getByTestId("bt-blotter-row").first()).toBeVisible();
+    await expect(page.getByTestId("bt-blotter-range")).toContainText("of");
+
     // Exit reasons render as a donut with a count·% legend + a health read (#79).
     await expect(page.getByTestId("bt-exits-donut")).toBeVisible();
     await expect(page.getByTestId("bt-exits-list")).toContainText("%");

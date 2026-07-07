@@ -96,6 +96,15 @@ class BacktestEngine:
     async def list(self) -> list[dict]:
         return await get_strategy_repository().list()
 
+    async def list_trades(
+        self, strategy_id: str, *, window_index: int | None = None,
+        limit: int = 50, offset: int = 0,
+    ) -> dict:
+        """Paginated per-trade blotter (issue #162), optionally scoped to a window."""
+        return await get_strategy_repository().list_backtest_trades(
+            strategy_id, window_index=window_index, limit=limit, offset=offset
+        )
+
     async def update(self, strategy_id: str, data: dict) -> dict | None:
         return await get_strategy_repository().update(strategy_id, data)
 
@@ -207,6 +216,10 @@ class BacktestEngine:
                 }
             )
         await repo.update(strategy_id, init)
+        if not resuming:
+            # A fresh sweep discards any prior run's persisted trades so the blotter
+            # reflects only this run (mirrors clearing the JSON aggregates above).
+            await repo.delete_backtest_trades(strategy_id)
 
         # One candle/funding fetch for the whole run (every leg of every window).
         # Pad the load start by the Z-window so the rolling-Z warm-up for the first
@@ -302,6 +315,9 @@ class BacktestEngine:
         # fully completes, so an aborted window leaves acc clean (no half-window
         # points that would duplicate on resume).
         window_equity: list[tuple] = []
+        # Buffer this window's closed trades likewise, so an aborted window persists
+        # nothing (a resume re-runs it cleanly, no duplicate rows — issue #162).
+        window_trade_rows: list[dict] = []
         if pairs:
             aligned = align_pairs(pairs, candles_by_market)
             aligned_by_pair = {(ap.base_market, ap.quote_market): ap for ap in aligned}
@@ -355,12 +371,17 @@ class BacktestEngine:
                 window_trades = len(trades)
                 window_pnl = round(sum(t["net_pnl"] for t in trades), 6)
                 acc.merge_trades(trades)
+                window_trade_rows = trades
                 window_equity.append((final_cur, capital))
 
         # Window completed — commit its buffered equity points now (an aborted
         # window raised above and committed nothing).
         for t, equity in window_equity:
             acc.add_equity(t, equity)
+        # Persist the per-trade blotter for this window (issue #162). Only reached
+        # once the window fully completes, so an aborted/resumed window never
+        # double-inserts.
+        await repo.create_backtest_trades(strategy_id, w.index, window_trade_rows)
         acc.add_window(
             {
                 "index": w.index,
