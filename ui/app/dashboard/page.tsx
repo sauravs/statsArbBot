@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getSystemHealth, type SystemHealth } from "@/lib/api";
 import ScanPanel from "@/components/ScanPanel";
 import ManualTradesPanel from "@/components/ManualTradesPanel";
+import JumpToSectionButton from "@/components/JumpToSectionButton";
 import StrategyThresholdsControl from "@/components/StrategyThresholdsControl";
 import DataSourceControl from "@/components/DataSourceControl";
 
@@ -178,6 +179,9 @@ export default function DashboardPage() {
         />
         <ManualTradesPanel refreshKey={manualRefresh} />
       </section>
+      {/* Floating shortcut: with many markets the pairs table pushes Manual
+          Trades far down — this hops straight there (and back to the top). */}
+      <JumpToSectionButton targetId="manual-trades-section" />
     </main>
   );
 }
