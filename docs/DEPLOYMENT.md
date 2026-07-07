@@ -37,6 +37,17 @@ cd ~/statsArbBot && git pull && docker compose up -d --build
 plain `docker compose up -d` would restart the *old* image and silently skip your code
 change. `--build` is a no-op (cache hit) when nothing changed, so it's safe to always use.
 
+> ⚠️ **Post-deploy: the active market-data source resets — data is NOT lost.**
+> `SCAN_DATA_SOURCE` is an in-memory runtime global (issue #43), so restarting the
+> `api` container (every deploy does) resets the *active* source to the `.env` default.
+> The **Backtest strategy list**, **Manual Trades**, and scan results are **scoped by
+> `data_source`** (issue #98), so after a deploy the UI shows only the default source's
+> rows — anything under another source (e.g. dYdX strategies when the default is
+> Hyperliquid) is **hidden, not deleted**. To restore the view, re-select the source in
+> the dashboard's **Market data** dropdown. (Seen 2026-07-07: 32 dYdX backtest strategies
+> "vanished" after a deploy flipped the active source to Hyperliquid; switching back
+> showed all 32.)
+
 **Go to live data:** set `SCAN_DATA_SOURCE=dydx` in `.env`, restart, then run
 `python scripts/gapfill_cache.py` to seed the cache. **Real trading:** only after the
 [§7 mainnet checklist](#7--pre-production--mainnet-checklist) (`ENVIRONMENT=mainnet`).
