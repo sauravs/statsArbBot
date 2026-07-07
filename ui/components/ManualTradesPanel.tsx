@@ -109,7 +109,15 @@ export default function ManualTradesPanel({
     (portfolioLoading || portfolio == null);
 
   return (
-    <div className="mt-6 rounded-xl border border-border bg-card p-5">
+    // id + scroll-mt is the jump target for the floating "jump to Manual Trades"
+    // button (JumpToSectionButton): when the Cointegrated Pairs table grows tall
+    // this section is far down the page, so the FAB scrolls straight here (and
+    // scroll-mt leaves a little breathing room above the heading).
+    <div
+      id="manual-trades-section"
+      data-testid="manual-trades-section"
+      className="mt-6 scroll-mt-4 rounded-xl border border-border bg-card p-5"
+    >
       <div className="mb-4 flex items-center gap-2">
         <h2 className="text-xs uppercase tracking-wider text-muted">
           Manual Trades
