@@ -41,7 +41,13 @@ services:
     env_file: .env
     environment:
       # Override host DATABASE_URL to reach the postgres service on the compose network.
-      DATABASE_URL: postgresql://statsarb:${POSTGRES_PASSWORD}@postgres:5432/statsarb
+      # connection_limit/pool_timeout raise Prisma's client pool above its default of
+      # 5 (issue #168): a heavy walk-forward backtest (e.g. Hyperliquid, 180 markets,
+      # many windows) runs as a long background task while the UI polls + APScheduler
+      # sim ticks + the live-scan cron all share the pool; 5 starved under contention
+      # and the backtest FAILED with a pool-acquire timeout. Postgres allows 100
+      # connections (11 in use), so 20 is safe headroom. Quoted: `&`/`?` are YAML-special.
+      DATABASE_URL: "postgresql://statsarb:${POSTGRES_PASSWORD}@postgres:5432/statsarb?connection_limit=20&pool_timeout=30"
     # Localhost only — the UI reaches the API over the compose network
     # (API_URL=http://api:8000), so the host port is just for local/debug use.
     ports:
