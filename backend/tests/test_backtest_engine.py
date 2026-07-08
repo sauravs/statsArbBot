@@ -140,6 +140,10 @@ async def test_persists_per_trade_blotter(ctx):
         assert t["entry_base_px"] is not None and t["entry_quote_px"] is not None
         assert t["exit_base_px"] is not None and t["exit_quote_px"] is not None
         assert t["base_market"] == "AAA-USD" and t["quote_market"] == "BBB-USD"
+        # Pair cointegration params stamped (issue #166) → chart can rebuild spread/z.
+        assert t["hedge_ratio"] is not None and t["hedge_ratio"] > 0
+        assert t["intercept"] is not None
+        assert t["half_life"] is not None and t["half_life"] > 0
 
     # Per-window scoping matches the per_window aggregate trade counts.
     for w in done["per_window"]:

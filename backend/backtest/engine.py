@@ -105,6 +105,10 @@ class BacktestEngine:
             strategy_id, window_index=window_index, limit=limit, offset=offset
         )
 
+    async def get_trade(self, trade_id: str) -> dict | None:
+        """One persisted trade by id — drives the per-trade chart (issue #166)."""
+        return await get_strategy_repository().get_backtest_trade(trade_id)
+
     async def update(self, strategy_id: str, data: dict) -> dict | None:
         return await get_strategy_repository().update(strategy_id, data)
 
@@ -371,6 +375,16 @@ class BacktestEngine:
                 window_trades = len(trades)
                 window_pnl = round(sum(t["net_pnl"] for t in trades), 6)
                 acc.merge_trades(trades)
+                # Stamp each trade with its pair's cointegration params (β/α/half-
+                # life) for this formation window (issue #166) so a per-trade chart
+                # can reproduce the exact spread/z it traded on. The aligned pair
+                # carries them; the shared trade record does not.
+                for t in trades:
+                    ap = aligned_by_pair.get((t["base_market"], t["quote_market"]))
+                    if ap is not None:
+                        t["hedge_ratio"] = ap.hedge_ratio
+                        t["intercept"] = ap.intercept
+                        t["half_life"] = ap.half_life
                 window_trade_rows = trades
                 window_equity.append((final_cur, capital))
 

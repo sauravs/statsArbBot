@@ -695,6 +695,12 @@ class FakeStrategyRepository:
         rows.sort(key=lambda t: (str(t.get("entry_time")), t["id"]))
         return {"trades": [dict(t) for t in rows[offset : offset + limit]], "total": len(rows)}
 
+    async def get_backtest_trade(self, trade_id: str):
+        for t in self.trades:
+            if t["id"] == trade_id:
+                return dict(t)
+        return None
+
     async def delete_backtest_trades(self, strategy_id: str) -> None:
         self.trades = [t for t in self.trades if t["strategy_id"] != strategy_id]
 

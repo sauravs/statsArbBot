@@ -214,6 +214,41 @@ def test_trades_endpoint_blotter(ctx):
     assert len(p["trades"]) == 1 and p["limit"] == 1
 
 
+def test_trade_series_chart(ctx, monkeypatch):
+    # The per-trade chart builder fetches candles via its own make_candle_source.
+    import backtest.trade_series as ts_mod
+    monkeypatch.setattr(ts_mod, "make_candle_source", lambda **_: FakeCandleSource(_series()))
+
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    ctx.client.post(f"/api/backtest/strategies/{sid}/run", headers=AUTH)
+    trades = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?limit=1", headers=AUTH
+    ).json()["trades"]
+    assert trades
+    tid = trades[0]["id"]
+
+    r = ctx.client.get(f"/api/backtest/strategies/{sid}/trades/{tid}/series", headers=AUTH)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # β/α were persisted this run → faithful spread/z, all four panels present.
+    assert d["faithful"] is True
+    s = d["series"]
+    assert s["normalized"]["base"] and s["raw"]["base"]
+    assert s["spread"]["series"] and s["zscore"]["series"]
+    # The trade's own entry/exit overlays (with spread computed from β/α).
+    assert d["entry"]["time"] and d["entry"]["z"] is not None
+    assert d["exit"]["time"] and d["exit"]["spread"] is not None
+    assert d["base_market"] == "AAA-USD" and d["quote_market"] == "BBB-USD"
+
+    # Unknown trade → 404.
+    assert (
+        ctx.client.get(
+            f"/api/backtest/strategies/{sid}/trades/nope/series", headers=AUTH
+        ).status_code
+        == 404
+    )
+
+
 def test_trades_endpoint_404_and_auth(ctx):
     assert ctx.client.get("/api/backtest/strategies/nope/trades").status_code == 401
     assert (

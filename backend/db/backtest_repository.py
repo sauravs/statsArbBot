@@ -27,6 +27,7 @@ _JSON_FIELDS = ("equity_curve", "per_window", "per_pair_pnl", "exit_reasons")
 _TRADE_FIELDS = (
     "base_market", "quote_market", "direction", "hold_hours", "entry_z", "exit_z",
     "entry_base_px", "entry_quote_px", "exit_base_px", "exit_quote_px",
+    "hedge_ratio", "intercept", "half_life",
     "exit_reason", "notional_usd", "gross_pnl", "fee_cost", "funding_pnl", "net_pnl",
 )
 
@@ -163,6 +164,14 @@ class PrismaStrategyRepository:
         )
         return {"trades": [self._trade_to_dict(r) for r in records], "total": total}
 
+    async def get_backtest_trade(self, trade_id: str) -> dict | None:
+        """One persisted trade by id (drives the per-trade chart, issue #166)."""
+        from db.client import get_db
+
+        db = await get_db()
+        record = await db.backtesttrade.find_unique(where={"id": trade_id})
+        return self._trade_to_dict(record) if record is not None else None
+
     async def delete_backtest_trades(self, strategy_id: str) -> None:
         """Drop all persisted trades for a strategy (fresh re-run clears priors)."""
         from db.client import get_db
@@ -189,6 +198,9 @@ class PrismaStrategyRepository:
             "entry_quote_px": r.entry_quote_px,
             "exit_base_px": r.exit_base_px,
             "exit_quote_px": r.exit_quote_px,
+            "hedge_ratio": r.hedge_ratio,
+            "intercept": r.intercept,
+            "half_life": r.half_life,
             "exit_reason": r.exit_reason,
             "notional_usd": r.notional_usd,
             "gross_pnl": r.gross_pnl,
