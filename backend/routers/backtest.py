@@ -278,6 +278,37 @@ async def list_trades(
     }
 
 
+@router.get("/strategies/{strategy_id}/trades/{trade_id}/series")
+async def trade_series(strategy_id: str, trade_id: str) -> dict:
+    """Per-trade chart series (issue #166) — the four pair panels over the trade's
+    test window, with the trade's own entry/exit marked.
+
+    404 if the strategy/trade is unknown or the trade doesn't belong to the
+    strategy; 422 if the window has too little cached history to chart.
+    """
+    from backtest.trade_series import build_backtest_trade_series
+
+    try:
+        engine = get_backtest_engine()
+        strategy = await engine.get(strategy_id)
+        if strategy is None:
+            raise HTTPException(status_code=404, detail="Strategy not found.")
+        trade = await engine.get_trade(trade_id)
+        if trade is None or trade["strategy_id"] != strategy_id:
+            raise HTTPException(status_code=404, detail="Trade not found.")
+        result = await build_backtest_trade_series(strategy, trade)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+    if result is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Not enough cached candle history to chart this trade's window.",
+        )
+    return result
+
+
 @router.get("/strategies/{strategy_id}/report")
 async def get_report(strategy_id: str) -> dict:
     try:

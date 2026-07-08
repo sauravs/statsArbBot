@@ -69,6 +69,17 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(page.getByTestId("bt-blotter-row").first()).toBeVisible();
     await expect(page.getByTestId("bt-blotter-range")).toContainText("of");
 
+    // A trade's "Chart" link opens the 4-panel per-trade chart in a new tab (#166),
+    // with the trade's entry/exit marked. Verify the chart page renders its panels.
+    const [chartTab] = await Promise.all([
+      page.context().waitForEvent("page"),
+      page.getByTestId("bt-blotter-chart-link").first().click(),
+    ]);
+    await expect(chartTab.getByTestId("bt-trade-chart")).toBeVisible({ timeout: 15_000 });
+    await expect(chartTab.getByTestId("chart-normalized")).toBeVisible();
+    await expect(chartTab.getByTestId("chart-zscore")).toBeVisible();
+    await chartTab.close();
+
     // Exit reasons render as a donut with a count·% legend + a health read (#79).
     await expect(page.getByTestId("bt-exits-donut")).toBeVisible();
     await expect(page.getByTestId("bt-exits-list")).toContainText("%");

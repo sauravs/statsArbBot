@@ -393,6 +393,95 @@ def _build_markers(
     return markers
 
 
+def pair_series_from_closes(
+    base_market: str,
+    quote_market: str,
+    *,
+    times: list[int],
+    s1,
+    s2,
+    window_start: str | None,
+    window_end: str | None,
+    hedge_ratio: float,
+    intercept: float,
+    half_life: float | None = None,
+    window: int | None = None,
+    markers: list[Marker] | None = None,
+) -> PairSeries:
+    """Compute the four chart panels from already-aligned closes (pure, no I/O).
+
+    Extracted from :func:`build_pair_series` so the same math serves both the live
+    pair-detail endpoint (recent candles from a price source) and the backtest
+    per-trade chart (issue #166 — a historical window of cached candles + the
+    trade's stored β/α). ``times`` are UNIX seconds; ``s1``/``s2`` the aligned base/
+    quote closes. Pass ``markers`` to override the auto-derived model markers (the
+    backtest chart draws the trade's own entry/exit overlay instead).
+    """
+    window = window or config.ZSCORE_WINDOW
+    s1 = np.asarray(s1, dtype=float)
+    s2 = np.asarray(s2, dtype=float)
+
+    # Normalize each leg to 100 at the window start (the overlay panel).
+    base_norm = [
+        TimePoint(time=t, value=float(v / s1[0] * 100.0)) for t, v in zip(times, s1)
+    ]
+    quote_norm = [
+        TimePoint(time=t, value=float(v / s2[0] * 100.0)) for t, v in zip(times, s2)
+    ]
+    # Actual prices per leg (issue #68) — the dual-axis raw-price panel.
+    base_raw = [TimePoint(time=t, value=float(v)) for t, v in zip(times, s1)]
+    quote_raw = [TimePoint(time=t, value=float(v)) for t, v in zip(times, s2)]
+
+    spread = compute_spread(s1, s2, hedge_ratio, intercept)
+    spread_points = [TimePoint(time=t, value=float(v)) for t, v in zip(times, spread)]
+    spread_mean = float(np.mean(spread))
+    spread_std = float(np.std(spread, ddof=1)) if spread.size > 1 else 0.0
+
+    z = rolling_zscore(spread, window=window)
+    # Drop the warm-up NaNs: invalid in JSON and not plottable.
+    z_points = [
+        TimePoint(time=t, value=float(v))
+        for t, v in zip(times, z)
+        if not np.isnan(v)
+    ]
+
+    entry_threshold = config.ZSCORE_THRESH
+    exit_threshold = config.EXIT_ZSCORE
+    stop_threshold = config.STOP_LOSS_ZSCORE
+    if markers is None:
+        markers = _build_markers(
+            times,
+            z,
+            half_life=half_life,
+            entry_threshold=entry_threshold,
+            exit_threshold=exit_threshold,
+            stop_threshold=stop_threshold,
+        )
+
+    return PairSeries(
+        base_market=base_market,
+        quote_market=quote_market,
+        hedge_ratio=hedge_ratio,
+        intercept=intercept,
+        half_life=half_life,
+        zscore_window=window,
+        entry_threshold=entry_threshold,
+        exit_threshold=exit_threshold,
+        stop_threshold=stop_threshold,
+        window_start=window_start,
+        window_end=window_end,
+        base_norm=base_norm,
+        quote_norm=quote_norm,
+        base_raw=base_raw,
+        quote_raw=quote_raw,
+        spread=spread_points,
+        spread_mean=spread_mean,
+        spread_std=spread_std,
+        zscore=z_points,
+        markers=markers,
+    )
+
+
 async def build_pair_series(
     client: PriceSource,
     *,
@@ -436,64 +525,16 @@ async def build_pair_series(
         return None
     shared, s1, s2 = aligned
     times = [_to_unix(ts) for ts in shared]
-
-    # Normalize each leg to 100 at the window start (the overlay panel).
-    base_norm = [
-        TimePoint(time=t, value=float(v / s1[0] * 100.0)) for t, v in zip(times, s1)
-    ]
-    quote_norm = [
-        TimePoint(time=t, value=float(v / s2[0] * 100.0)) for t, v in zip(times, s2)
-    ]
-    # Actual prices per leg (issue #68) — the dual-axis raw-price panel.
-    base_raw = [TimePoint(time=t, value=float(v)) for t, v in zip(times, s1)]
-    quote_raw = [TimePoint(time=t, value=float(v)) for t, v in zip(times, s2)]
-
-    spread = compute_spread(s1, s2, hedge_ratio, intercept)
-    spread_points = [
-        TimePoint(time=t, value=float(v)) for t, v in zip(times, spread)
-    ]
-    spread_mean = float(np.mean(spread))
-    spread_std = float(np.std(spread, ddof=1)) if spread.size > 1 else 0.0
-
-    z = rolling_zscore(spread, window=window)
-    # Drop the warm-up NaNs: invalid in JSON and not plottable.
-    z_points = [
-        TimePoint(time=t, value=float(v))
-        for t, v in zip(times, z)
-        if not np.isnan(v)
-    ]
-
-    entry_threshold = config.ZSCORE_THRESH
-    exit_threshold = config.EXIT_ZSCORE
-    stop_threshold = config.STOP_LOSS_ZSCORE
-    markers = _build_markers(
-        times,
-        z,
-        half_life=half_life,
-        entry_threshold=entry_threshold,
-        exit_threshold=exit_threshold,
-        stop_threshold=stop_threshold,
-    )
-
-    return PairSeries(
-        base_market=base_market,
-        quote_market=quote_market,
+    return pair_series_from_closes(
+        base_market,
+        quote_market,
+        times=times,
+        s1=s1,
+        s2=s2,
+        window_start=shared[0],
+        window_end=shared[-1],
         hedge_ratio=hedge_ratio,
         intercept=intercept,
         half_life=half_life,
-        zscore_window=window,
-        entry_threshold=entry_threshold,
-        exit_threshold=exit_threshold,
-        stop_threshold=stop_threshold,
-        window_start=shared[0],
-        window_end=shared[-1],
-        base_norm=base_norm,
-        quote_norm=quote_norm,
-        base_raw=base_raw,
-        quote_raw=quote_raw,
-        spread=spread_points,
-        spread_mean=spread_mean,
-        spread_std=spread_std,
-        zscore=z_points,
-        markers=markers,
+        window=window,
     )

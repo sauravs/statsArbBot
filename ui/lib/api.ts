@@ -918,6 +918,42 @@ export function seedDefaultStrategies(): Promise<{ created: Strategy[]; count: n
   return proxyPost("api/backtest/seed-defaults");
 }
 
+/** Entry/exit overlay for a backtest trade's chart (issue #166). */
+export interface BacktestTradeOverlay {
+  time: number; // epoch seconds
+  z: number | null;
+  priceBase: number | null;
+  priceQuote: number | null;
+  spread: number | null; // base − β·quote − α (null when β/α unknown)
+}
+
+/** Per-trade chart payload: the 4 pair panels over the trade window + its markers. */
+export interface BacktestTradeSeries {
+  trade_id: string;
+  strategy_id: string;
+  base_market: string;
+  quote_market: string;
+  window_index: number;
+  direction: string;
+  exit_reason: string;
+  net_pnl: number;
+  /** Whether spread/z reproduce what the backtest traded (β/α known). */
+  faithful: boolean;
+  series: PairSeries;
+  entry: BacktestTradeOverlay;
+  exit: BacktestTradeOverlay;
+}
+
+/** The per-trade chart series (issue #166) — 4 panels over the trade's test window. */
+export function fetchBacktestTradeSeries(
+  strategyId: string,
+  tradeId: string,
+): Promise<BacktestTradeSeries> {
+  return proxyGet<BacktestTradeSeries>(
+    `api/backtest/strategies/${encodeURIComponent(strategyId)}/trades/${encodeURIComponent(tradeId)}/series`,
+  );
+}
+
 /**
  * Paginated per-trade blotter for a strategy (issue #162). Pass `window` to scope
  * to one walk-forward window (the UI drills in per window). Strategies run before
