@@ -56,6 +56,15 @@ logger = logging.getLogger(__name__)
 # Cap on persisted equity-curve points (downsampled across all windows).
 _MAX_CURVE_POINTS = 500
 
+# Cap concurrent per-market history reads in _load_history (issue #170). The whole
+# run's candles+funding are loaded up front; firing one query per (market, kind) at
+# once is 2·N concurrent DB reads. For dYdX (≈38 markets) that's fine, but a large
+# venue like Hyperliquid (≈180 markets → ~360 concurrent queries) swamped the Prisma
+# query engine and reads timed out (httpcore.ReadTimeout), failing the backtest
+# before it began. Bounding concurrency keeps the load steady (mirrors
+# marketdata.pair_series._PRICE_FETCH_CONCURRENCY).
+_HISTORY_FETCH_CONCURRENCY = 8
+
 
 class StrategyNotFound(Exception):
     """Raised when a control / read targets an unknown strategy id."""
@@ -598,9 +607,22 @@ async def _universe(exchange: str) -> list[str]:
 async def _load_history(exchange, markets, start, end):
     source = make_candle_source(exchange=exchange)
     market_list = list(markets)
+    # Bound concurrency so a large market universe doesn't swamp the query engine
+    # (issue #170). One shared semaphore across both candle + funding reads caps the
+    # total in-flight queries at _HISTORY_FETCH_CONCURRENCY.
+    sem = asyncio.Semaphore(_HISTORY_FETCH_CONCURRENCY)
+
+    async def _candles(m):
+        async with sem:
+            return await source.get_candles(m, start=start, end=end)
+
+    async def _funding(m):
+        async with sem:
+            return await source.get_funding(m, start=start, end=end)
+
     candle_results, funding_results = await asyncio.gather(
-        asyncio.gather(*(source.get_candles(m, start=start, end=end) for m in market_list)),
-        asyncio.gather(*(source.get_funding(m, start=start, end=end) for m in market_list)),
+        asyncio.gather(*(_candles(m) for m in market_list)),
+        asyncio.gather(*(_funding(m) for m in market_list)),
     )
     return dict(zip(market_list, candle_results)), dict(zip(market_list, funding_results))
 

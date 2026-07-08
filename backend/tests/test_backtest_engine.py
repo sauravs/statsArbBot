@@ -11,6 +11,7 @@ stop with partial save.
 
 from __future__ import annotations
 
+import asyncio
 import types
 from datetime import datetime, timedelta, timezone
 
@@ -206,6 +207,38 @@ async def test_resume_does_not_duplicate_trades(ctx):
     # Exactly the aggregate count — no window persisted twice.
     assert page["total"] == done["total_trades"]
     assert page["total"] >= paused_trades
+
+
+async def test_load_history_bounds_concurrency(monkeypatch):
+    """_load_history caps concurrent per-market reads so a large venue (e.g. 180
+    Hyperliquid markets → ~360 queries) can't swamp the query engine (issue #170)."""
+    import backtest.engine as eng
+
+    state = {"cur": 0, "max": 0}
+
+    class TrackingSource:
+        async def _track(self):
+            state["cur"] += 1
+            state["max"] = max(state["max"], state["cur"])
+            await asyncio.sleep(0.01)
+            state["cur"] -= 1
+
+        async def get_candles(self, m, *, start, end):
+            await self._track()
+            return [{"timestamp": start, "close": 1.0}]
+
+        async def get_funding(self, m, *, start, end):
+            await self._track()
+            return []
+
+    monkeypatch.setattr(eng, "make_candle_source", lambda **_: TrackingSource())
+    markets = [f"M{i}-USD" for i in range(60)]
+    candles, funding = await eng._load_history("hyperliquid", markets, _ANCHOR, _ANCHOR)
+
+    assert len(candles) == 60 and len(funding) == 60
+    # Never exceeds the cap, yet still runs concurrently (not serialised).
+    assert state["max"] <= eng._HISTORY_FETCH_CONCURRENCY
+    assert state["max"] > 1
 
 
 async def test_no_windows_fails(ctx):
