@@ -509,6 +509,12 @@ model BacktestTrade {
   entry_quote_px Float?
   exit_base_px   Float?
   exit_quote_px  Float?
+  // The pair's cointegration params for THIS trade's formation window (issue #166),
+  // so a per-trade chart can reproduce the exact spread/z the backtest traded on
+  // (spread = base − β·quote − α). Nullable: trades recorded before this stay valid.
+  hedge_ratio  Float?
+  intercept    Float?
+  half_life    Float?
   exit_reason  String // TAKE_PROFIT | STOP_LOSS_ZSCORE | STOP_LOSS_TIME | STOPPED | END_OF_WINDOW
   notional_usd Float
   gross_pnl    Float

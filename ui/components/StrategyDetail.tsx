@@ -558,7 +558,7 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
   return (
     <div data-testid="bt-blotter">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-xs" data-testid="bt-blotter-table">
+        <table className="w-full min-w-[940px] text-xs" data-testid="bt-blotter-table">
           <thead>
             <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
               <th className="px-2 py-1.5 text-left">Pair</th>
@@ -571,6 +571,10 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
               <th className="px-2 py-1.5 text-right">Hold</th>
               <th className="px-2 py-1.5 text-right">Net P&amp;L</th>
               <th className="px-2 py-1.5 text-left">Reason</th>
+              <th className="px-2 py-1.5 text-center">
+                Chart
+                <InfoTip text="Open this trade on a 4-panel pair chart (price, spread, z-score) over its test window, with the entry and exit marked — like the Manual Trading view. Opens in a new tab." />
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -603,6 +607,17 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
                   >
                     {t.exit_reason}
                   </span>
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  <a
+                    href={`/dashboard/backtest/trade/${encodeURIComponent(strategyId)}/${encodeURIComponent(t.id)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="whitespace-nowrap rounded border border-border px-1.5 py-0.5 text-[10px] text-blue hover:bg-bg/50"
+                    data-testid="bt-blotter-chart-link"
+                  >
+                    Chart ↗
+                  </a>
                 </td>
               </tr>
             ))}

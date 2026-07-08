@@ -27,6 +27,7 @@ const C = {
   green: "#00d4a1",
   red: "#ff4757",
   yellow: "#ffd32a",
+  orange: "#ff9f43", // trade EXIT overlay (distinct from the yellow entry)
   blue: "#4a90e2",
 };
 
@@ -201,10 +202,19 @@ export default function PairCharts({
   base,
   quote,
   entry,
+  exit,
+  series,
 }: {
   base: string;
   quote: string;
   entry?: EntryOverlay;
+  // A backtest trade's exit overlay (issue #166) — drawn in orange, mirroring the
+  // yellow entry overlay across all panels.
+  exit?: EntryOverlay;
+  // Pre-fetched series (issue #166): when provided, PairCharts renders this instead
+  // of fetching the live recent-window series for (base, quote). Lets the backtest
+  // per-trade chart drive the same panels over a historical window.
+  series?: PairSeries;
 }) {
   const [data, setData] = useState<PairSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +238,12 @@ export default function PairCharts({
 
   useEffect(() => {
     let cancelled = false;
+    // Pre-fetched series (backtest per-trade chart) → render it directly, no fetch.
+    if (series) {
+      setData(series);
+      setError(null);
+      return;
+    }
     setData(null);
     setError(null);
     getPairSeries(base, quote)
@@ -241,7 +257,7 @@ export default function PairCharts({
     return () => {
       cancelled = true;
     };
-  }, [base, quote]);
+  }, [base, quote, series]);
 
   useEffect(() => {
     if (
@@ -409,76 +425,90 @@ export default function PairCharts({
     zLineAt(data.stop_threshold, C.red, LineStyle.Dashed, "+stop");
     zLineAt(-data.stop_threshold, C.red, LineStyle.Dashed, "−stop");
 
-    // ── "Your entry" overlay (opened from a recorded manual trade) ────────────
-    // Yellow lines for the trade's entry Z, entry prices (one per leg/axis on the
-    // raw panel), and entry spread; plus a time marker mirrored across all panels.
-    // Each piece is drawn only when its value is present, so the scan-table route
-    // (no entry context) renders the charts unchanged.
+    // ── Trade overlays: "entry" (yellow) and, for a backtest trade, "exit" ─────
+    // (orange). Each draws price-lines for its Z / per-leg prices / spread and a
+    // time marker mirrored across all panels. Each piece is drawn only when its
+    // value is present, so the scan-table route (no overlays) is unchanged.
     const rawEntryLabels: {
       series: ISeriesApi<"Line">;
       level: PriceLevel;
       side: "left" | "right";
     }[] = [];
-    let snappedEntry: UTCTimestamp | null = null;
-    if (entry) {
-      const entryLine = (series: ISeriesApi<"Line">, price: number) =>
+    const baseMarks: SeriesMarker<Time>[] = [];
+    const rawMarks: SeriesMarker<Time>[] = [];
+    const spreadMarks: SeriesMarker<Time>[] = [];
+    const zOverlayMarks: SeriesMarker<Time>[] = [];
+
+    const drawOverlay = (
+      ov: EntryOverlay | undefined,
+      color: string,
+      label: string,
+    ) => {
+      if (!ov) return;
+      const line = (series: ISeriesApi<"Line">, price: number) =>
         series.createPriceLine({
           price,
-          color: C.yellow,
+          color,
           lineWidth: 2,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: false,
         });
-      if (entry.z != null && Number.isFinite(entry.z)) {
-        entryLine(zLine, entry.z);
-        zLevels.push({ price: entry.z, color: C.yellow, text: "entry" });
+      if (ov.z != null && Number.isFinite(ov.z)) {
+        line(zLine, ov.z);
+        zLevels.push({ price: ov.z, color, text: label });
       }
-      if (entry.spread != null && Number.isFinite(entry.spread)) {
-        entryLine(spreadLine, entry.spread);
-        spreadLevels.push({ price: entry.spread, color: C.yellow, text: "entry" });
+      if (ov.spread != null && Number.isFinite(ov.spread)) {
+        line(spreadLine, ov.spread);
+        spreadLevels.push({ price: ov.spread, color, text: label });
       }
-      if (entry.priceBase != null && Number.isFinite(entry.priceBase)) {
-        entryLine(baseRaw, entry.priceBase);
+      if (ov.priceBase != null && Number.isFinite(ov.priceBase)) {
+        line(baseRaw, ov.priceBase);
         rawEntryLabels.push({
           series: baseRaw,
-          level: { price: entry.priceBase, color: C.yellow, text: "entry" },
+          level: { price: ov.priceBase, color, text: label },
           side: "left",
         });
       }
-      if (entry.priceQuote != null && Number.isFinite(entry.priceQuote)) {
-        entryLine(quoteRaw, entry.priceQuote);
+      if (ov.priceQuote != null && Number.isFinite(ov.priceQuote)) {
+        line(quoteRaw, ov.priceQuote);
         rawEntryLabels.push({
           series: quoteRaw,
-          level: { price: entry.priceQuote, color: C.yellow, text: "entry" },
+          level: { price: ov.priceQuote, color, text: label },
           side: "right",
         });
       }
-      if (entry.time != null && Number.isFinite(entry.time)) {
-        const t = snapToBar(data.spread.series, entry.time);
+      if (ov.time != null && Number.isFinite(ov.time)) {
+        const t = snapToBar(data.spread.series, ov.time);
         if (t != null) {
-          snappedEntry = t as UTCTimestamp;
-          // Mirror the entry-time marker on the non-Z panels; the Z panel folds it
-          // into its own marker set below so it coexists with entry/exit arrows.
           const mark: SeriesMarker<Time> = {
-            time: snappedEntry,
+            time: t as UTCTimestamp,
             position: "aboveBar",
-            color: C.yellow,
+            color,
             shape: "circle",
-            text: "entry",
+            text: label,
           };
-          createSeriesMarkers(baseLine, [mark]);
-          createSeriesMarkers(baseRaw, [mark]);
-          createSeriesMarkers(spreadLine, [mark]);
+          baseMarks.push(mark);
+          rawMarks.push(mark);
+          spreadMarks.push(mark);
+          zOverlayMarks.push(mark);
         }
       }
-    }
+    };
+    drawOverlay(entry, C.yellow, "entry");
+    drawOverlay(exit, C.orange, "exit");
+    // Mirror the overlay time markers on the non-Z panels; the Z panel folds them
+    // into its own marker set below so they coexist with model arrows.
+    if (baseMarks.length > 0) createSeriesMarkers(baseLine, baseMarks);
+    if (rawMarks.length > 0) createSeriesMarkers(baseRaw, rawMarks);
+    if (spreadMarks.length > 0) createSeriesMarkers(spreadLine, spreadMarks);
 
-    // ── Z-panel markers: model entry/exit arrows + the "your entry" marker ────
-    // When opened from a recorded trade (entry overlay present) we suppress the
-    // model's simulated long/short/exit/stop markers so the user's own entry is
-    // the only marker on the panel — they were easy to mistake for the trade's
-    // own exit. Opened from the scan table (no entry), they render as before.
-    const zMarkers: SeriesMarker<Time>[] = entry
+    // ── Z-panel markers: model entry/exit arrows + the trade overlay markers ──
+    // When opened from a recorded trade (an entry/exit overlay present) we suppress
+    // the model's simulated long/short/exit/stop markers so the trade's own entry
+    // and exit are the only markers on the panel. Opened from the scan table (no
+    // overlay), they render as before.
+    const hasOverlay = Boolean(entry || exit);
+    const zMarkers: SeriesMarker<Time>[] = hasOverlay
       ? []
       : data.zscore.markers.map((m) =>
           m.kind === "entry"
@@ -497,15 +527,7 @@ export default function PairCharts({
                 text: m.reason === "TAKE_PROFIT" ? "exit" : "stop",
               },
         );
-    if (snappedEntry != null) {
-      zMarkers.push({
-        time: snappedEntry,
-        position: "aboveBar",
-        color: C.yellow,
-        shape: "circle",
-        text: "entry",
-      });
-    }
+    zMarkers.push(...zOverlayMarks);
     if (zMarkers.length > 0) createSeriesMarkers(zLine, zMarkers);
 
     // Edge band/threshold labels (issue #69), re-aligned on scale changes.
@@ -557,7 +579,7 @@ export default function PairCharts({
       );
       charts.forEach((c) => c.remove());
     };
-  }, [data, entry]);
+  }, [data, entry, exit]);
 
   if (error) {
     return (
@@ -615,6 +637,12 @@ export default function PairCharts({
                 label={`entry ${entry.priceBase != null ? fmtPrice(entry.priceBase) : "—"} / ${entry.priceQuote != null ? fmtPrice(entry.priceQuote) : "—"}`}
               />
             )}
+            {exit && (exit.priceBase != null || exit.priceQuote != null) && (
+              <Legend
+                color={C.orange}
+                label={`exit ${exit.priceBase != null ? fmtPrice(exit.priceBase) : "—"} / ${exit.priceQuote != null ? fmtPrice(exit.priceQuote) : "—"}`}
+              />
+            )}
           </>
         }
         innerRef={rawRef}
@@ -632,6 +660,12 @@ export default function PairCharts({
                 · <span className="text-yellow">entry {entry.spread.toFixed(2)}</span>
               </>
             )}
+            {exit?.spread != null && (
+              <>
+                {" "}
+                · <span style={{ color: C.orange }}>exit {exit.spread.toFixed(2)}</span>
+              </>
+            )}
           </span>
         }
         innerRef={spreadRef}
@@ -647,7 +681,13 @@ export default function PairCharts({
             {entry?.z != null && (
               <>
                 {" "}
-                · <span className="text-yellow">your entry {entry.z.toFixed(2)}</span>
+                · <span className="text-yellow">entry {entry.z.toFixed(2)}</span>
+              </>
+            )}
+            {exit?.z != null && (
+              <>
+                {" "}
+                · <span style={{ color: C.orange }}>exit {exit.z.toFixed(2)}</span>
               </>
             )}
           </span>
