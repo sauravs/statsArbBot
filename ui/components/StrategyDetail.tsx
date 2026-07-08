@@ -562,7 +562,10 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
           <thead>
             <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
               <th className="px-2 py-1.5 text-left">Pair</th>
-              <th className="px-2 py-1.5 text-center">Dir</th>
+              <th className="px-2 py-1.5 text-center">
+                Dir
+                <InfoTip text="Trade direction, in PAIR order (base/quote). L/S = Long base, Short quote — entered when z<0 (spread below its mean, base relatively cheap). S/L = Short base, Long quote — entered when z>0. A pair trade is always market-neutral: long one leg, short the other." />
+              </th>
               <th className="px-2 py-1.5 text-left">Entry (t · Z · px)</th>
               <th className="px-2 py-1.5 text-left">Exit (t · Z · px)</th>
               <th className="px-2 py-1.5 text-right">Hold</th>
