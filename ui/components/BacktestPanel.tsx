@@ -79,6 +79,7 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
   useEffect(() => {
     if (!selectedId || !isRunning) return;
     let cancelled = false;
+    let finalTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setInterval(async () => {
       try {
         const next = await getStrategy(selectedId);
@@ -87,6 +88,18 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
         if (next.status !== "RUNNING") {
           clearInterval(timer);
           refreshList().catch(() => {});
+          // The engine flips the status to a terminal state and only THEN recomputes
+          // cross-strategy ranks (backtest/engine.py), so the row we just observed can
+          // still carry the pre-run rank (often null). Polling has stopped, so without
+          // this the detail would show no rank until a manual reselect. Re-fetch once,
+          // shortly after, to land the freshly assigned rank + final fields.
+          finalTimer = setTimeout(() => {
+            getStrategy(selectedId)
+              .then((finalRow) => {
+                if (!cancelled) setDetail(finalRow);
+              })
+              .catch(() => {});
+          }, 800);
         }
       } catch {
         /* transient poll error — keep the last known state */
@@ -95,6 +108,7 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
     return () => {
       cancelled = true;
       clearInterval(timer);
+      if (finalTimer) clearTimeout(finalTimer);
     };
   }, [selectedId, isRunning, refreshList]);
 
