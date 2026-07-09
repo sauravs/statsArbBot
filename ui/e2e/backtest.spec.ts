@@ -26,8 +26,15 @@ async function createStrategy(page: Page, name: string, entryZ: string) {
   await page.getByTestId("strategy-scan-days").fill("7");
   await page.getByTestId("strategy-trade-days").fill("3");
   await page.getByTestId("create-strategy-btn").click();
-  // The new strategy is auto-selected.
+  // The new strategy is auto-selected. Its detail loads asynchronously, so the
+  // panel briefly still shows the *previous* selection's detail — if we clicked Run
+  // then, it would act on the stale strategy id. A freshly-created strategy is
+  // PENDING, so wait for that badge to confirm the new strategy's detail is loaded
+  // before any Run/assert (the Run button reads the loaded detail's id).
   await expect(page.getByTestId("strategy-detail")).toBeVisible();
+  await expect(
+    page.getByTestId("strategy-detail").getByTestId("bt-status-badge"),
+  ).toHaveText("PENDING");
 }
 
 async function runToCompletion(page: Page) {
@@ -78,6 +85,18 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(chartTab.getByTestId("bt-trade-chart")).toBeVisible({ timeout: 15_000 });
     await expect(chartTab.getByTestId("chart-normalized")).toBeVisible();
     await expect(chartTab.getByTestId("chart-zscore")).toBeVisible();
+
+    // #172 — entry/exit are drawn as distinct-colored VERTICAL time-lines (not
+    // near-identical horizontal price-lines). Both lines render across the panels,
+    // and hovering one reveals a tooltip with that point's time (+ value).
+    const vEntry = chartTab.getByTestId("bt-chart-vline-entry").first();
+    const vExit = chartTab.getByTestId("bt-chart-vline-exit").first();
+    await expect(vEntry).toBeVisible();
+    await expect(vExit).toBeVisible();
+    await vEntry.hover();
+    const tip = chartTab.getByTestId("bt-chart-vline-tip").first();
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText("UTC");
     await chartTab.close();
 
     // Exit reasons render as a donut with a count·% legend + a health read (#79).

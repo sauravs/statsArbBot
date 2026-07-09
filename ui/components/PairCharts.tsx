@@ -27,8 +27,14 @@ const C = {
   green: "#00d4a1",
   red: "#ff4757",
   yellow: "#ffd32a",
-  orange: "#ff9f43", // trade EXIT overlay (distinct from the yellow entry)
+  orange: "#ff9f43", // legacy manual-view EXIT overlay (kept for the horizontal path)
   blue: "#4a90e2",
+  // Backtest per-trade entry/exit VERTICAL time-lines (issue #172): a cyan/violet
+  // pair chosen to read clearly against each other and against every panel color
+  // (green/blue legs, red σ-bands, yellow spread, grey mean) — the old yellow/orange
+  // entry/exit were too close in hue to tell apart.
+  entryLine: "#22d3ee", // cyan — trade ENTRY
+  exitLine: "#c084fc", // violet — trade EXIT
 };
 
 const PANEL_HEIGHT = 240;
@@ -123,6 +129,116 @@ function attachEdgeLabels(
     });
   };
   return { reposition, remove: () => els.forEach((e) => e.remove()) };
+}
+
+/** "2026-07-03 14:00 UTC" — the compact UTC stamp used in the vertical-line tips. */
+function fmtChartTime(t: number): string {
+  return new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+}
+
+/**
+ * Draw a trade's entry/exit as a full-height VERTICAL time-line over a panel
+ * (issue #172). A trade is a *moment in time*, so a vertical line at the entry /
+ * exit timestamp reads far better than a horizontal price-line (which marks a
+ * level across all time and was easy to confuse with the σ / threshold bands, and
+ * whose old yellow/orange were nearly the same hue). Like the edge labels, the
+ * line is an absolutely-positioned HTML overlay repositioned via
+ * ``timeToCoordinate`` on zoom / resize; it hides itself when the timestamp falls
+ * outside the visible range (or the panel — spread/z on a legacy trade — has no
+ * data). Hovering the line reveals the exact time + the panel's value at that
+ * point. Returns { reposition, remove } for the effect to drive / clean up.
+ */
+function attachVerticalLine(
+  container: HTMLDivElement,
+  chart: IChartApi,
+  time: UTCTimestamp,
+  opts: {
+    color: string;
+    label: string;
+    value: string | null;
+    testid: string;
+    chipTop: string;
+  },
+): { reposition: () => void; remove: () => void } {
+  const wrap = document.createElement("div");
+  wrap.setAttribute("data-testid", opts.testid);
+  // A 10px-wide hit target centered on the 2px line — easy to hover, while only
+  // this thin strip captures pointer events (the rest of the pane still pans).
+  wrap.style.cssText =
+    "position:absolute;top:0;height:100%;width:10px;transform:translateX(-50%);" +
+    "pointer-events:auto;cursor:default;z-index:4;display:none;";
+
+  const line = document.createElement("div");
+  line.style.cssText =
+    "position:absolute;left:50%;top:0;height:100%;width:2px;" +
+    "transform:translateX(-50%);pointer-events:none;";
+  line.style.background = opts.color;
+  wrap.appendChild(line);
+
+  const chip = document.createElement("div");
+  chip.textContent = opts.label;
+  // Entry/exit chips sit at different heights (chipTop) so they never collide when
+  // a short trade puts the two lines close together.
+  chip.style.cssText =
+    `position:absolute;top:${opts.chipTop};left:50%;transform:translateX(-50%);font-size:9px;` +
+    "font-weight:700;line-height:1;padding:1px 4px;border-radius:3px;white-space:nowrap;" +
+    "pointer-events:none;letter-spacing:0.04em;color:#0a0b0d;";
+  chip.style.background = opts.color;
+  wrap.appendChild(chip);
+
+  const tip = document.createElement("div");
+  tip.setAttribute("data-testid", "bt-chart-vline-tip");
+  tip.style.cssText =
+    `position:absolute;top:${parseInt(opts.chipTop, 10) + 15}px;display:none;font-size:10px;line-height:1.35;` +
+    "padding:4px 7px;border-radius:5px;white-space:nowrap;pointer-events:none;z-index:5;" +
+    "background:rgba(10,11,13,0.94);border:1px solid #21262d;box-shadow:0 2px 8px rgba(0,0,0,0.4);";
+  const tipLabel = document.createElement("div");
+  tipLabel.textContent = opts.label;
+  tipLabel.style.cssText = `font-weight:700;letter-spacing:0.04em;color:${opts.color};`;
+  const tipTime = document.createElement("div");
+  tipTime.textContent = fmtChartTime(time);
+  tipTime.style.color = "#8b949e";
+  tip.appendChild(tipLabel);
+  tip.appendChild(tipTime);
+  if (opts.value) {
+    const tipVal = document.createElement("div");
+    tipVal.textContent = opts.value;
+    tipVal.style.color = "#e4e6ea";
+    tip.appendChild(tipVal);
+  }
+  wrap.appendChild(tip);
+
+  // Flip the tooltip to the left when the line sits in the panel's right portion,
+  // so it never overflows the right edge.
+  const placeTip = () => {
+    const x = chart.timeScale().timeToCoordinate(time);
+    if (x != null && x > container.clientWidth - 150) {
+      tip.style.left = "auto";
+      tip.style.right = "6px";
+    } else {
+      tip.style.left = "6px";
+      tip.style.right = "auto";
+    }
+  };
+  wrap.addEventListener("mouseenter", () => {
+    placeTip();
+    tip.style.display = "block";
+  });
+  wrap.addEventListener("mouseleave", () => {
+    tip.style.display = "none";
+  });
+
+  const reposition = () => {
+    const x = chart.timeScale().timeToCoordinate(time);
+    if (x == null) {
+      wrap.style.display = "none";
+    } else {
+      wrap.style.display = "block";
+      wrap.style.left = `${x}px`;
+    }
+  };
+  container.appendChild(wrap);
+  return { reposition, remove: () => wrap.remove() };
 }
 
 /**
@@ -438,6 +554,12 @@ export default function PairCharts({
     const rawMarks: SeriesMarker<Time>[] = [];
     const spreadMarks: SeriesMarker<Time>[] = [];
     const zOverlayMarks: SeriesMarker<Time>[] = [];
+    // Vertical entry/exit time-lines (issue #172), repositioned alongside the edge
+    // labels. Populated only in "trade mode" — a backtest per-trade chart, which
+    // always passes an `exit` overlay. The live/manual pair view passes only
+    // `entry` (no exit) → it keeps the original horizontal price-line overlay.
+    const vlineManagers: { reposition: () => void; remove: () => void }[] = [];
+    const tradeMode = Boolean(exit);
 
     const drawOverlay = (
       ov: EntryOverlay | undefined,
@@ -494,8 +616,71 @@ export default function PairCharts({
         }
       }
     };
-    drawOverlay(entry, C.yellow, "entry");
-    drawOverlay(exit, C.orange, "exit");
+    // ── Trade mode (backtest per-trade chart): vertical entry/exit time-lines ──
+    // Same data, a clearer encoding — a distinct-colored vertical line at each of
+    // the trade's timestamps, mirrored across all panels, hover-revealing the exact
+    // time + that panel's value. No horizontal price-lines / circle markers here.
+    const priceStr = (ov: EntryOverlay): string | null => {
+      if (ov.priceBase == null && ov.priceQuote == null) return null;
+      const b = ov.priceBase != null ? fmtPrice(ov.priceBase) : "—";
+      const q = ov.priceQuote != null ? fmtPrice(ov.priceQuote) : "—";
+      return `${data.base_market} ${b} · ${data.quote_market} ${q}`;
+    };
+    const drawVerticalOverlay = (
+      ov: EntryOverlay | undefined,
+      color: string,
+      label: string,
+      side: "entry" | "exit",
+    ) => {
+      if (!ov || ov.time == null || !Number.isFinite(ov.time)) return;
+      const t = ov.time as UTCTimestamp;
+      const testid = `bt-chart-vline-${side}`;
+      const chipTop = side === "entry" ? "3px" : "16px"; // stagger so chips never collide
+      const px = priceStr(ov);
+      const add = (
+        container: HTMLDivElement | null,
+        chart: IChartApi,
+        value: string | null,
+      ) => {
+        if (!container) return;
+        container.style.position = "relative";
+        vlineManagers.push(
+          attachVerticalLine(container, chart, t, {
+            color,
+            label,
+            value,
+            testid,
+            chipTop,
+          }),
+        );
+      };
+      add(normRef.current, normChart, px);
+      add(rawRef.current, rawChart, px);
+      // Spread/z panels are empty for legacy (non-faithful) trades → their time
+      // scale has no range and the line auto-hides; give a tooltip value only when
+      // the overlay actually carries one.
+      add(
+        spreadRef.current,
+        spreadChart,
+        ov.spread != null && Number.isFinite(ov.spread)
+          ? `spread ${ov.spread.toFixed(2)}`
+          : null,
+      );
+      add(
+        zRef.current,
+        zChart,
+        ov.z != null && Number.isFinite(ov.z) ? `Z ${ov.z.toFixed(2)}` : null,
+      );
+    };
+
+    if (tradeMode) {
+      drawVerticalOverlay(entry, C.entryLine, "ENTRY", "entry");
+      drawVerticalOverlay(exit, C.exitLine, "EXIT", "exit");
+    } else {
+      // Live/manual pair view — unchanged horizontal "your entry" overlay.
+      drawOverlay(entry, C.yellow, "entry");
+      drawOverlay(exit, C.orange, "exit");
+    }
     // Mirror the overlay time markers on the non-Z panels; the Z panel folds them
     // into its own marker set below so they coexist with model arrows.
     if (baseMarks.length > 0) createSeriesMarkers(baseLine, baseMarks);
@@ -543,7 +728,10 @@ export default function PairCharts({
         labelManagers.push(attachEdgeLabels(rawEl, series, [level], side));
       }
     }
-    const repositionLabels = () => labelManagers.forEach((m) => m.reposition());
+    const repositionLabels = () => {
+      labelManagers.forEach((m) => m.reposition());
+      vlineManagers.forEach((m) => m.reposition());
+    };
 
     // ── Sync the visible time range across all panels ─────────────────────────
     const charts: IChartApi[] = [normChart, rawChart, spreadChart, zChart];
@@ -568,12 +756,16 @@ export default function PairCharts({
     const ro = new ResizeObserver(() => repositionLabels());
     ro.observe(spreadRef.current);
     ro.observe(zRef.current);
+    // Also watch the price panels so the vertical trade-lines track width changes.
+    ro.observe(normRef.current);
+    ro.observe(rawRef.current);
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       crosshairUnsubs.forEach((unsub) => unsub());
       labelManagers.forEach((m) => m.remove());
+      vlineManagers.forEach((m) => m.remove());
       subs.forEach(({ src, handler }) =>
         src.timeScale().unsubscribeVisibleLogicalRangeChange(handler),
       );
@@ -599,6 +791,11 @@ export default function PairCharts({
       </p>
     );
   }
+
+  // Legend readouts match the overlay colors: cyan/violet for a backtest trade
+  // (vertical lines), the original yellow/orange for the live/manual entry overlay.
+  const entryColor = exit ? C.entryLine : C.yellow;
+  const exitColor = C.exitLine;
 
   return (
     <div data-testid="pair-charts" className="space-y-4">
@@ -633,13 +830,13 @@ export default function PairCharts({
             />
             {entry && (entry.priceBase != null || entry.priceQuote != null) && (
               <Legend
-                color={C.yellow}
+                color={entryColor}
                 label={`entry ${entry.priceBase != null ? fmtPrice(entry.priceBase) : "—"} / ${entry.priceQuote != null ? fmtPrice(entry.priceQuote) : "—"}`}
               />
             )}
             {exit && (exit.priceBase != null || exit.priceQuote != null) && (
               <Legend
-                color={C.orange}
+                color={exitColor}
                 label={`exit ${exit.priceBase != null ? fmtPrice(exit.priceBase) : "—"} / ${exit.priceQuote != null ? fmtPrice(exit.priceQuote) : "—"}`}
               />
             )}
@@ -657,13 +854,13 @@ export default function PairCharts({
             {entry?.spread != null && (
               <>
                 {" "}
-                · <span className="text-yellow">entry {entry.spread.toFixed(2)}</span>
+                · <span style={{ color: entryColor }}>entry {entry.spread.toFixed(2)}</span>
               </>
             )}
             {exit?.spread != null && (
               <>
                 {" "}
-                · <span style={{ color: C.orange }}>exit {exit.spread.toFixed(2)}</span>
+                · <span style={{ color: exitColor }}>exit {exit.spread.toFixed(2)}</span>
               </>
             )}
           </span>
@@ -681,13 +878,13 @@ export default function PairCharts({
             {entry?.z != null && (
               <>
                 {" "}
-                · <span className="text-yellow">entry {entry.z.toFixed(2)}</span>
+                · <span style={{ color: entryColor }}>entry {entry.z.toFixed(2)}</span>
               </>
             )}
             {exit?.z != null && (
               <>
                 {" "}
-                · <span style={{ color: C.orange }}>exit {exit.z.toFixed(2)}</span>
+                · <span style={{ color: exitColor }}>exit {exit.z.toFixed(2)}</span>
               </>
             )}
           </span>

@@ -89,9 +89,10 @@ export default function BacktestTradeChart({
         </span>
         <span className="text-muted">{dirLabel(data.direction)}</span>
         <span className="tabular-nums text-muted">
-          <span className="text-yellow">entry</span> {fmtT(data.entry.time)}
+          {/* Colors mirror the chart's vertical entry/exit lines — C.entryLine / C.exitLine (#172). */}
+          <span style={{ color: "#22d3ee" }}>entry</span> {fmtT(data.entry.time)}
           {" → "}
-          <span style={{ color: "#ff9f43" }}>exit</span> {fmtT(data.exit.time)}
+          <span style={{ color: "#c084fc" }}>exit</span> {fmtT(data.exit.time)}
         </span>
         <span className={`tabular-nums font-semibold ${pnlTone}`}>{fmtUsd(data.net_pnl)}</span>
         <span className="rounded bg-bg px-1.5 py-0.5 text-xs text-muted">{data.exit_reason}</span>
