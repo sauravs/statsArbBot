@@ -128,6 +128,13 @@ async def build_backtest_trade_series(
         "window_index": trade["window_index"],
         "direction": trade["direction"],
         "exit_reason": trade["exit_reason"],
+        # P&L decomposition so the chart can explain WHY a take-profit still lost
+        # money: net = gross − fees + funding (funding signed). A small spread
+        # reversion (gross) eaten by round-trip taker fees + funding over the hold
+        # is exactly how a TAKE_PROFIT row ends up red.
+        "gross_pnl": trade["gross_pnl"],
+        "fee_cost": trade["fee_cost"],
+        "funding_pnl": trade["funding_pnl"],
         "net_pnl": trade["net_pnl"],
         # Whether the spread/z panels reproduce what the backtest traded (β/α known).
         "faithful": faithful,

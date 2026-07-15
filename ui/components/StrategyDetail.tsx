@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { BacktestStatusBadge } from "./StrategyList";
 import InfoTip from "./InfoTip";
+import { reasonLabel, reasonHint, reasonBadgeStyle } from "@/lib/exitReason";
 
 // Health-coloured palette for the exit-reason mix (issue #79): take-profit is a
 // good exit (green), the z-score stop is a loss/breakdown signal (red), the time
@@ -515,8 +516,11 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedOnce, setLoadedOnce] = useState(false);
+  // Server-side "losing take-profits" filter: reason=TAKE_PROFIT AND net_pnl<0 —
+  // the cohort where the thesis worked (spread reverted) but costs ate the trade.
+  const [losingTpOnly, setLosingTpOnly] = useState(false);
 
-  const load = async (nextOffset: number) => {
+  const load = async (nextOffset: number, losingTp: boolean = losingTpOnly) => {
     setLoading(true);
     setError(null);
     try {
@@ -524,6 +528,7 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
         window: windowIndex,
         limit: TRADES_PAGE,
         offset: nextOffset,
+        outcome: losingTp ? "losing_tp" : undefined,
       });
       setTrades(res.trades);
       setTotal(res.total);
@@ -534,6 +539,12 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleLosingTp = () => {
+    const next = !losingTpOnly;
+    setLosingTpOnly(next);
+    void load(0, next); // reset to the first page under the new filter
   };
 
   // Lazy-load the first page when the blotter mounts (i.e. the row is opened).
@@ -548,7 +559,8 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
   if (error) {
     return <p className="py-3 text-center text-xs text-red">{error}</p>;
   }
-  if (loadedOnce && total === 0) {
+  // Genuinely-empty window (no trades at all, filter off) → keep the terse note.
+  if (loadedOnce && total === 0 && !losingTpOnly) {
     return <p className="py-3 text-center text-xs text-muted">No trades in this window.</p>;
   }
 
@@ -557,6 +569,31 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
 
   return (
     <div data-testid="bt-blotter">
+      <div className="mb-2 flex items-center gap-2 text-[11px]">
+        <button
+          type="button"
+          onClick={toggleLosingTp}
+          aria-pressed={losingTpOnly}
+          disabled={loading}
+          data-testid="bt-blotter-filter-losing-tp"
+          className={`rounded border px-2 py-0.5 disabled:opacity-40 ${
+            losingTpOnly
+              ? "border-yellow/60 bg-yellow/10 text-yellow"
+              : "border-border text-muted hover:bg-bg/50"
+          }`}
+        >
+          {losingTpOnly ? "✓ " : ""}Losing take-profits
+        </button>
+        <span className="text-muted/70">
+          <InfoTip text="Show only 'Reverted' (take-profit) exits that still closed at a net loss — the spread reverted but fees + funding turned the trade red. The interesting cohort for tuning costs / half-life." />
+        </span>
+      </div>
+      {total === 0 ? (
+        <p className="py-3 text-center text-xs text-muted" data-testid="bt-blotter-empty">
+          No losing take-profits in this window.
+        </p>
+      ) : (
+      <>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[940px] text-xs" data-testid="bt-blotter-table">
           <thead>
@@ -570,7 +607,14 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
               <th className="px-2 py-1.5 text-left">Exit (t · Z · px)</th>
               <th className="px-2 py-1.5 text-right">Hold</th>
               <th className="px-2 py-1.5 text-right">Net P&amp;L</th>
-              <th className="px-2 py-1.5 text-left">Reason</th>
+              <th className="px-2 py-1.5 text-center">
+                Outcome
+                <InfoTip text="Did the trade make money? Driven purely by Net P&L sign — kept separate from Reason, because the two are independent: a 'Reverted' (take-profit) exit can still be a Loss after fees & funding." />
+              </th>
+              <th className="px-2 py-1.5 text-left">
+                Reason
+                <InfoTip text="Why the position closed — a signal rule: Reverted (|z| fell back inside the exit band, i.e. take-profit), Z-stop (|z| diverged past the stop), or Time-stop (held too long). This is the exit TRIGGER, not the dollar result: a Reverted exit can still be a net loss after fees & funding — see Net P&L / Outcome." />
+              </th>
               <th className="px-2 py-1.5 text-center">
                 Chart
                 <InfoTip text="Open this trade on a 4-panel pair chart (price, spread, z-score) over its test window, with the entry and exit marked — like the Manual Trading view. Opens in a new tab." />
@@ -600,12 +644,29 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
                 <td className={`px-2 py-1.5 text-right tabular-nums ${t.net_pnl >= 0 ? "text-green" : "text-red"}`}>
                   {fmtUsd(t.net_pnl)}
                 </td>
+                <td className="px-2 py-1.5 text-center">
+                  {t.net_pnl > 0 ? (
+                    <span className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] text-green" style={{ backgroundColor: "#00d4a11a" }} data-testid="bt-blotter-outcome">
+                      ✓ Win
+                    </span>
+                  ) : t.net_pnl < 0 ? (
+                    <span className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] text-red" style={{ backgroundColor: "#ff47571a" }} data-testid="bt-blotter-outcome">
+                      ✗ Loss
+                    </span>
+                  ) : (
+                    <span className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] text-muted" style={{ backgroundColor: "#8b949e1a" }} data-testid="bt-blotter-outcome">
+                      Flat
+                    </span>
+                  )}
+                </td>
                 <td className="px-2 py-1.5">
                   <span
                     className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px]"
-                    style={{ color: exitColor(t.exit_reason), backgroundColor: `${exitColor(t.exit_reason)}1a` }}
+                    style={reasonBadgeStyle(t.exit_reason)}
+                    title={reasonHint(t.exit_reason)}
+                    data-testid="bt-blotter-reason"
                   >
-                    {t.exit_reason}
+                    {reasonLabel(t.exit_reason)}
                   </span>
                 </td>
                 <td className="px-2 py-1.5 text-center">
@@ -649,6 +710,8 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
           </button>
         </span>
       </div>
+      </>
+      )}
     </div>
   );
 }

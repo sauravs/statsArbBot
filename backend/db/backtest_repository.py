@@ -146,15 +146,21 @@ class PrismaStrategyRepository:
 
     async def list_backtest_trades(
         self, strategy_id: str, *, window_index: int | None = None,
-        limit: int = 50, offset: int = 0,
+        limit: int = 50, offset: int = 0, outcome: str | None = None,
     ) -> dict:
-        """Paginated trades for a strategy, optionally scoped to one window."""
+        """Paginated trades for a strategy, optionally scoped to one window and/or an
+        ``outcome`` filter. ``losing_tp`` = take-profit exits that still closed at a
+        net loss (reason=TAKE_PROFIT AND net_pnl<0) — filtered in the DB so the total
+        and pagination stay correct across the whole result set."""
         from db.client import get_db
 
         db = await get_db()
         where: dict = {"strategy_id": strategy_id}
         if window_index is not None:
             where["window_index"] = window_index
+        if outcome == "losing_tp":
+            where["exit_reason"] = "TAKE_PROFIT"
+            where["net_pnl"] = {"lt": 0}
         total = await db.backtesttrade.count(where=where)
         records = await db.backtesttrade.find_many(
             where=where,

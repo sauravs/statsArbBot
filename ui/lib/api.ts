@@ -936,6 +936,11 @@ export interface BacktestTradeSeries {
   window_index: number;
   direction: string;
   exit_reason: string;
+  /** P&L decomposition: net = gross − fee_cost + funding_pnl. Lets the chart
+   * explain why a take-profit ("Reverted") exit can still be a net loss. */
+  gross_pnl: number;
+  fee_cost: number;
+  funding_pnl: number;
   net_pnl: number;
   /** Whether spread/z reproduce what the backtest traded (β/α known). */
   faithful: boolean;
@@ -961,12 +966,20 @@ export function fetchBacktestTradeSeries(
  */
 export function fetchBacktestTrades(
   id: string,
-  opts: { window?: number; limit?: number; offset?: number } = {},
+  opts: {
+    window?: number;
+    limit?: number;
+    offset?: number;
+    /** Server-side outcome filter. "losing_tp" = take-profit exits that still
+     * closed at a net loss (reason=TAKE_PROFIT AND net_pnl<0). */
+    outcome?: "losing_tp";
+  } = {},
 ): Promise<BacktestTradesResponse> {
   const q = new URLSearchParams();
   if (opts.window !== undefined) q.set("window", String(opts.window));
   if (opts.limit !== undefined) q.set("limit", String(opts.limit));
   if (opts.offset !== undefined) q.set("offset", String(opts.offset));
+  if (opts.outcome !== undefined) q.set("outcome", opts.outcome);
   const suffix = q.toString() ? `?${q}` : "";
   return proxyGet<BacktestTradesResponse>(
     `api/backtest/strategies/${encodeURIComponent(id)}/trades${suffix}`,
