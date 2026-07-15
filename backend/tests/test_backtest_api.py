@@ -248,6 +248,41 @@ def test_trade_series_chart(ctx, monkeypatch):
         == 404
     )
 
+    # The chart payload carries the P&L decomposition so the UI can explain a
+    # losing take-profit: net = gross − fees + funding.
+    for k in ("gross_pnl", "fee_cost", "funding_pnl", "net_pnl"):
+        assert k in d, k
+    assert abs((d["gross_pnl"] - d["fee_cost"] + d["funding_pnl"]) - d["net_pnl"]) < 1e-6
+
+
+def test_trades_filter_losing_take_profit(ctx):
+    """The ``losing_tp`` outcome filter returns exactly the take-profit exits that
+    still closed at a net loss — filtered server-side so total/pagination are right."""
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    ctx.client.post(f"/api/backtest/strategies/{sid}/run", headers=AUTH)
+
+    full = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?limit=500", headers=AUTH
+    ).json()["trades"]
+    expected = [
+        t for t in full if t["exit_reason"] == "TAKE_PROFIT" and t["net_pnl"] < 0
+    ]
+
+    filtered = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?outcome=losing_tp&limit=500", headers=AUTH
+    ).json()
+    assert filtered["outcome"] == "losing_tp"
+    assert filtered["total"] == len(expected)
+    assert {t["id"] for t in filtered["trades"]} == {t["id"] for t in expected}
+    for t in filtered["trades"]:
+        assert t["exit_reason"] == "TAKE_PROFIT" and t["net_pnl"] < 0
+
+    # An unrecognised outcome is rejected rather than silently ignored.
+    bad = ctx.client.get(
+        f"/api/backtest/strategies/{sid}/trades?outcome=bogus", headers=AUTH
+    )
+    assert bad.status_code == 422
+
 
 def test_trades_endpoint_404_and_auth(ctx):
     assert ctx.client.get("/api/backtest/strategies/nope/trades").status_code == 401

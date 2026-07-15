@@ -248,25 +248,42 @@ async def stop_strategy(strategy_id: str) -> dict:
         raise _guard_db(exc)
 
 
+# Server-side blotter filters (issue: exit-reason vs P&L clarity). The reason a
+# trade closed is a z-score/time signal rule, independent of its dollar result — so
+# a TAKE_PROFIT can still be a net loss (small reversion eaten by fees + funding).
+# ``losing_tp`` surfaces exactly that cohort (reason=TAKE_PROFIT AND net_pnl<0),
+# which is the interesting set for tuning costs/half-life. Applied server-side so
+# the total + pagination stay correct across the whole (paginated) result set.
+_TRADE_OUTCOMES = {"losing_tp"}
+
+
 @router.get("/strategies/{strategy_id}/trades")
 async def list_trades(
     strategy_id: str,
     window: int | None = Query(default=None, ge=0),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    outcome: str | None = Query(default=None),
 ) -> dict:
     """Paginated per-trade blotter for a strategy (issue #162).
 
     ``window`` scopes to one walk-forward window (the UI drills in per window).
+    ``outcome`` (currently only ``losing_tp``) filters to the losing-take-profit
+    cohort — take-profit exits that still closed at a net dollar loss.
     Strategies run before this feature shipped simply have no trades → empty list.
     """
+    if outcome is not None and outcome not in _TRADE_OUTCOMES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown outcome filter {outcome!r}; expected one of {sorted(_TRADE_OUTCOMES)}.",
+        )
     try:
         engine = get_backtest_engine()
         row = await engine.get(strategy_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Strategy not found.")
         result = await engine.list_trades(
-            strategy_id, window_index=window, limit=limit, offset=offset
+            strategy_id, window_index=window, limit=limit, offset=offset, outcome=outcome
         )
     except HTTPException:
         raise
@@ -274,7 +291,7 @@ async def list_trades(
         raise _guard_db(exc)
     return {
         "id": strategy_id, "window": window,
-        "limit": limit, "offset": offset, **result,
+        "limit": limit, "offset": offset, "outcome": outcome, **result,
     }
 
 
