@@ -687,11 +687,16 @@ class FakeStrategyRepository:
 
     async def list_backtest_trades(
         self, strategy_id: str, *, window_index: int | None = None,
-        limit: int = 50, offset: int = 0,
+        limit: int = 50, offset: int = 0, outcome: str | None = None,
     ) -> dict:
         rows = [t for t in self.trades if t["strategy_id"] == strategy_id]
         if window_index is not None:
             rows = [t for t in rows if t["window_index"] == window_index]
+        if outcome == "losing_tp":
+            rows = [
+                t for t in rows
+                if t.get("exit_reason") == "TAKE_PROFIT" and t.get("net_pnl", 0) < 0
+            ]
         rows.sort(key=lambda t: (str(t.get("entry_time")), t["id"]))
         return {"trades": [dict(t) for t in rows[offset : offset + limit]], "total": len(rows)}
 

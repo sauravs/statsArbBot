@@ -107,11 +107,13 @@ class BacktestEngine:
 
     async def list_trades(
         self, strategy_id: str, *, window_index: int | None = None,
-        limit: int = 50, offset: int = 0,
+        limit: int = 50, offset: int = 0, outcome: str | None = None,
     ) -> dict:
-        """Paginated per-trade blotter (issue #162), optionally scoped to a window."""
+        """Paginated per-trade blotter (issue #162), optionally scoped to a window
+        and/or an ``outcome`` filter (e.g. ``losing_tp``)."""
         return await get_strategy_repository().list_backtest_trades(
-            strategy_id, window_index=window_index, limit=limit, offset=offset
+            strategy_id, window_index=window_index, limit=limit, offset=offset,
+            outcome=outcome,
         )
 
     async def get_trade(self, trade_id: str) -> dict | None:

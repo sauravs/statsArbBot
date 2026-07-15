@@ -76,6 +76,28 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(page.getByTestId("bt-blotter-row").first()).toBeVisible();
     await expect(page.getByTestId("bt-blotter-range")).toContainText("of");
 
+    // Reason is a plain-English, P&L-neutral label (not the raw enum), and the
+    // separate Win/Loss Outcome chip makes the dollar result unmistakable — so a
+    // losing take-profit reads as "Reverted" + "Loss", never a green "TAKE_PROFIT"
+    // that looks like a win.
+    const reason0 = page.getByTestId("bt-blotter-reason").first();
+    await expect(reason0).toBeVisible();
+    await expect(reason0).not.toContainText("TAKE_PROFIT");
+    await expect(reason0).toContainText(/Reverted|Z-stop|Time-stop|Window end|Stopped/);
+    await expect(page.getByTestId("bt-blotter-outcome").first()).toContainText(/Win|Loss|Flat/);
+
+    // The "Losing take-profits" server-side filter narrows to reason=TAKE_PROFIT
+    // AND net_pnl<0 — so no Win chip can survive it (or the empty-state shows).
+    const ltpFilter = page.getByTestId("bt-blotter-filter-losing-tp");
+    await expect(ltpFilter).toHaveAttribute("aria-pressed", "false");
+    await ltpFilter.click();
+    await expect(ltpFilter).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("bt-blotter-outcome").filter({ hasText: "Win" })).toHaveCount(0);
+    // Toggle back off so the chart-link step below sees the full blotter.
+    await ltpFilter.click();
+    await expect(ltpFilter).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("bt-blotter-row").first()).toBeVisible();
+
     // A trade's "Chart" link opens the 4-panel per-trade chart in a new tab (#166),
     // with the trade's entry/exit marked. Verify the chart page renders its panels.
     const [chartTab] = await Promise.all([
@@ -85,6 +107,15 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(chartTab.getByTestId("bt-trade-chart")).toBeVisible({ timeout: 15_000 });
     await expect(chartTab.getByTestId("chart-normalized")).toBeVisible();
     await expect(chartTab.getByTestId("chart-zscore")).toBeVisible();
+
+    // The summary explains WHY net P&L ≠ "profit": net = gross − fees + funding.
+    // And the reason badge uses the same P&L-neutral label as the blotter.
+    const costs = chartTab.getByTestId("bt-trade-costs");
+    await expect(costs).toBeVisible();
+    await expect(costs).toContainText("Gross");
+    await expect(costs).toContainText("Fees");
+    await expect(costs).toContainText("Funding");
+    await expect(chartTab.getByTestId("bt-trade-reason")).not.toContainText("TAKE_PROFIT");
 
     // #172 — entry/exit are drawn as distinct-colored VERTICAL time-lines (not
     // near-identical horizontal price-lines). Both lines render across the panels,
