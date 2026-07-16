@@ -55,11 +55,16 @@ const REASON_COLOR: Record<string, string> = {
   STOPPED: "#8b949e",
 };
 
+/** The solid P&L-neutral color for a reason (pie slices, legend dots, badges). */
+export function reasonColor(reason: string): string {
+  return REASON_COLOR[reason] ?? "#4a90e2";
+}
+
 /** Inline style for the reason pill: a P&L-neutral color on a faint tint. */
 export function reasonBadgeStyle(reason: string): {
   color: string;
   backgroundColor: string;
 } {
-  const c = REASON_COLOR[reason] ?? "#4a90e2";
+  const c = reasonColor(reason);
   return { color: c, backgroundColor: `${c}1a` };
 }

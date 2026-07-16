@@ -131,8 +131,13 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await chartTab.close();
 
     // Exit reasons render as a donut with a count·% legend + a health read (#79).
+    // The legend uses the same plain-English labels as the blotter (not raw enums).
     await expect(page.getByTestId("bt-exits-donut")).toBeVisible();
     await expect(page.getByTestId("bt-exits-list")).toContainText("%");
+    await expect(page.getByTestId("bt-exits-list")).not.toContainText("TAKE_PROFIT");
+    await expect(page.getByTestId("bt-exits-list")).toContainText(
+      /Reverted|Z-stop|Time-stop|Window end|Stopped/,
+    );
     await expect(page.getByTestId("bt-exits-health")).toBeVisible();
 
     // A second strategy → both are ranked by net P&L (F8.3).
