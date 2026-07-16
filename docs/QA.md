@@ -93,6 +93,24 @@ Three reasons HL shows so many:
 
 ---
 
+## 2026-07-15 — Why is a *losing* per-trade P&L labelled "TAKE_PROFIT"?
+
+*(logged via `/qa-skill`)*
+
+**Q:** In the Backtest section, for "Untitled strategy rank #1" (Net P&L $1864), the expanded per-entry travelog shows a row like `ARK/ME  S/L  03-23 00:00 · z=3.28 · 0.1643/0.1037  →  03-23 17:00 · z=0.50 · 0.1705/0.1069  17h  -$1.47  TAKE_PROFIT`. Even though this trade's Net P&L is a loss (red, -$1.47), the exit REASON is given as TAKE_PROFIT — shouldn't it say "loss" or something?
+
+**A:** This is **expected**, not a bug. The exit **reason** and the **dollar P&L** are two independent things:
+
+- **The reason describes *which signal rule* closed the trade — it is purely z-score-based, never P&L-based.** The single source of truth is `evaluate_exit()` in `backend/statcore/signals.py:99-151`. It closes a position for exactly one of three reasons, in precedence order: `STOP_LOSS_ZSCORE` (`|z| ≥ 4.0`, `:135`), then `TAKE_PROFIT` (`|z| < exit_threshold`, default 0.5, `:138`), then `STOP_LOSS_TIME` (held > 3 × half-life, `:141`). `TAKE_PROFIT` literally means "the spread reverted back inside the exit band" — i.e. **the mean-reversion thesis played out** (`ExitReason.TAKE_PROFIT` is documented as "|Z| reverted below the exit threshold", `signals.py:50`). In your row that's exactly what happened: entry `z=3.28` → exit `z=0.50`, the gap snapped back. So the engine correctly tags it TAKE_PROFIT.
+
+- **The dollar P&L is computed separately and *nets out costs*.** `net_pnl` is capital-based and already subtracts taker fees, funding, and slippage (`backend/backtest/engine.py:448`, `:570-571`; funding accrued each hour, `:367-371`). So a trade can hit its take-profit *signal* and still be **net-negative in dollars** whenever the captured spread move is smaller than the round-trip cost. That's precisely this trade: it only reverted to `z=0.50` (not all the way to 0), so the spread gain was modest, and 17h of funding + entry/exit taker fees on both legs tipped it to **-$1.47**. `docs/TRADING_CONCEPTS.md:311-316,300-308` calls this out directly — "Finding trades ≠ making money"; naive pairs are often net-negative after fees + funding even when the signal works.
+
+**One-line mental model:** *TAKE_PROFIT = "the spread reverted (the trade thesis succeeded)"; the red −$1.47 = "the reversion wasn't big enough to beat fees + funding."* A losing TAKE_PROFIT row is the normal, honest picture of a small win eaten by costs — not a mislabel. (If you want the label to track dollars instead, that would be a UI/semantics change; today the three reasons are strictly the z-score/time rules from `signals.py`.)
+
+**Re-verified against the actual UI screenshots (2026-07-15, Walk-Forward Backtest, HYPERLIQUID LIVE data, window 0: scan 2026-03-01→03-22, trade 2026-03-22→03-29).** The row is confirmed verbatim: `ARK/ME · S/L · entry z=3.28 → exit z=0.50 · 17h · −$1.47 · TAKE_PROFIT`. This strategy's config badge is **Entry |Z|≥3 · Exit |Z|<0.5 · Stop |Z|≥4** (the `1.5` on the left panel is just the blank "new strategy" form, not this strategy). The screenshots contain a decisive proof that the reason is z/time-based, not P&L-based: two *losing* rows carry *different* reasons — `ARK/ME` (exit z=0.50, 17h, −$1.47) → **TAKE_PROFIT**, whereas `ETC/NIL` (exit **z=1.10**, **30h**, −$9.52) → **STOP_LOSS_TIME**, because z=1.10 is neither < 0.5 (take-profit) nor ≥ 4 (stop-z), and it aged past the time-stop. Other losing-but-`TAKE_PROFIT` rows in the same window corroborate: `0G/IP` (exit z=0.45, −$0.12), `MEME/SUPER` (exit z=0.28, −$0.34). Original answer stands unchanged.
+
+---
+
 ## 2026-07-15 — Outcome & Reason columns: how a row is computed from raw candles; all Reason/Outcome types
 
 **Q:** Follow-up on the Outcome/Reason columns. Take the two highlighted blotter rows as examples and explain how those numbers are calculated from the raw price CSV data. How many different Reason types are there and on what criteria? Same for Outcome.
