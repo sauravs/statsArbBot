@@ -129,3 +129,19 @@ So both are **"Reverted"** because the *z-score* snapped back from ≈−3 to in
 **Outcome — driven purely by the sign of `net_pnl`** (`ui/components/StrategyDetail.tsx`, blotter row): `net_pnl > 0` → **✓ Win**; `net_pnl < 0` → **✗ Loss**; `net_pnl == 0` → **Flat**. Note it uses the *true* 6-dp `net_pnl`, not the 2-dp display — so a row can read **$0.00** yet show **✓ Win** (e.g. AXS/SKY: a tiny positive that rounds to $0.00 in the column but is `>0`). Reason and Outcome are orthogonal: Reason = *why it closed* (z/time rule), Outcome = *did it make money* (dollar sign).
 
 ---
+
+## 2026-07-16 — What fees & funding values does the backtest actually deduct?
+
+**Q:** Related to the Backtest / Walk-Forward Windows expanded trade columns — the "Reason" tooltip says "…a Reverted exit can still be a net loss after fees & funding." What are the fees and funding values we're deducting?
+
+**A:** All three frictions live in the cost model `backend/simulation/costs.py` and are **per-strategy fields** (defaults below; settable via the create/update API — `StrategyBody`, `routers/backtest.py:69-71`; schema defaults `prisma/schema.prisma:450-452`). `net_pnl = gross − fee_cost + funding_pnl` (`costs.py:161`).
+
+- **Taker fee — default `taker_fee_pct = 0.05%`, charged per leg on every fill.** A round trip = entry + exit on both legs = **4 fills**, each `0.05% × that fill's notional` (`_fill_leg`, `costs.py:82-92`; exit fee `costs.py:157-159`). `fee_cost` = entry fees + exit fees. It's **not a fixed dollar amount** — it scales with each leg's notional. On the default `USD_PER_TRADE = $100` base leg (`config.py:112`) that's ~$0.05 per base fill (~$0.10 base round-trip); the quote leg is β-weighted (`quote_size = base_size × |β|`), so its notional — and its fee — varies by pair. A typical round trip is on the order of **$0.15–$0.30** in taker fees.
+- **Slippage — default `slippage_pct = 0.05%`, per leg per fill, as an adverse fill price** (BUY fills up, SELL fills down; entry *and* exit) — `apply_slippage`, `costs.py:49-52`. It's not a separate line item: it worsens the fill price, so it silently reduces `gross_pnl` (and nudges the fee base).
+- **Funding — NOT a fixed value: the real historical hourly rate per leg.** Accrued every `funding_freq_h = 1` hour at each leg's actual funding rate from `FundingRateCache` (ingested alongside candles; `historical_feed.py:148-166`). A **long leg pays** funding, a **short leg receives** it, each on its notional (`compute_funding`, `costs.py:191-212`): for `LONG_BASE`, `funding = −base_rate·base_notional + quote_rate·quote_notional`. Netted across the two legs and summed over every hour held, `funding_pnl` can be **positive (earn carry) or negative (bleed)**. A missing rate is treated as 0; if a run has no funding data at all, no funding accrues.
+
+**So the "value deducted" isn't one number** — it's `4 × 0.05%` taker fees on the (β-weighted) leg notionals, plus `0.05%` adverse slippage baked into the fills, plus the signed sum of the real hourly funding over the hold. That's why an 11-hour "Reverted" trade whose spread only partly reverted can still land at −$0.01/−$1.47: a small `gross` gets eaten by ~$0.2 of fees + slippage ± funding.
+
+**Two caveats:** (1) These are **defaults** — a strategy can be created with different `slippage_pct` / `taker_fee_pct` / `funding_freq_h` (0–5% / 0–5% / 1–24h). (2) On the **demo/`fake` data source only**, the `END_OF_WINDOW` force-close zeroes slippage & taker fee (`engine.py:570-571`); on real Hyperliquid/dYdX data (what the live backtest uses) the configured percentages apply on every close. The exact per-trade `gross_pnl` / `fee_cost` / `funding_pnl` split for any row is shown on the **Chart ↗** page's cost-breakdown line.
+
+---
