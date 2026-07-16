@@ -21,19 +21,12 @@ import {
 } from "@/lib/api";
 import { BacktestStatusBadge } from "./StrategyList";
 import InfoTip from "./InfoTip";
-import { reasonLabel, reasonHint, reasonBadgeStyle } from "@/lib/exitReason";
+import { reasonLabel, reasonHint, reasonBadgeStyle, reasonColor } from "@/lib/exitReason";
 
-// Health-coloured palette for the exit-reason mix (issue #79): take-profit is a
-// good exit (green), the z-score stop is a loss/breakdown signal (red), the time
-// stop is a stale-position signal (amber), and an end-of-window force-close is
-// neutral/forced (grey). Any future reason falls back to blue.
-const EXIT_COLORS: Record<string, string> = {
-  TAKE_PROFIT: "#00d4a1",
-  STOP_LOSS_ZSCORE: "#ff4757",
-  STOP_LOSS_TIME: "#ffd32a",
-  END_OF_WINDOW: "#8b949e",
-};
-const exitColor = (reason: string) => EXIT_COLORS[reason] ?? "#4a90e2";
+// The exit-reason mix (issue #79) is coloured by the shared P&L-neutral scheme
+// (`reasonColor`) so a reason reads the same everywhere: Reverted = blue (planned
+// exit), Z-stop = red (breakdown), Time-stop = amber (stale), Window end = grey.
+// Health is conveyed by the summary line + its tone, not by a green slice.
 
 /** A one-line read of the exit mix — a strategy-health hint, not a verdict. */
 function exitHealth(
@@ -50,7 +43,7 @@ function exitHealth(
   if (sz >= 20)
     return {
       tone: "text-red",
-      text: `${sz.toFixed(0)}% hit the z-score stop — watch for cointegration breakdown.`,
+      text: `${sz.toFixed(0)}% hit the Z-stop — watch for cointegration breakdown.`,
     };
   if (ew >= 25)
     return {
@@ -60,12 +53,12 @@ function exitHealth(
   if (st >= 25)
     return {
       tone: "text-yellow",
-      text: `${st.toFixed(0)}% closed on the time stop — the spread reverts slowly (positions near the half-life cap).`,
+      text: `${st.toFixed(0)}% closed on the Time-stop — the spread reverts slowly (positions near the half-life cap).`,
     };
   if (tp >= 60)
     return {
       tone: "text-green",
-      text: `${tp.toFixed(0)}% exited on take-profit — healthy mean-reversion.`,
+      text: `${tp.toFixed(0)}% Reverted (take-profit) — healthy mean-reversion.`,
     };
   return { tone: "text-muted", text: "Mixed exit profile." };
 }
@@ -318,7 +311,7 @@ export default function StrategyDetail({
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="mb-4 text-xs uppercase tracking-wider text-muted">
             Exit Reasons
-            <InfoTip text="Why trades closed — take-profit, z-score stop, time stop, or forced at the window end. The mix is a strategy-health signal." />
+            <InfoTip text="Why trades closed — Reverted (take-profit), Z-stop, Time-stop, or Window end. The mix is a strategy-health signal, independent of P&L." />
           </h2>
           {exitReasons.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted" data-testid="bt-exits-empty">
@@ -348,7 +341,7 @@ export default function StrategyDetail({
                           stroke="none"
                         >
                           {pieData.map((d) => (
-                            <Cell key={d.reason} fill={exitColor(d.reason)} />
+                            <Cell key={d.reason} fill={reasonColor(d.reason)} />
                           ))}
                         </Pie>
                         <Tooltip
@@ -356,12 +349,17 @@ export default function StrategyDetail({
                             background: "#12141a",
                             border: "1px solid #21262d",
                             borderRadius: "0.5rem",
-                            color: "#e4e6ea",
                             fontSize: "0.8rem",
                           }}
-                          formatter={(v: number, _n, p: { payload?: { pct: number } }) => [
+                          itemStyle={{ color: "#e4e6ea" }}
+                          labelStyle={{ color: "#e4e6ea" }}
+                          formatter={(
+                            v: number,
+                            _n,
+                            p: { payload?: { pct: number; reason: string } },
+                          ) => [
                             `${v} (${(p.payload?.pct ?? 0).toFixed(0)}%)`,
-                            "trades",
+                            reasonLabel(p.payload?.reason ?? ""),
                           ]}
                         />
                       </PieChart>
@@ -376,9 +374,9 @@ export default function StrategyDetail({
                         <span className="flex items-center gap-2 text-muted">
                           <span
                             className="inline-block h-2 w-2 shrink-0 rounded-full"
-                            style={{ background: exitColor(d.reason) }}
+                            style={{ background: reasonColor(d.reason) }}
                           />
-                          {d.reason}
+                          {reasonLabel(d.reason)}
                         </span>
                         <span className="tabular-nums text-text">
                           {d.count} · {d.pct.toFixed(0)}%
