@@ -92,3 +92,40 @@ Three reasons HL shows so many:
 **Takeaway:** 1,986 is mostly noise; the high count warrants *more* skepticism. Filter hard on low p-value AND short half-life, and re-validate a candidate on the 60-day HL backtest (out-of-sample) before trusting it.
 
 ---
+
+## 2026-07-15 — Outcome & Reason columns: how a row is computed from raw candles; all Reason/Outcome types
+
+**Q:** Follow-up on the Outcome/Reason columns. Take the two highlighted blotter rows as examples and explain how those numbers are calculated from the raw price CSV data. How many different Reason types are there and on what criteria? Same for Outcome.
+
+**A:** The two highlighted rows (strategy "Untitled rank #1": Entry |Z|≥3, Exit |Z|<0.5, Stop |Z|≥4, Z-window 21, $100/trade):
+
+| Pair | Dir | Entry (z · base/quote px) | Exit (z · base/quote px) | Hold | Net P&L | Outcome | Reason |
+|---|---|---|---|---|---|---|---|
+| ACE/TRX | L/S | z=−3.32 · 0.109 / 0.3218 | z=0.06 · 0.1107 / 0.3219 | 11h | **+$0.94** | ✓ Win | Reverted |
+| AXS/GMX | L/S | z=−3.06 · 1.074 / 5.957 | z=−0.46 · 1.0721 / 5.8516 | 11h | **−$0.01** | ✗ Loss | Reverted |
+
+**From raw candles to the row (pipeline):**
+1. **Raw data** = hourly OHLCV candles per market (the "2,975,904 bars" cache). Everything below is derived from the two legs' `close` prices.
+2. **Formation window** (scan): regress base on quote → **hedge ratio β + intercept α** (the cointegration fit), persisted on the trade (`BacktestTrade.hedge_ratio/intercept`, `schema.prisma:515`).
+3. **Trade window**: each bar, `spread = base − β·quote − α`; rolling mean/std over the 21-bar Z-window → **z-score** (`backend/statcore`, `docs/TRADING_CONCEPTS.md`).
+4. **Entry**: fires when `|z| ≥ 3`; direction from z sign — `z<0 → LONG_BASE` (**L/S** = BUY base, SELL quote). Both rows entered at z≈−3.x. Sizing: `base_size = $100 / base_px`, `quote_size = base_size × |β|` (`simulate_pair_entry`, `costs.py:104-122`). Each leg fills at the bar close ± **0.05% slippage** (`apply_slippage`, `costs.py:49-52`).
+5. **Exit**: each later bar re-checks the rules; both closed when `|z| < 0.5` (ACE/TRX z=0.06, AXS/GMX z=−0.46) → reason **TAKE_PROFIT** ("Reverted").
+6. **P&L on close** (`compute_exit_pnl`, `costs.py:125-168`): per leg `leg_pnl = side_sign·(exit−entry)·size` (`statcore/pnl.py:36-38`); `gross = base_leg + quote_leg`; `fee_cost` = taker fee (0.05%) on all four fills; `funding_pnl` accrues hourly (long pays / short receives); **`net_pnl = gross − fee_cost + funding_pnl`**. That `net_pnl` is the Net P&L column.
+
+**Why one Wins and one Loses (same Reason):**
+- **ACE/TRX** — long ACE rose 0.109→0.1107 (**+1.6%** ≈ +$1.5 on the ~$100 base leg) while short TRX was flat (0.3218→0.3219). The legs **diverged favourably** → gross ≈ +$1.5, minus ~$0.2 round-trip fees ± small funding → **+$0.94, Win**.
+- **AXS/GMX** — long AXS *fell* 1.074→1.0721 (−0.18%, the long leg *loses* ~$0.18) but short GMX also fell 5.957→5.8516 (−1.8%, the short *gains*, scaled by β). Both legs **co-moved down**, so the market-neutral pair captured almost no dollar edge → gross ≈ $0; fees net of funding tipped it to **−$0.01, Loss**.
+
+So both are **"Reverted"** because the *z-score* snapped back from ≈−3 to inside ±0.5 (the thesis worked in z-space) — but the dollar result depends on how much the two legs actually *diverged in price*, which is a separate thing. (Exact gross/fees/funding for any row is now on the **Chart ↗** page's cost-breakdown line.)
+
+**Reason — 5 possible values in a backtest** (the exit *trigger*, decided in `backend/statcore/signals.py:99-151` `evaluate_exit`, precedence order; display labels from `ui/lib/exitReason.ts`):
+1. `STOP_LOSS_ZSCORE` → **"Z-stop"** — `|z| ≥ stop` (4.0); checked first (breakdown, cut the loss).
+2. `TAKE_PROFIT` → **"Reverted"** — `|z| < exit` (0.5); the spread reverted.
+3. `STOP_LOSS_TIME` → **"Time-stop"** — `age > 3 × half_life` without reverting.
+4. `END_OF_WINDOW` → **"Window end"** — any position still open at the last bar of the trade window is force-closed (`engine.py:539,570`).
+5. `STOPPED` → **"Stopped"** — the run was manually stopped mid-position.
+(Live trading adds `RECONCILED`/`ORPHANED`/`ABORTED`/`CANCELLED` from `backend/trading/`, but those never appear in a backtest.) None of these depends on P&L.
+
+**Outcome — driven purely by the sign of `net_pnl`** (`ui/components/StrategyDetail.tsx`, blotter row): `net_pnl > 0` → **✓ Win**; `net_pnl < 0` → **✗ Loss**; `net_pnl == 0` → **Flat**. Note it uses the *true* 6-dp `net_pnl`, not the 2-dp display — so a row can read **$0.00** yet show **✓ Win** (e.g. AXS/SKY: a tiny positive that rounds to $0.00 in the column but is `>0`). Reason and Outcome are orthogonal: Reason = *why it closed* (z/time rule), Outcome = *did it make money* (dollar sign).
+
+---
