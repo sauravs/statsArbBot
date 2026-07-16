@@ -231,3 +231,27 @@ So both are **"Reverted"** because the *z-score* snapped back from ≈−3 to in
 - Win rate `= trades with net_pnl>0 / total = 63%` of 9,439 (schema `win_rate`). An exact trade-level sum of all 9,439 `net_pnl` values would need a prod DB read (auto-mode blocked) — offered if you want the last-cent confirmation, but the identity + window sum already confirm the total is right.
 
 ---
+
+## 2026-07-16 — What is the "Exit-|Z| sweep" and what's its purpose?
+
+**Q:** [Re: my offer to "run the Exit-|Z| sweep on prod to empirically settle the 'wait longer?' question"] — yes to committing/pushing, but I didn't understand the purpose of the Exit-|Z| sweep.
+
+**A:** The question "should 0G/MET have waited longer to exit?" can't be answered from **one** trade — waiting longer helps trades that keep reverting (like 0G/MET) and hurts trades that stall or re-diverge (extra funding + more stop-outs). A **sweep** settles it with data instead of intuition.
+
+**What "waiting longer" means mechanically:** the exit is controlled by a single number — **Exit |Z|** (rank #1 uses `0.5`). The position closes when the spread has reverted to within `|z| < Exit |Z|` of its mean. **Lowering that number = waiting longer** (closer to full reversion, `z→0`); raising it = exiting earlier. It's a real per-strategy field (`exit_threshold`, `routers/backtest.py`; range `>0…2.0`).
+
+**What the sweep is:** create a few copies of rank #1 that are **identical except for Exit |Z|**, run them all on the same Hyperliquid data, and compare:
+
+| Strategy | Exit \|Z\| | Behaviour |
+|---|---|---|
+| rank #1 (baseline) | **0.5** | exits ~halfway back to the mean (what 0G/MET did) |
+| clone A | **0.3** | waits a bit longer |
+| clone B | **0.1** | waits until *almost fully* reverted (≈ what 0G/MET "should" have done) |
+
+Then compare **Net P&L, win-rate, average hold time, and funding drag** across all ~9,439 trades. That tells you empirically whether "waiting longer" actually earns more *for the strategy* — or whether the extra funding + the trades that stall eat the gains from the ones that keep reverting.
+
+**Why it's the right tool:** 0G/MET *looks* like it should have waited, but that's survivorship bias — we can see, in hindsight, that it kept reverting. The sweep removes the bias by applying the rule change to **every** trade at once, turning "this one trade suggests X" into "changing Exit |Z| to 0.1 moves the total from $1,864.90 to $Y."
+
+**The catch:** running it **creates and runs new backtest strategies on the live production box** (each is a heavy multi-window sweep). Not destructive and it doesn't touch the bot's trading state, but it consumes prod compute and adds strategies to the list — so it needs an explicit go-ahead. (Alternatively, the operator can run it in the UI: clone rank #1 three times, set Exit |Z| to 0.5 / 0.3 / 0.1, run, compare.)
+
+---
