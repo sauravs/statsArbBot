@@ -74,9 +74,26 @@ rate** (long pays / short receives). `net = gross − fees + funding`
   - **Equity-curve shape** — prefer smooth up-and-to-the-right over a jagged line
     that merely ends higher.
 
-**Most likely result (hypothesis):** a shallow optimum — a modestly tighter exit
-(0.3) may edge out 0.5, but 0.1 probably gives back the gains to funding + missed
-targets. The sweep is what turns this hypothesis into a number.
+**Prior hypothesis (WRONG — kept for honesty):** a shallow optimum was expected —
+0.3 edging out 0.5, with 0.1 giving gains back to funding + missed targets.
+
+**Actual result (2026-07-16, Hyperliquid, this same span):** Net P&L rose
+**monotonically** as the exit tightened — waiting longer *paid*:
+
+| Exit \|Z\| | Net P&L | Win rate | Trades | Avg $/trade |
+|---|---|---|---|---|
+| 0.5 (baseline) | $1,864.90 | 63.24% | 9,439 | $0.198 |
+| 0.3 | $2,144.79 | 63.01% | 9,161 | $0.234 |
+| **0.1** | **$2,485.15** | 60.89% | 8,231 | **$0.302** |
+
+`0.5 → 0.1 = +$620 (+33%)`. The cost side behaved as predicted (fewer trades,
+lower win-rate, far more Time-stops), but the **deeper reversion on the winners
+more than paid for it** — avg $/trade +53%. Lesson: on this Hyperliquid span the
+spread reverts far/often enough that exiting at |z|<0.5 takes profit too early.
+**Recommendation:** tighten the exit toward ~0.1, then (a) finer-sweep 0.05–0.2 for
+the true optimum and (b) **re-validate on a different date span** and check the
+**equity-curve drawdown** before trusting — higher final P&L ≠ lower risk. Full
+write-up in `docs/QA.md` (2026-07-16 sweep RESULT).
 
 ---
 

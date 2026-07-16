@@ -255,3 +255,28 @@ Then compare **Net P&L, win-rate, average hold time, and funding drag** across a
 **The catch:** running it **creates and runs new backtest strategies on the live production box** (each is a heavy multi-window sweep). Not destructive and it doesn't touch the bot's trading state, but it consumes prod compute and adds strategies to the list — so it needs an explicit go-ahead. (Alternatively, the operator can run it in the UI: clone rank #1 three times, set Exit |Z| to 0.5 / 0.3 / 0.1, run, compare.)
 
 ---
+
+## 2026-07-16 — Exit-|Z| sweep RESULT: does waiting longer pay? (yes — my prediction was wrong)
+
+**Q:** [Ran the sweep on prod: three clones of rank #1, identical except Exit |Z| = 0.5 / 0.3 / 0.1, on Hyperliquid.] What's the verdict — should trades wait longer to exit?
+
+**A:** **Waiting longer WON, decisively — Net P&L rose monotonically as the exit tightened. The user's original 0G/MET intuition was right, and my earlier hypothesis (that funding + time-stops would eat the gains) was wrong.**
+
+| Exit \|Z\| | Net P&L | Win rate | Trades | Avg $/trade |
+|---|---|---|---|---|
+| **0.5** (rank #1 baseline) | $1,864.90 | 63.24% | 9,439 | $0.198 |
+| **0.3** | $2,144.79 | 63.01% | 9,161 | $0.234 |
+| **0.1** | **$2,485.15** | 60.89% | 8,231 | **$0.302** |
+
+- **0.5 → 0.3: +$279.89 (+15.0%). 0.3 → 0.1: +$340.37 (+15.9%). 0.5 → 0.1: +$620.26 (+33.3%).**
+- **Sanity check passed:** `sweep-exit-0.5` reproduced rank #1 to the cent (net_pnl `1864.896495` ≈ $1,864.90, win 63.24%) — the clone is faithful, so the comparison is valid.
+
+**Mechanism (as the running exit-mix polls foreshadowed):** tightening the exit does exactly what was predicted on the *cost* side — fewer trades (9,439 → 8,231, positions held longer so fewer round-trips), a slightly lower win-rate (63.24% → 60.89%, some trades never reach the stricter `|z|` target and close on the time-stop/window-end), and far more Time-stops (mid-run: 27 → 401 for 0.1). **What I got wrong: the deeper reversion captured on the winners more than paid for all of that.** Average $/trade rose +53% (0.198 → 0.302). Fewer, higher-quality captures beat more, shallower ones — the spread on Hyperliquid reverts far enough, often enough, that leaving the exit at 0.5 was systematically taking profit too early. So 0G/MET wasn't survivorship bias; it was representative.
+
+**Recommendation:**
+- **Tighten rank #1's exit toward ~0.1** (net +33% on this span). Consider a **finer sweep (0.05 / 0.1 / 0.15 / 0.2)** to find the true optimum — the monotone trend suggests even tighter *might* help, but there's a floor (`exit_threshold > 0`) and funding/drawdown eventually bite.
+- **Don't adopt on this alone.** (1) It's **one Hyperliquid walk-forward span** — re-run on a different date range before trusting (curve-fit risk). (2) Higher *final* P&L ≠ lower risk: exit 0.1 holds longer (more funding, more capital tied up), so check the **equity-curve shape and max drawdown**, not just the total. (3) Live slippage is worse than backtest; longer holds face more funding variance live.
+
+**Method note:** run as three heavy Hyperliquid backtests. Three at once **starved the DB connection pool** (a 60s read timeout + slow progress, issue #168); they still finished, but for reliability run heavy sweeps **one at a time** or bump the pool further.
+
+---
