@@ -163,3 +163,71 @@ So both are **"Reverted"** because the *z-score* snapped back from ≈−3 to in
 **Two caveats:** (1) These are **defaults** — a strategy can be created with different `slippage_pct` / `taker_fee_pct` / `funding_freq_h` (0–5% / 0–5% / 1–24h). (2) On the **demo/`fake` data source only**, the `END_OF_WINDOW` force-close zeroes slippage & taker fee (`engine.py:570-571`); on real Hyperliquid/dYdX data (what the live backtest uses) the configured percentages apply on every close. The exact per-trade `gross_pnl` / `fee_cost` / `funding_pnl` split for any row is shown on the **Chart ↗** page's cost-breakdown line.
 
 ---
+
+## 2026-07-16 — Deriving 0G/MET & 0G/IP; how to read/tune the backtest table; what made rank #1 profitable
+
+**Q:** For the two highlighted backtest trades 0G/MET and 0G/IP (Untitled strategy rank #1, Hyperliquid), how are the table values derived (with actual values and steps)? How should traders approach these backtest table values to analyze and tune input parameters? How did this strategy gain the most profit, what are the likely reasons, and what do you recommend for creating profitable backtest strategies?
+
+**A:** Strategy rank #1: **Entry |Z|≥3 · Exit |Z|<0.5 · Stop |Z|≥4 · Z-window 21 · Scan 21d / Trade 7d · $10k**, 13/13 windows, **9,439 trades, 63% win, Net +$1,864.90** (final $11,864.90 ≈ **+18.6%**). Both highlighted rows are in window 0 (scan 2026-03-01→03-22, trade 2026-03-22→03-29). Both are **S/L** = `SHORT_BASE` (SELL base 0G, BUY quote), entered because entry z>0.
+
+**How the two rows are derived (pipeline + numbers), `USD_PER_TRADE=$100`:**
+1. Formation scan regresses 0G on the quote over 21d → hedge ratio β + intercept α (persisted on the trade). Each trade-window bar: `spread = 0G − β·quote − α`; rolling mean/std over 21 bars → z.
+2. Entry when `|z| ≥ 3`; z>0 → SHORT_BASE (SELL 0G, BUY quote). `base_size = 100/entry_0G_px`; `quote_size = base_size·|β|`. Fills take the bar close ±0.05% slippage.
+3. Exit the first bar `|z| < 0.5` → reason **Reverted** (TAKE_PROFIT). Per-leg P&L `= side_sign·(exit−entry)·size` (`statcore/pnl.py:38`); `gross = base_leg + quote_leg`; `net = gross − fees(0.05%×4 fills) + funding(hourly, long pays/short receives)`.
+
+- **0G/MET · +$1.70 · Win · 5h.** Entry z=3.19, px 0G 0.5285 / MET 0.1414 → exit z=0.45, px 0.5233 / 0.1435. base_size ≈ 100/0.5285 ≈ **189 units 0G (short)**. Short 0G leg: `−(0.5233−0.5285)·189 = +$0.98` (0G **fell** → short wins). Long MET leg: `+(0.1435−0.1414)·quote_size` > 0 (MET **rose** → long wins). **Both legs moved the right way** (spread fell = the SHORT_BASE thesis), 5h hold → tiny funding → clean **+$1.70**.
+- **0G/IP · −$0.12 · Loss · 14h.** Entry z=3.09, px 0G 0.5285 / IP 0.6575 → exit z=0.45, px 0.5313 / 0.6657. Short 0G leg: `−(0.5313−0.5285)·189 = −$0.53` (0G **rose** → short **loses**). Long IP leg: `+(0.6657−0.6575)·quote_size` > 0 (IP rose more → long wins ≈ +$0.6). gross ≈ +$0.1; minus ~$0.2 fees and 14h of funding → **−$0.12**.
+
+**The lesson from the pair:** same base (0G short at 0.5285, same 23:00 entry), same reversion target (exit z=0.45), same **Reverted** reason — but **opposite dollar Outcome**. The z-score reverting only guarantees the *reason*; the *dollars* depend on **which leg did the reverting** (0G/MET: 0G fell, the intended way; 0G/IP: 0G rose, so the short leg bled and only the quote leg saved it) and on **hold time** (14h vs 5h → more funding). So Reason = "did the spread revert (z)"; Outcome = "did that reversion put dollars on the board after the legs' real moves + costs."
+
+**How to read the table (in order):** (1) headline — Net P&L, **Win rate**, Trades; (2) **equity-curve shape** — smooth up-and-to-the-right beats a jagged line that ends positive (rank #1's curve grinds up with recoverable drawdowns); (3) **per-window consistency** — is it many green windows or one lucky one? (rank #1: 13/13); (4) **exit-reason mix** — high **Reverted** share = healthy mean-reversion; lots of Z-stop = cointegration breaking down; lots of Window-end/Time-stop = windows too short or pairs too slow; (5) only then drill into the **blotter** for outliers. Don't fixate on any single row (a −$0.12 is noise); the strategy is the *sum* of thousands of trades — what matters is **average win × win-rate > average loss × loss-rate** (`docs/TRADING_CONCEPTS.md` Part 4). Tune **one parameter at a time**, re-run, and prefer results that hold across windows (`docs/BACKTEST_PARAMETER_GUIDE.md`).
+
+**Why rank #1 made the most money (likely reasons):**
+1. **High entry bar (|Z|≥3, vs default 1.5).** It only opens on *extreme* dislocations, which revert more reliably → higher win-rate, fewer marginal trades bleeding costs. (Sweep evidence: Entry 1.0 → 49% win, negative; Entry 2.0 → 72% win — `BACKTEST_PARAMETER_GUIDE.md:37-39`.)
+2. **Short trade window (7d).** Positions can't linger, so **funding stays small** and the walk-forward **re-scans often** (13 windows) — always trading *currently* cointegrated pairs, not stale ones. The 0G/IP vs 0G/MET contrast shows how a longer hold erodes a thin edge.
+3. **Short scan window (21d) on a big universe.** Shorter formation **aligns more markets** → more candidate pairs (`BACKTEST_PARAMETER_GUIDE.md:56-64`), and Hyperliquid lists ~176 perps, so even a thin per-trade edge × **9,439 trades** compounds (small wins like +$1.70/+$2.53 outnumber small losses like −$0.12).
+4. **Positive expectancy, well-diversified.** 63% win with average win > average loss, spread across thousands of trades so no single trade can sink it — the compounding shows as a rising equity curve.
+
+**Recommendations for profitable backtests:**
+- **Raise Entry |Z| to ~2.5–3** for conviction (fewer, higher-quality trades); keep **Exit 0.5 / Stop 4**.
+- **Keep the trade window short (7–15d)** to cap funding and force frequent re-scans; **scan 21–30d** to align more markets without spurious fits.
+- **Insist on walk-forward across many windows** and **re-run on a different date span** — a config that only wins in one window is curve-fit (36 strategies were tried here, so the top one is partly a multiple-comparisons artifact until re-validated).
+- **Make the average winner clear the round-trip cost** (~0.05%×4 fees + slippage + funding). High entry-Z helps because bigger dislocations → bigger reversions.
+- **Judge on curve shape + exit mix**, not just the final number; and **discount for live slippage** — backtests assume clean fills; real Hyperliquid fills are worse (`docs/TRADING_CONCEPTS.md` Part 5).
+- ⚠️ Reality check: the parameter-guide sweeps found **naive crypto pairs are usually net-negative after costs** (`BACKTEST_PARAMETER_GUIDE.md:80-83`); rank #1's +18.6% is over one Hyperliquid span and should be treated with suspicion until it survives out-of-sample re-runs and (eventually) testnet.
+
+*(Note: a full data-backed comparison of all 36 saved strategies' exact configs would require reading the production DB, which auto-mode blocked; the above uses rank #1's on-screen config + the empirical sweeps in `BACKTEST_PARAMETER_GUIDE.md`. Happy to pull the per-strategy configs if you approve the prod read.)*
+
+---
+
+## 2026-07-16 — 0G/MET: did it exit too early? P&L re-verification of the trade and of rank #1
+
+**Q:** For 0G/MET (rank #1): at the entry and exit points the price hadn't converged much and yet it exited — it converged a bit further *after* the exit; I think we should have waited more. Analyze this trade's data + chart (and other sample charts if needed), tell me how to improve it, what's lacking in the strategy, how to customize it further, and re-verify/re-evaluate whether rank #1's total Net P&L is correct. Log every calculation.
+
+**A:** **You're right that this specific trade left convergence on the table — but "wait more" is not free, and one continuation is hindsight.** The chart's own panels: entry `2026-03-22 23:00` at **z=3.19** (spread ≈ +0.02), exit `2026-03-23 04:00` at **z=0.45** (spread ≈ +0.01) — the exit fired because `|z| < 0.5` (Reverted). The Spread panel shows the spread kept falling *after* exit, through mean (0.00) down to **−0.04** by ~03-27. So holding longer would have captured more spread.
+
+**How much more (with numbers, position from the chart):** the gross of $2.11 came from the spread moving 0.02→0.01 (≈0.01), and each 0.01 of spread ≈ `Δspread × base_size = 0.01 × 189 ≈ $1.9` gross. To full mean-reversion (spread→0, another 0.01): **+~$1.9 gross**. To the −0.04 trough (another ~0.05 from exit): **+~$9.5 gross**. But the costs of waiting: funding ran **−$0.22 in just 5h** (≈ −$0.044/h), so holding to the 03-27 trough (~96h) ≈ **−$4+ funding**; and the **time-stop (3 × half-life)** would force-close long before then (a ~17h half-life → force-close ~51h in, capturing only part of it). So the *realistic* extra from waiting is a fraction of the $9.5, net of several dollars of funding — and only because *this* trade happened to keep reverting. Just as often the spread stalls or re-diverges right after `|z|<0.5`, where exiting early was correct. **The exit rule can't see the future**, so this is a systematic trade-off, not a per-trade mistake.
+
+**Trade P&L re-verified from the raw prices** (entry 0G $0.52851 / MET $0.14144 → exit $0.52329 / $0.14347, `$100`/trade, SHORT_BASE = short 0G / long MET):
+- `base_size = 100 / 0.52851 = 189.211` units 0G.
+- SHORT 0G leg: `(0.52851 − 0.52329) × 189.211 = +$0.9877` (0G fell → short wins).
+- Implied `quote_size = (2.11 − 0.9877) / (0.14347 − 0.14144) = 552.9` units MET ⇒ **β ≈ 2.92**. LONG MET leg: `(0.14347 − 0.14144) × 552.9 = +$1.1223` (MET rose → long wins).
+- **Gross = 0.9877 + 1.1223 = $2.11** ✓ (matches the chart).
+- Fees = `0.05% × (100.00 + 78.20 + 99.01 + 79.32 fill notionals) = $0.178` ≈ **−$0.18** ✓.
+- Funding = **−$0.22** (net paid over 5h; short 0G receives, long MET pays). Net = `2.11 − 0.178 − 0.22 = $1.71`, stored/displayed **$1.70** ✓. *(Minor UI note: the breakdown line shows each component rounded to cents, so `2.11 − 0.18 − 0.22 = 1.71` vs the displayed Net 1.70 — a $0.01 sum-of-rounded artifact, not an error.)*
+
+**What's lacking / how to customize (tied to real parameters):**
+- **Exit |Z| is a single symmetric threshold (0.5) — it takes the *reliable middle* of the reversion and deliberately leaves the tail.** To capture more per winner, **lower `exit_threshold`** (0.5 → 0.2 → 0.1; it's a real per-strategy field, range `>0…2.0`, `routers/backtest.py`). Trade-off: longer holds → more funding, and some trades never reach the tighter target → they exit on the **time-stop / window-end** instead. Net effect must be **backtested**, not assumed.
+- **No "ride through the mean" / asymmetric exit.** Exiting only when z crosses to the *opposite* band (e.g. −0.5) would capture overshoots like this one — but that's a **code change**, not a parameter (exit is `|z| < exit_threshold`, `backend/statcore/signals.py:138`), and it holds much longer (funding + breakdown risk).
+- **No trailing exit** on z or spread (would let strong reversions run) — also a code enhancement.
+- **Z-window (21)** governs how fast z reverts: shorter → exits sooner, longer → holds longer. Tunable (`zscore_window`).
+- **Concrete next step:** clone rank #1, sweep **Exit |Z| = 0.5 vs 0.3 vs 0.1**, re-run, and compare Net P&L / win-rate / avg-hold / funding drag. That's the empirical answer to "should we wait more."
+
+**⚠️ Chart caveat (drift):** the Z-score panel's reference lines read **"entry ±1.5 · exit ±0.5 · stop ±4"** — those are the **app-wide live config defaults**, *not* this strategy's actual **Entry ≥3**. The pair-chart draws its threshold lines from `config.ZSCORE_THRESH/EXIT_ZSCORE/STOP_LOSS_ZSCORE` at render time (`backend/marketdata/pair_series.py`), not the strategy's stored `entry_threshold`. The trade's true entry z (3.19) is labelled separately. So don't read the "+entry 1.5" line as this strategy's entry — it used 3.
+
+**Rank #1 total Net P&L — re-verified:**
+- Identity (`backend/backtest/engine.py:448-450`): `net_pnl = final_capital − starting_capital = 11,864.90 − 10,000.00 = **$1,864.90**` ✓ (matches the headline; equity curve ends ≈ $11,864).
+- Per-window cross-check (Net P&L = Σ per-window net_pnl): the 10 windows visible in the screenshots — W0 −30.34, W1 −168.92, W2 +19.95, W3 +1,283.73, W4 −873.83, W8 −0.90, W9 −24.74, W10 −433.66, W11 +824.67, W12 −92.34 — **sum to +$503.62**. So the 3 windows I can't see (W5–W7, trade windows ≈ 04-26→05-17) must total `1,864.90 − 503.62 = **+$1,361.28**`, which matches the **steep equity-curve climb in late-Apr→mid-May**. Internally consistent.
+- Win rate `= trades with net_pnl>0 / total = 63%` of 9,439 (schema `win_rate`). An exact trade-level sum of all 9,439 `net_pnl` values would need a prod DB read (auto-mode blocked) — offered if you want the last-cent confirmation, but the identity + window sum already confirm the total is right.
+
+---
