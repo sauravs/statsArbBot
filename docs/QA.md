@@ -280,3 +280,38 @@ Then compare **Net P&L, win-rate, average hold time, and funding drag** across a
 **Method note:** run as three heavy Hyperliquid backtests. Three at once **starved the DB connection pool** (a 60s read timeout + slow progress, issue #168); they still finished, but for reliability run heavy sweeps **one at a time** or bump the pool further.
 
 ---
+
+## 2026-07-19 — Finer Exit-|Z| sweep (0.05–0.5) DEBUNKS the coarse result: the exit is a noise lever
+
+**Q:** [Ran a finer sweep — added Exit |Z| = 0.05 / 0.15 / 0.2 to the earlier 0.1 / 0.3 / 0.5, one at a time — and pulled max drawdown for all six.] What's the real optimum, and is exit 0.1's win robust?
+
+**A:** **It isn't robust. The finer sweep overturns the clean "+33% by tightening" story from the 3-point sweep — for this strategy, on this span, the exit threshold is a *noise* lever, not a profit lever.**
+
+Full curve (rank #1 cloned, **only** Exit |Z| varied, Hyperliquid, one walk-forward span):
+
+| Exit \|Z\| | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| 0.05 | $2,127 | 58.7% | 7,541 | 12.40% |
+| **0.10** | **$2,485** ← spike | 60.9% | 8,231 | 11.93% |
+| 0.15 | $2,051 | 61.6% | 8,608 | 11.37% |
+| **0.20** | **$1,850** ← worst (below baseline!) | 62.3% | 8,829 | 11.57% |
+| 0.30 | $2,145 | 63.0% | 9,161 | 11.42% |
+| 0.50 (baseline) | $1,865 | 63.2% | 9,439 | 12.70% |
+
+**What's real (smooth, monotonic — the *mechanical* effects):**
+- **Win rate** rises steadily as the exit loosens (58.7% → 63.2%): a looser target is easier to hit, so more trades close as clean take-profits.
+- **Trade count** rises steadily as the exit loosens (7,541 → 9,439): looser exits close sooner, so more round-trips fit per window.
+- **Max drawdown** is basically flat (~11.4–12.7%) across all six — the exit doesn't meaningfully change the risk profile.
+
+**What's NOT real (jagged — noise):** **Net P&L** bounces with no trend: $2,127 → $2,485 → $2,051 → $1,850 → $2,145 → $1,865. The **best (0.1) and the worst (0.2) sit right next to each other**, and 0.2 actually *underperforms* the do-nothing baseline. Statistically the six nets are **$2,087 ± $212 (1σ)**; 0.1 is a **+1.9σ** outlier and 0.2 a −1.1σ one. With **n = 1 span**, a lone 2σ bump is exactly what noise looks like — not a discovered optimum.
+
+**Analogy — the mountain in the fog.** The coarse 3-point sweep (0.5 → 0.3 → 0.1) was like glimpsing three rocks up a foggy hillside, each higher than the last, and concluding *"there's a smooth slope to a summit at 0.1 — let's climb it."* The finer sweep cleared the fog: the ground isn't a slope at all, it's a **bumpy rock field**. The "summit" at 0.1 is just a boulder that happened to be tall, and one step over (0.2) is a **ditch lower than where we started**. Retuning the exit to 0.1 is chasing a rock you found by luck — on a different month's terrain it won't be there. *(Put another way: win-rate and trade-count are a clear radio signal; net P&L is the dial tuned between stations — mostly static, and the 0.1 "peak" is just the loudest crackle.)*
+
+**The honest arc of this investigation (worth keeping):** (1) I predicted waiting longer wouldn't pay. (2) The **3-point** sweep showed a clean monotone +33% and I said *"I was wrong."* (3) The **6-point** sweep shows step 2 was itself the mistake — the +33% was an artifact of sampling three points that happened to ascend. The exit lever is weak; my original skepticism was closer to right, but for a new reason (noise, not funding).
+
+**Recommendation:**
+- **Do NOT retune the exit off this.** Keep a sensible default — **0.5** (do-nothing) or **0.3** (more trades, near-identical P&L, lowest-ish DD) are both fine; the gap between them is inside the noise. Don't ship 0.1.
+- **The edge, if any, is elsewhere** — sweep **entry threshold**, **pair quality (p-value)**, **half-life filter**, **trade window**, or **costs** next. The exit is not where this strategy's money is made or lost.
+- **Method lesson (the real prize):** a coarse sweep can *fabricate* a trend. Sample any parameter finely enough to see whether an apparent monotone "win" survives, and **re-validate across multiple date spans** before trusting any single-point optimum — a 2σ bump on one span is not a signal.
+
+---
