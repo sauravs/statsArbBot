@@ -77,23 +77,34 @@ rate** (long pays / short receives). `net = gross − fees + funding`
 **Prior hypothesis (WRONG — kept for honesty):** a shallow optimum was expected —
 0.3 edging out 0.5, with 0.1 giving gains back to funding + missed targets.
 
-**Actual result (2026-07-16, Hyperliquid, this same span):** Net P&L rose
-**monotonically** as the exit tightened — waiting longer *paid*:
+**Intermediate 3-point result (2026-07-16) — later shown to be a sampling artifact:**
+Exit 0.5 → 0.3 → 0.1 gave $1,864.90 → $2,144.79 → $2,485.15, a clean monotone
+"+33% by tightening." It looked real; it wasn't.
 
-| Exit \|Z\| | Net P&L | Win rate | Trades | Avg $/trade |
+**Final finer result (2026-07-19, 6 points, this same span) — the exit is a NOISE
+lever, not a profit lever:**
+
+| Exit \|Z\| | Net P&L | Win % | Trades | Max DD |
 |---|---|---|---|---|
-| 0.5 (baseline) | $1,864.90 | 63.24% | 9,439 | $0.198 |
-| 0.3 | $2,144.79 | 63.01% | 9,161 | $0.234 |
-| **0.1** | **$2,485.15** | 60.89% | 8,231 | **$0.302** |
+| 0.05 | $2,127 | 58.7% | 7,541 | 12.40% |
+| 0.10 | $2,485 *(spike)* | 60.9% | 8,231 | 11.93% |
+| 0.15 | $2,051 | 61.6% | 8,608 | 11.37% |
+| 0.20 | $1,850 *(worst, below baseline)* | 62.3% | 8,829 | 11.57% |
+| 0.30 | $2,145 | 63.0% | 9,161 | 11.42% |
+| 0.50 | $1,865 | 63.2% | 9,439 | 12.70% |
 
-`0.5 → 0.1 = +$620 (+33%)`. The cost side behaved as predicted (fewer trades,
-lower win-rate, far more Time-stops), but the **deeper reversion on the winners
-more than paid for it** — avg $/trade +53%. Lesson: on this Hyperliquid span the
-spread reverts far/often enough that exiting at |z|<0.5 takes profit too early.
-**Recommendation:** tighten the exit toward ~0.1, then (a) finer-sweep 0.05–0.2 for
-the true optimum and (b) **re-validate on a different date span** and check the
-**equity-curve drawdown** before trusting — higher final P&L ≠ lower risk. Full
-write-up in `docs/QA.md` (2026-07-16 sweep RESULT).
+- **Real & smooth:** win rate rises as the exit loosens (58.7 → 63.2%), trade count
+  rises (7.5k → 9.4k), and **drawdown is flat (~11–13%)** — mechanical, monotone.
+- **Noise:** net P&L is jagged ($2,087 ± $212, 1σ). The best (0.1, +1.9σ) and worst
+  (0.2, −1.1σ, *below* the do-nothing baseline) are neighbors. On **one span**, a lone
+  2σ bump is what noise looks like, not an optimum.
+
+**Recommendation (updated):** **do not retune the exit off this** — keep 0.5 (or 0.3;
+the gap is inside the noise), don't ship 0.1. The exit is a weak lever; hunt the edge
+elsewhere (entry threshold, pair-quality/p-value, half-life, trade window, costs).
+**Method lesson:** a coarse sweep can fabricate a trend — sample finely, and re-validate
+across multiple spans, before trusting a single-point optimum. Full write-up +
+analogy in `docs/QA.md` (2026-07-19 finer-sweep entry).
 
 ---
 
