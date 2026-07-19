@@ -152,3 +152,32 @@ Hyperliquid (all else = rank #1, one span):
   not every pitch (entry 1.5). The mediocre 2.5-3.0 band is where you strike out.
 - Caveat: one span; re-validate 3.0 vs 3.5 across other date ranges, and note 3.5's
   thin trade count (2,940). Full write-up in `docs/QA.md` (2026-07-19 entry-sweep).
+
+### Entry |Z| — but selectivity has a CEILING: net P&L peaks at 3.5 (2026-07-19)
+
+Pushing the entry bar *higher* (3.5 / 3.75 / 4.0, all else = rank #1) answers "does more
+selectivity keep paying?" — **no.** Net P&L is single-peaked at **3.5**, then falls, even
+as every per-trade quality metric keeps improving:
+
+| Entry \|Z\| | Net P&L | Win % | Trades | Avg $/trade | Max DD |
+|---|---|---|---|---|---|
+| 3.0 | +$1,865 | 63.2% | 9,439 | $0.198 | 12.7% |
+| **3.5** | **+$2,307** | 66.1% | 2,940 | $0.785 | 8.9% |
+| 3.75 | +$1,916 | 63.9% | 1,209 | $1.585 | 3.88% |
+| 4.0 | +$1,020 | 84.0% | 387 | $2.635 | 2.36% |
+
+- **Mechanism (`net = trades × avg $/trade`):** per-trade quality rises monotonically
+  ($0.20→$2.64) and drawdown/win-rate improve, **but trade count collapses faster**
+  (9,439→387). Past ~3.5 the volume loss overtakes the quality gain, so total P&L erodes.
+  The crossover — where raising the bar stops helping — is right at **3.5**.
+- **4.0's 84% win rate is a vanity metric:** 387 trades made only $1,020 (< half of 3.5).
+  Win rate up, dollars down; 387 bets is too thin to trust (its 2.36% DD just means it
+  barely traded, not that it's safe).
+- **Use entry 3.5** (peak: best net, 66% win, 8.9% DD, still 2,940 trades). **3.0** = robust
+  fallback (3× trades). **Never push above 3.5** — it starves the strategy. Entry hunt done.
+- Analogy: *the batter who almost never swings.* 3.5 = swing at every fat pitch (drives in
+  the most runs). 4.0 = so picky he swings once a game — 84% are hits, but he scores fewer
+  runs because he's barely at the plate. Precision ≠ productivity; there's a discipline
+  sweet spot. Full write-up in `docs/QA.md` (2026-07-19 entry high-sweep).
+- (4.0 used Stop 5 to avoid the degenerate entry==stop; Stop is a weak lever, so it doesn't
+  confound the comparison.) Next lever = **pair quality (p-value / half-life)**, not entry.

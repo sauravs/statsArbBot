@@ -348,3 +348,36 @@ Full curve (rank #1 cloned, **only** Exit |Z| varied, Hyperliquid, one walk-forw
 **Contrast with the exit sweep (2026-07-19 finer entry):** exit |Z| was a *noise* lever (differences within +/-$212, keep the default); entry |Z| is a *dominant* lever ($7.9k swing, be selective). When tuning this strategy, **spend your effort on the entry bar and pair quality, not the exit.**
 
 ---
+
+## 2026-07-19 — Entry-|Z| pushed higher (3.5 / 3.75 / 4.0): selectivity has a CEILING — net P&L peaks at 3.5
+
+**Q:** [Follow-up to the entry sweep: pushed the entry bar higher — 3.5 / 3.75 / 4.0, all else = rank #1, one at a time, on Hyperliquid.] Does being *even more* selective keep paying, or does the thin trade count break it down?
+
+**A:** **It breaks down. Selectivity has a ceiling: net P&L is single-peaked at entry 3.5, then FALLS as you push higher — even though every per-trade quality metric keeps improving. "More selective = more money" is false past ~3.5; the collapsing trade count wins.**
+
+Full profitable-band curve (rank #1 cloned, only Entry |Z| varied — and, for 4.0, Stop bumped 4→5 to avoid the degenerate entry==stop; Stop is a weak lever so this doesn't confound; Hyperliquid, one span 2026-03-01→06-23):
+
+| Entry \|Z\| | Net P&L | Win % | Trades | **Avg $/trade** | Max DD |
+|---|---|---|---|---|---|
+| 3.0 | +$1,865 | 63.2% | 9,439 | $0.198 | 12.7% |
+| **3.5** | **+$2,307** ← peak | 66.1% | 2,940 | $0.785 | 8.9% |
+| 3.75 | +$1,916 | 63.9% | 1,209 | $1.585 | 3.88% |
+| 4.0 | +$1,020 ← lowest of the profitable set | **84.0%** | **387** | $2.635 | 2.36% |
+
+**The mechanism — decompose `net = trades × avg $/trade`:**
+- **Per-trade quality rises monotonically** as the bar goes up: avg $/trade $0.198 → $0.785 → $1.585 → $2.635 (each rarer |z|≥bar dislocation is stretched further, so it reverts bigger). Win rate climbs to **84%** at 4.0, and max drawdown falls to a tiny **2.36%**. Every "is each trade good?" metric says *higher is better*.
+- **But trade count collapses faster than quality rises:** 9,439 → 2,940 → 1,209 → **387**. Multiply it out — 3.0→3.5 net ×1.23 (quality gain wins), 3.5→3.75 ×0.83, 3.75→4.0 ×0.53 (volume loss dominates hard). The crossover where the marginal quality gain stops outpacing the marginal trade-count loss lands right at **~3.5**. That's why 3.5 is the optimum, not an accident.
+- **4.0's 84% win rate is a vanity metric.** 387 trades × 84% still made only **$1,020** — less than half of 3.5's $2,307. **Win rate up, dollars down.** And 387 bets is dangerously thin: at that point the "edge" rests on almost no samples, so its per-run variance is large and its tiny 2.36% drawdown is just "the account barely moved because it barely traded," not genuine safety.
+
+**Which axes are real vs noisy (same lesson as the exit sweep):** the *mechanical* axes — trade count ↓, avg $/trade ↑, drawdown ↓ — are perfectly monotone and trustworthy. **Net P&L is the noisy money axis**, and here it traces a clean inverted-U with its top at 3.5. (These higher-bar runs are *thinner* than the 9k-trade baseline, so their per-run noise is *wider* than the ±$212 floor measured on thick runs — another reason not to over-read the exact 3.5-vs-3.75 gap. But the *shape* — a profitable plateau 3.0–3.75 then a clear drop at 4.0 as trades hit 387 — is robust and mechanically forced.)
+
+**Analogy — the batter who almost never swings.** Entry 3.5 is the disciplined hitter who swings at every *fat* pitch: fewer swings than the hacker (entry 1.5), but they connect, and across a season they drive in the most runs. Push to entry 4.0 and you get the batter so impossibly picky he swings maybe once a game — **84% of those rare swings are hits** (gorgeous batting average!), but he drives in *fewer total runs* than the 3.5 hitter, because he's barely at the plate. Precision is not productivity. There's a discipline sweet spot: selective enough that your swings connect, *not* so selective you forfeit your at-bats. *(Same shape as a hiring bar: raise the minimum past a point and every hire is superb, but you hire so few that total output drops.)*
+
+**How this refines the earlier entry finding:** the prior sweep (1.5→3.5) established the *direction* — be selective, never ≤2.5 (ruinous, −$5k / 50–62% DD). This one finds the *interior optimum* inside the profitable band: it's **not** "monotone up, keep climbing" — it's a single peak at **~3.5**, with a soft profitable plateau from 3.0 to 3.75 and a clear falloff by 4.0.
+
+**Recommendation:**
+- **Set entry = 3.5 (the peak).** Best net P&L, strong 66% win, low 8.9% drawdown, and still **2,940 trades** — selective enough to be profitable, thick enough to trust. **3.0 is the robust fallback** (3× the trades = more statistical footing, ~$440 less P&L on this span).
+- **Do not push above 3.5.** 3.75/4.0 improve the risk optics but *starve* the strategy — total P&L erodes and the sample gets too thin to trust. The entry hunt is **done**; 3.5 is the answer.
+- **Next lever = pair quality**, not entry. Sweep **p-value** (base is a tight 0.01; try 0.05 / 0.10) and **max half-life** — the other likely-real lever. Then **re-validate entry 3.5 across 2–3 other date spans** before trusting it live (still one span; 3.5's edge rests on 2,940 bets).
+
+---
