@@ -181,3 +181,30 @@ as every per-trade quality metric keeps improving:
   sweet spot. Full write-up in `docs/QA.md` (2026-07-19 entry high-sweep).
 - (4.0 used Stop 5 to avoid the degenerate entry==stop; Stop is a weak lever, so it doesn't
   confound the comparison.) Next lever = **pair quality (p-value / half-life)**, not entry.
+
+### Pair quality (p-value) — keep the cointegration gate TIGHT (0.01) (2026-07-20)
+
+Sweeping `pvalue_max` (0.05 / 0.10 / 0.15, all else = rank #1 / entry 3.0 / base p-value 0.01):
+
+| p-value | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| **0.01** (baseline) | **+$1,865** | 63.2% | 9,439 | 12.7% |
+| 0.05 | −$1,176 | 61.6% | 15,208 | 24.19% |
+| 0.10 | −$1,176 | 61.6% | 15,208 | 24.19% |
+| 0.15 | −$1,176 | 61.6% | 15,208 | 24.19% |
+
+- **Tight wins, decisively.** Loosening 0.01→0.05 flips +$1,865 → −$1,176 (~$3k swing), adds
+  +61% trades (junk pairs), doubles drawdown (12.7→24.2%). Weakly-cointegrated pairs don't
+  revert — they wander into stops. p-value is a **dominant quality lever; be selective.**
+- **Saturates at 0.05:** 0.05/0.10/0.15 are identical to the cent. A pair needs
+  `p < pvalue_max` **AND** `t_stat < 5% critical value` (`statcore/cointegration.py:59`); that
+  second gate is a hard-wired 95%-confidence floor the dial can't loosen. So `pvalue_max` only
+  bites when set *below* 0.05 (0.01 = demand ~99% confidence). Keep it at **0.01**.
+- Analogy: *two bouncers.* #2 is permanent (admits 95%-confident pairs); #1 is the dial. Set #1
+  to 0.01 and he demands 99% — turning away the borderline tethers that snap and cost $3k.
+  Loosen #1 past 0.05 and nothing changes — #2 already turned everyone else away.
+- **Two selectivity axes, same lesson:** entry |Z| (when to trade) → 3.5; p-value (which pairs
+  allowed) → 0.01. Both punish permissiveness; the edge is the small high-conviction set.
+  Candidate best config = **entry 3.5 + p-value 0.01 + exit 0.5 + stop 4.** Half-life
+  (`max_half_life_h`, base 72h) is the last un-swept pair-quality lever. Full write-up in
+  `docs/QA.md` (2026-07-20 p-value sweep).

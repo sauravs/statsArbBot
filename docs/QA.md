@@ -381,3 +381,38 @@ Full profitable-band curve (rank #1 cloned, only Entry |Z| varied — and, for 4
 - **Next lever = pair quality**, not entry. Sweep **p-value** (base is a tight 0.01; try 0.05 / 0.10) and **max half-life** — the other likely-real lever. Then **re-validate entry 3.5 across 2–3 other date spans** before trusting it live (still one span; 3.5's edge rests on 2,940 bets).
 
 ---
+
+## 2026-07-20 — Pair-quality (p-value) sweep: keep the cointegration gate TIGHT (0.01); the knob saturates at 0.05
+
+**Q:** [Swept `pvalue_max` = 0.05 / 0.10 / 0.15 on Hyperliquid, all else = rank #1 (entry 3.0, p-value 0.01 baseline), one at a time.] Is the pair-admission p-value a real lever, and should we loosen it to trade more pairs?
+
+**A:** **It's a real, dominant lever — and it says the exact opposite of "loosen." Keeping the cointegration gate TIGHT (0.01) is what makes the strategy profitable; loosening it to 0.05 flips it from +$1,865 to −$1,176. And the knob is inert past 0.05 — there's a hard-wired second gate the p-value cap can't loosen.**
+
+| p-value (`pvalue_max`) | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| **0.01** (rank #1 baseline) | **+$1,865** | 63.2% | 9,439 | 12.7% |
+| 0.05 | **−$1,176** | 61.6% | 15,208 | 24.19% |
+| 0.10 | −$1,176 | 61.6% | 15,208 | 24.19% |
+| 0.15 | −$1,176 | 61.6% | 15,208 | 24.19% |
+
+**Two findings, one mechanism:**
+
+1. **Loosening 0.01 → 0.05 is destructive.** Net swings **~$3,041** (from +$1,865 to −$1,176), trade count jumps **+61%** (9,439 → 15,208), and **drawdown nearly doubles** (12.7% → 24.19%). The marginal pairs admitted between p=0.01 and p=0.05 are net-losing: they're only *weakly* cointegrated, so their spreads don't reliably revert — they wander, hit stops, and bleed fees+funding. This is a **quality gate**, and like the entry threshold, it wants **selectivity**.
+
+2. **The knob saturates at 0.05 — 0.05 / 0.10 / 0.15 are identical to the cent** (−$1,176.245516, 15,208 trades, 24.19% DD, all three). The engine is fully deterministic, so identical output = identical pair set: **loosening past 0.05 admits zero additional pairs.** The reason is in the code — a pair is admitted only if **`p_value < pvalue_max` AND `t_statistic < critical_value_5pct`** (`backend/statcore/cointegration.py:59`). That second condition is a **hard-wired 5%-confidence gate the `pvalue_max` dial cannot loosen.** So for any `pvalue_max ≥ 0.05`, the fixed 5% t-stat gate binds and the set is frozen; only a `pvalue_max < 0.05` (like rank #1's 0.01) tightens *past* it and cuts the pool down to the highest-confidence pairs.
+
+**So the effective p-value control is one-directional:** you can demand *more* confidence than the built-in 95% floor (0.01 → trade only ~99%-confident tethers), but you cannot demand *less* (anything ≥0.05 = "use the default 95% gate"). rank #1 demands 99%, and that strictness is a load-bearing part of its edge.
+
+**Analogy — two bouncers at the door.** Getting a pair onto the trading floor means clearing two bouncers. Bouncer #2 is permanent and never moves: he only admits pairs that are cointegrated at **95% confidence** (the fixed 5% t-stat gate). Bouncer #1 is the `pvalue_max` dial. Set him to **0.01** and he's *stricter* than #2 — he demands **99% confidence**, turning away the merely-95%-sure pairs. That strictness is the whole game: the pairs between 95% and 99% confidence (the crowd you let in by moving the dial 0.01 → 0.05) look tethered but their tether is borderline, and **borderline tethers snap** — they cost you $3k and double your drawdown. Move the dial *looser* than 0.05 and nothing happens: bouncer #2 is already turning away everyone past 95%, so there's no one left outside to admit. **Keep bouncer #1 strict at 0.01.**
+
+**How this fits the campaign — the edge lives in selectivity, on two independent axes:**
+- **Entry |Z| (when to trade an admitted pair):** be selective — 3.5 (peak), never ≤2.5.
+- **p-value (which pairs are even allowed):** be selective — 0.01, never loosen.
+- Both are *quality gates*, and both punish permissiveness. The money is made on the **small set of high-conviction, tightly-cointegrated pairs at extreme dislocations** — not on volume. Loosen *either* gate and you drown the edge in coin-flip trades. (Contrast the exit |Z|, still the lone *noise* lever — keep 0.5.)
+
+**Recommendation:**
+- **Keep `pvalue_max` = 0.01.** Do not loosen — 0.05+ is net-negative and past 0.05 the dial does nothing anyway.
+- **Combine the two selectivity levers:** the candidate "best" config is **entry 3.5 + p-value 0.01** (+ exit 0.5 / stop 4). Worth a confirming run of that exact combo on this span, then the multi-span re-validation.
+- **Half-life (`max_half_life_h`, base 72h) is the one pair-quality lever still un-swept** — tightening it (e.g. 48h / 24h) demands *faster*-reverting pairs and is the natural companion to the p-value gate. Next, alongside the entry-3.5 multi-span re-validation.
+
+---
