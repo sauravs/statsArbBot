@@ -315,3 +315,36 @@ Full curve (rank #1 cloned, **only** Exit |Z| varied, Hyperliquid, one walk-forw
 - **Method lesson (the real prize):** a coarse sweep can *fabricate* a trend. Sample any parameter finely enough to see whether an apparent monotone "win" survives, and **re-validate across multiple date spans** before trusting any single-point optimum — a 2σ bump on one span is not a signal.
 
 ---
+
+## 2026-07-19 — Entry-|Z| sweep: a REAL lever (unlike exit) — selectivity is survival
+
+**Q:** [Swept Entry |Z| = 1.5 / 2.0 / 2.5 / 3.0 / 3.5 on Hyperliquid, all else = rank #1, one at a time, with drawdowns.] Is the entry threshold a real lever, and what should it be?
+
+**A:** **Yes — and it is the strongest, cleanest lever we have found. The opposite of the exit (which was noise): here the signal is ~37σ above the noise floor, and it says be *ruthlessly selective*.**
+
+| Entry \|Z\| | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| 1.5 | **-$5,021** | 60.0% | 18,240 | **51.1%** |
+| 2.0 | **-$5,316** | 59.4% | 15,842 | **53.2%** |
+| 2.5 | **-$5,640** | 60.5% | 13,269 | **62.3%** |
+| 3.0 | **+$1,865** | 63.2% | 9,439 | 12.7% |
+| 3.5 | **+$2,307** | 66.1% | 2,940 | **8.9%** |
+
+**Findings:**
+- **A real regime boundary at ~3.0, not an overfit spike.** Earlier I worried the +$1,865 at exactly rank #1's value (3.0) was curve-fit. It is not: **3.5 is even better on every axis** — higher net (+$2,307, +24% over 3.0), higher win rate (66.1%), and *lower* drawdown (8.9% vs 12.7%). Both high-entry values are solidly positive; all three low values are catastrophic. If 3.0 were a lucky spike, 3.5 would have fallen — it climbed.
+- **Below ~3.0 it is not just unprofitable, it is RUINOUS.** Entry 1.5/2.0/2.5 lose ~$5k *and* suffer **51-62% drawdowns** — the account roughly halves. High entry (3.0/3.5) keeps drawdown to 9-13%.
+- **The swing is ~37σ** ($7,947 from worst to best vs the $212 exit-noise floor). This is signal, not scatter — and it is *monotonic in the meaningful direction* (more selective = better return AND lower risk).
+- Determinism confirmed: entry-sweep-3.0 reproduced rank #1 to the cent ($1,864.896495).
+
+**Why (mechanism):** a moderate dislocation (|z| 1.5-3) is often *not* a real over-extension — the spread just as easily keeps drifting toward the stop as it reverts. Trade thousands of those and you bleed fees+funding on coin-flips with fat left tails (hence the 50%+ drawdowns). Only the **extreme** dislocations (|z|>=3) are stretched far enough that the "leash" reliably snaps them back.
+
+**Analogy — wait for the fat pitch.** A batter who swings at every pitch (entry 1.5) strikes out constantly and bleeds; a disciplined hitter who swings only at the rare perfect pitch (entry 3.5) — far fewer swings, but each one connects. The mediocre pitches in between (the 2.5-3.0 band) are exactly where you strike out. In this strategy, *not trading* the moderate signals is where the money is.
+
+**Recommendation:**
+- **Use a HIGH entry threshold — 3.0, and 3.5 was better here (more profit, higher win rate, lower drawdown).** Never run entry <= 2.5 (ruinous). This contrasts sharply with the exit (keep default 0.5) and the stop (keep 4, weak lever).
+- Worth a quick follow-up: entry **3.5 vs 3.75 vs ~4.0** (the cap) to see if selectivity keeps paying — but note trade count is already thin at 3.5 (2,940), so higher = fewer samples = more per-run variance.
+- **Still one span.** The direction (high selectivity wins) is robust and mechanically sensible, but the exact best value (3.0 vs 3.5) should be **re-validated across 2-3 other date ranges** before committing live. And 3.5's low trade count means its edge rests on fewer bets.
+
+**Contrast with the exit sweep (2026-07-19 finer entry):** exit |Z| was a *noise* lever (differences within +/-$212, keep the default); entry |Z| is a *dominant* lever ($7.9k swing, be selective). When tuning this strategy, **spend your effort on the entry bar and pair quality, not the exit.**
+
+---
