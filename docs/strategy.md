@@ -127,3 +127,28 @@ before trusting it (a config that only wins on one window is curve-fit;
 > usually **net-negative after costs**. rank #1's +18.6% is one Hyperliquid span and
 > should survive out-of-sample re-runs (and eventually testnet) before it's trusted
 > live — backtests assume clean fills; live slippage is worse.
+
+---
+
+## Entry |Z| — THE real lever (2026-07-19)
+
+Where the exit was noise, the **entry threshold is the dominant lever**. Sweep on
+Hyperliquid (all else = rank #1, one span):
+
+| Entry \|Z\| | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| 1.5 | -$5,021 | 60.0% | 18,240 | 51.1% |
+| 2.0 | -$5,316 | 59.4% | 15,842 | 53.2% |
+| 2.5 | -$5,640 | 60.5% | 13,269 | 62.3% |
+| 3.0 | +$1,865 | 63.2% | 9,439 | 12.7% |
+| 3.5 | **+$2,307** | **66.1%** | 2,940 | **8.9%** |
+
+- **Be ruthlessly selective.** Only |z|>=3 dislocations are profitable; below that the
+  strategy loses ~$5k **and** suffers **50-62% drawdowns** (ruinous). 3.5 beats 3.0 on
+  return, win rate, AND drawdown — so it is a **real regime**, not an overfit spike
+  (swing is ~37sigma vs the exit noise floor).
+- **Set entry high: 3.0-3.5.** Never <= 2.5. (Exit: keep 0.5. Stop: keep 4, weak lever.)
+- Analogy: *wait for the fat pitch* — swing only at the rare perfect pitch (entry 3.5),
+  not every pitch (entry 1.5). The mediocre 2.5-3.0 band is where you strike out.
+- Caveat: one span; re-validate 3.0 vs 3.5 across other date ranges, and note 3.5's
+  thin trade count (2,940). Full write-up in `docs/QA.md` (2026-07-19 entry-sweep).
