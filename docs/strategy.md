@@ -208,3 +208,26 @@ Sweeping `pvalue_max` (0.05 / 0.10 / 0.15, all else = rank #1 / entry 3.0 / base
   Candidate best config = **entry 3.5 + p-value 0.01 + exit 0.5 + stop 4.** Half-life
   (`max_half_life_h`, base 72h) is the last un-swept pair-quality lever. Full write-up in
   `docs/QA.md` (2026-07-20 p-value sweep).
+
+### ⚠️ Multi-span re-validation: entry 3.5 is CURVE-FIT — do NOT trust live (2026-07-20)
+
+Ran the candidate best config (entry 3.5 + pval 0.01 + exit 0.5 + stop 4) on 3 **other** spans:
+
+| Span | Window | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|---|
+| **s1** (in-sample) | 2026-03→06 | **+$2,307** | 66.1% | 2,940 | 8.9% |
+| s2 | 2025-11→2026-03 | −$170 | 66.1% | 3,593 | 17.57% |
+| s3 | 2025-07→11 | −$1,313 | 61.9% | 2,652 | 22.35% |
+| s4 | 2025-03→07 | +$948 | 63.0% | 1,499 | 6.98% |
+
+- **Out-of-sample (s2+s3+s4) = −$536 net.** The +$2,307 was the best of four noisy draws,
+  picked *because* it topped this window (selection bias). It does **not** generalize.
+- **Robust:** win rate (62–66% every span) — selectivity reliably wins ~2/3 of trades and
+  prevents the 50–62% drawdowns of permissive configs. **Not robust:** the dollar edge — on
+  losing spans avg loss > avg win (fat left tail: pairs break cointegration, run to the stop).
+- **Verdict:** the selectivity levers (entry ≥3, pval 0.01) are **necessary but not
+  sufficient** — they buy *survival*, not *profit*. **Do not trust entry 3.5 / rank #1 live.**
+- Analogy: *win-loss record vs point differential.* Wins 63% of games (by a point), loses 37%
+  (by ten) — good record, negative differential. A winning season (s1) doesn't make a good team.
+- Next: (1) test **entry 3.0** OOS (more trades → steadier?); (2) attack the left tail (tighter
+  half-life / z-stop / mid-trade coint re-check). Full write-up in `docs/QA.md` (2026-07-20 re-validation).
