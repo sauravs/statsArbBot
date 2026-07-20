@@ -416,3 +416,40 @@ Full profitable-band curve (rank #1 cloned, only Entry |Z| varied — and, for 4
 - **Half-life (`max_half_life_h`, base 72h) is the one pair-quality lever still un-swept** — tightening it (e.g. 48h / 24h) demands *faster*-reverting pairs and is the natural companion to the p-value gate. Next, alongside the entry-3.5 multi-span re-validation.
 
 ---
+
+## 2026-07-20 — Multi-span re-validation of entry 3.5: the +$2,307 is CURVE-FIT (out-of-sample it's net-negative)
+
+**Q:** [Ran the candidate best config — entry 3.5 + p-value 0.01 + exit 0.5 + stop 4, i.e. `entry-sweep-3.5` — on 3 other Hyperliquid date spans, to check the +$2,307 isn't curve-fit to the one 2026-03-01→06-23 window.] Does it hold up out-of-sample?
+
+**A:** **No. The +$2,307 does not generalize — on the three earlier spans the same config nets −$536 in aggregate. The headline profit was the best of four noisy draws, selected *because* it was measured on the span it happened to win. This is a curve-fit, and it should NOT be trusted live.**
+
+Same config (entry 3.5 / p-value 0.01 / exit 0.5 / stop 4 / scan 21 / trade 7 / zwin 21 / $10k), only the date span varied:
+
+| Span | Window | Net P&L | Win % | Trades | Max DD |
+|---|---|---|---|---|---|
+| **s1** (in-sample) | 2026-03-01→06-23 | **+$2,307** | 66.1% | 2,940 | 8.9% |
+| s2 | 2025-11-07→2026-03-01 | −$170 | 66.1% | 3,593 | 17.57% |
+| s3 | 2025-07-16→2025-11-07 | **−$1,313** | 61.9% | 2,652 | 22.35% |
+| s4 | 2025-03-24→2025-07-16 | +$948 | 63.0% | 1,499 | 6.98% |
+
+**The numbers that matter:**
+- **Out-of-sample (s2+s3+s4) = −$536 net.** Two of the three OOS spans lose money; the one winner (s4, +$948) is outweighed by s3 (−$1,313). The 4-span total is positive (+$1,771) *only* because of the in-sample span, which was cherry-picked as "the best config" partly *because* it topped this exact window — classic selection bias / multiple-comparisons inflation.
+- **Drawdown blows out OOS:** 8.9% in-sample → 17.6% / 22.4% on the two losing spans. Higher final P&L in-sample masked much worse risk out-of-sample.
+
+**What's robust vs what isn't:**
+- **Robust — the win rate (62–66% on every span).** The selectivity *mechanism* holds: a high entry bar reliably wins ~2/3 of trades regardless of regime. The earlier campaign findings (be selective on entry; keep p-value tight; low entry / loose p-value is *ruinous*) are directionally real — selectivity reliably prevents the 50–62% drawdown catastrophes of the permissive configs.
+- **NOT robust — the dollar edge.** High win rate ≠ profit. On the losing spans the **average loss exceeds the average win**: most trades capture a small reversion, but a minority of pairs break cointegration and run to the stop (a **fat left tail**). Whether a span nets positive just depends on how many of those big losers it served up — s1/s4 few, s2/s3 many. That's regime luck, not a durable edge.
+
+**Analogy — win-loss record vs point differential.** Entry 3.5 is a team that wins 63% of its games, but often by a single point while losing the rest by ten. Great *record*, negative *point differential*. It had a winning season (s1, s4) and a losing season (s3); you cannot call it a good team from its best season alone. One backtest span is one season; re-validating across four seasons showed the *average* season is roughly breakeven-to-negative after costs. **The single-span +$2,307 was survivorship at the strategy level — the same illusion the 3-point exit sweep created, now caught at the config level.**
+
+**Conclusion for the campaign:**
+- **Do NOT trust entry 3.5 / rank #1 live on this evidence.** Its profitability is regime-dependent; out-of-sample it is net-negative after costs.
+- The selectivity levers (entry ≥3, p-value 0.01) are **necessary but not sufficient** — they buy *survival* (small drawdown, high win rate), not *profit*. The edge, if one exists, is thin and currently swamped by the left-tail losers.
+- **Method win:** this is precisely why single-span optima must be re-validated across multiple spans before trusting them. Re-validation just prevented shipping a curve-fit config to real money. (Reinforces the exit-sweep method lesson: sample finely *and* out-of-sample.)
+
+**Where to go next (open questions, not yet answered):**
+1. **Is a less-selective config more *robust*?** Re-run **entry 3.0** (3× the trades → more diversification, less reliance on a few bets) across s2/s3/s4 — a steadier, if lower-peak, config may survive OOS where 3.5 doesn't.
+2. **Attack the fat left tail directly** — the losses come from pairs breaking cointegration and running to the stop. Levers: tighter **half-life** (`max_half_life_h` 72h→24–48h, demand faster reversion), a tighter **z-stop**, per-trade risk caps, or a mid-trade cointegration re-check. That's where a *structural* edge would come from, if any.
+3. **Accept the honest read:** naive Hyperliquid stat-arb over 2025–26 is ~breakeven after costs (matches `BACKTEST_PARAMETER_GUIDE.md:80-83`). Any live deployment needs a left-tail fix first, or acceptance of breakeven-with-variance.
+
+---
