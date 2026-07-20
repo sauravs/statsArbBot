@@ -453,3 +453,31 @@ Same config (entry 3.5 / p-value 0.01 / exit 0.5 / stop 4 / scan 21 / trade 7 / 
 3. **Accept the honest read:** naive Hyperliquid stat-arb over 2025–26 is ~breakeven after costs (matches `BACKTEST_PARAMETER_GUIDE.md:80-83`). Any live deployment needs a left-tail fix first, or acceptance of breakeven-with-variance.
 
 ---
+
+## 2026-07-20 — Entry 3.0 out-of-sample: strictly worse than 3.5 — diversification hypothesis rejected, selectivity confirmed, family still OOS-negative
+
+**Q:** [Open question #1 from the re-validation: is the *less*-selective config more robust? Re-ran entry 3.0 (3× the trades → more diversification) on the same 3 OOS spans s2/s3/s4.] Does more volume survive out-of-sample where 3.5 didn't?
+
+**A:** **No — the opposite. Entry 3.0 is strictly worse than 3.5 on every span, in-sample and all three out-of-sample, on both net P&L and drawdown. The "more trades = more diversification = more robust" idea is dead. Selectivity is confirmed as robustly correct — but no entry threshold makes the family profitable OOS. The deficit is structural (the left tail), not a tuning knob.**
+
+| Span | entry 3.0 (net / DD) | entry 3.5 (net / DD) | Winner |
+|---|---|---|---|
+| s1 (in-sample) | +$1,865 / 12.7% | +$2,307 / 8.9% | 3.5 |
+| s2 | −$1,289 / **37.68%** | −$170 / 17.57% | 3.5 |
+| s3 | −$3,334 / **41.54%** | −$1,313 / 22.35% | 3.5 |
+| s4 | −$822 / 14.76% | +$948 / 6.98% | 3.5 |
+| **OOS sum (s2+s3+s4)** | **−$5,445** | **−$536** | 3.5 |
+
+(entry 3.0 trade counts: 11,308 / 7,962 / 6,205; win rates 65.1% / 60.3% / 61.8% — still >50%, still not profitable.)
+
+**Two conclusions:**
+
+1. **Selectivity is robustly correct — the campaign's most generalizable result.** Entry 3.5 beats 3.0 on *all four spans*, on *both* axes. It's monotone and universal, not curve-fit. Entry 3.0 is **3-for-3 negative OOS** with **38–42% drawdowns** (the account nearly halved on s2/s3). The extra ~8k trades/span are the marginal |z| 3–3.5 signals the original entry sweep already flagged as low-quality; out-of-sample they don't diversify the risk, they *amplify* it — more coin-flip trades with fat left tails digging a much deeper hole. So "be selective, never lower the entry bar" is **confirmed decisively.** (This is the robust half of the entry finding; the *specific* peak value 3.5 was the curve-fit half.)
+
+2. **But no entry threshold makes the family OOS-profitable.** 3.5 is merely "least bad" (−$536); 3.0 is a disaster (−$5,445). Even s4 — 3.5's one OOS winner (+$948) — flips to −$822 at 3.0. Changing the entry bar only changes *how many marginal trades you pile on*; it cannot reach into the **left tail** (pairs breaking cointegration → running to the stop) where the OOS losses actually live. **That's a structural problem, not a parameter.**
+
+**Why drawdown makes the case vivid:** entry 3.0 doesn't just lose more, it drags you through a **42% gorge** to do it — unsurvivable in practice (you'd bail or margin-call at the bottom). 3.5 walks shallower 7–22% valleys *and* ends less red. Among these trails 3.5 is unambiguously the one to walk — but **none of them summit.** (Analogy: max drawdown = the deepest valley on the hike; final P&L = only whether you ended higher than you started. A route with a terrifying gorge is dangerous even if it ends at the same altitude.)
+
+**Consequence for the campaign — the only lever left is structural.** Entry and p-value are both exhausted: selectivity is *necessary* (prevents ruin) but not *sufficient* (no setting is OOS-profitable). The next and last experiment must target the **left tail directly** — tighten `max_half_life_h` (72h → 24/48h: demand faster-reverting pairs, which break cointegration less often and reach the take-profit before the stop) or tighten the z-stop. If that doesn't create a durable OOS edge, the honest conclusion is that naive Hyperliquid stat-arb over 2025–26 is breakeven-at-best after costs, and live deployment is not justified without a structural redesign.
+
+---

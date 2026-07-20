@@ -231,3 +231,24 @@ Ran the candidate best config (entry 3.5 + pval 0.01 + exit 0.5 + stop 4) on 3 *
   (by ten) — good record, negative differential. A winning season (s1) doesn't make a good team.
 - Next: (1) test **entry 3.0** OOS (more trades → steadier?); (2) attack the left tail (tighter
   half-life / z-stop / mid-trade coint re-check). Full write-up in `docs/QA.md` (2026-07-20 re-validation).
+
+### Entry 3.0 OOS: strictly worse than 3.5 — selectivity confirmed, family still OOS-negative (2026-07-20)
+
+Re-ran entry 3.0 on the same 3 OOS spans (diversification hypothesis test):
+
+| Span | entry 3.0 (net / DD) | entry 3.5 (net / DD) |
+|---|---|---|
+| s1 (in-sample) | +$1,865 / 12.7% | +$2,307 / 8.9% |
+| s2 | −$1,289 / 37.68% | −$170 / 17.57% |
+| s3 | −$3,334 / 41.54% | −$1,313 / 22.35% |
+| s4 | −$822 / 14.76% | +$948 / 6.98% |
+| **OOS sum** | **−$5,445** | **−$536** |
+
+- **Diversification hypothesis REJECTED.** 3.0 is strictly worse than 3.5 on *every* span, both
+  axes. 3-for-3 negative OOS with 38–42% drawdowns — the extra ~8k trades/span are marginal
+  |z| 3–3.5 signals that amplify the left tail, not smooth it.
+- **Selectivity CONFIRMED robust** (the generalizable half of the entry finding): more selective
+  = higher net AND lower DD, on all 4 spans. "Never lower the entry bar" holds decisively.
+- **But no entry threshold is OOS-profitable.** The deficit is structural (left tail: pairs break
+  cointegration → run to stop), not a tuning knob. Only structural levers remain: tighten
+  **max_half_life_h** (72h→24/48h) or the z-stop. Full write-up in `docs/QA.md` (2026-07-20 entry-3.0 OOS).
