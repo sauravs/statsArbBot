@@ -252,3 +252,39 @@ Re-ran entry 3.0 on the same 3 OOS spans (diversification hypothesis test):
 - **But no entry threshold is OOS-profitable.** The deficit is structural (left tail: pairs break
   cointegration → run to stop), not a tuning knob. Only structural levers remain: tighten
   **max_half_life_h** (72h→24/48h) or the z-stop. Full write-up in `docs/QA.md` (2026-07-20 entry-3.0 OOS).
+
+### 🔚 Left-tail attack: half-life & z-stop are non-levers — EVERY parameter exhausted (2026-07-21)
+
+Final step, on **s3** (worst OOS span, entry 3.5 baseline = −$1,313 / 22.35% DD):
+
+| `max_half_life_h` | Net | Trades | Max DD | | `stop_threshold` | Net | Max DD |
+|---|---|---|---|---|---|---|---|
+| 72h (base) | −$1,313 | 2,652 | 22.35% | | 3.75 (tight) | −$1,664 | 20.62% |
+| 48h | −$1,326 | 2,636 | 22.40% | | 4.0 (base) | −$1,313 | 22.35% |
+| 24h | −$1,348 | 2,551 | 22.88% | | 6.0 (wide) | −$1,290 | 24.28% |
+
+- **Half-life = NON-BINDING (inert).** A 24h cap removes only ~4% of trades and leaves drawdown
+  flat — admitted pairs already revert in <24h. **So the OOS losses are NOT slow-reverting pairs**;
+  the losers revert fast but a subset *breaks* (cointegration fails), which no formation-window
+  statistic can predict. (Analogy: *a thermostat in a house with no heater.*)
+- **Z-stop = pure RISK/RETURN TRADE-OFF.** Wider = better net but worse DD, in lockstep; no setting
+  improves both, best net beats base by $23 (noise). The **tight** stop is *worse* on net —
+  refuting "losers run to the stop": trades dipping to 3.75 mostly come back, so a tight leash just
+  books would-be reverters as losses. (Analogy: *a see-saw — you tilt it, you never lift it.*)
+
+**COMPLETE LEVER TAXONOMY — none creates an out-of-sample edge:**
+
+| Lever | Behaviour | OOS edge? |
+|---|---|---|
+| Exit \|Z\| | noise | No |
+| Entry \|Z\| | potent; selectivity robust (3.5>3.0 all spans) | No — OOS-negative at every value |
+| p-value | potent below 0.05; saturates above | No — prevents ruin, not profit |
+| Half-life | non-binding / inert | No |
+| Stop \|Z\| | risk/return trade-off | No |
+
+**VERDICT: naive Hyperliquid stat-arb 2025–26 is breakeven-to-negative after costs out-of-sample.
+Live deployment is NOT justified.** Best untested lead = **costs, not signal**: friction ≈ $0.40 per
+$100 trade vs avg net $0.20–0.78/trade — the same order as the entire edge. Test by cutting
+`taker_fee_pct`/`slippage_pct` 0.05→0.02 on s3. Other structural options (code changes): regime
+filter, mid-trade cointegration re-check, portfolio-level risk caps. Full write-up in `docs/QA.md`
+(2026-07-21 left-tail attack).
