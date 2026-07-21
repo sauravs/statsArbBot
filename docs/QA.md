@@ -481,3 +481,49 @@ Same config (entry 3.5 / p-value 0.01 / exit 0.5 / stop 4 / scan 21 / trade 7 / 
 **Consequence for the campaign — the only lever left is structural.** Entry and p-value are both exhausted: selectivity is *necessary* (prevents ruin) but not *sufficient* (no setting is OOS-profitable). The next and last experiment must target the **left tail directly** — tighten `max_half_life_h` (72h → 24/48h: demand faster-reverting pairs, which break cointegration less often and reach the take-profit before the stop) or tighten the z-stop. If that doesn't create a durable OOS edge, the honest conclusion is that naive Hyperliquid stat-arb over 2025–26 is breakeven-at-best after costs, and live deployment is not justified without a structural redesign.
 
 ---
+
+## 2026-07-21 — Left-tail attack (half-life + z-stop): both are non-levers — EVERY parameter is now exhausted
+
+**Q:** [Final campaign step: attack the fat left tail directly on **s3**, the worst OOS span (entry 3.5 → −$1,313 / 22.35% DD). Swept `max_half_life_h` = 72/48/24 and `stop_threshold` = 3.75/4.0/6.0, all else fixed.] Can a structural parameter fix the out-of-sample losses?
+
+**A:** **No. Neither lever works, and for two different (and both instructive) reasons. Combined with the earlier sweeps, this exhausts every parameter the strategy exposes — none of them turns an OOS-negative span positive. The strategy family has no durable parametric edge on Hyperliquid 2025–26.**
+
+**Half-life (`max_half_life_h`) — a NON-BINDING filter (inert):**
+
+| Half-life cap | Net | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| 72h (baseline) | −$1,313 | 61.9% | 2,652 | 22.35% |
+| 48h | −$1,326 | 61.9% | 2,636 | 22.40% |
+| 24h | −$1,348 | 62.1% | 2,551 | 22.88% |
+
+Tightening all the way to 24h removed only **~4% of trades** (2,652 → 2,551) and left drawdown **flat-to-worse** (22.35% → 22.88%) with net marginally *worse*. The cap barely binds — pairs that clear the cointegration + p-value gates **already revert in under 24h**. (Same shape as the p-value saturation: a filter set looser than the binding constraint does nothing.) **Decisive implication: the OOS losses are NOT from slow-reverting pairs.** The losers revert *fast* — a subset simply **breaks** (cointegration fails) instead of reverting, and no formation-window statistic can predict *which* fast pair will break out-of-sample.
+
+**Z-stop (`stop_threshold`) — a pure RISK/RETURN TRADE-OFF (no free lunch):**
+
+| Stop \|Z\| | Net | Win % | Trades | Max DD |
+|---|---|---|---|---|
+| 3.75 (tight) | −$1,664 | 61.8% | 2,669 | **20.62%** |
+| 4.0 (baseline) | −$1,313 | 61.9% | 2,652 | 22.35% |
+| 6.0 (wide) | **−$1,290** | 61.9% | 2,634 | **24.28%** |
+
+Widening the stop improves net (−$1,664 → −$1,290) but worsens drawdown (20.6% → 24.3%) in lockstep — **no setting improves both**, and the best net beats baseline by **$23** (deep inside noise) while costing 2 points of drawdown. Notably the **tight** stop is *worse* on net, which **refutes the "losers run to the stop" hypothesis**: trades that dip to |z|=3.75 against you mostly *come back*, so a tight leash just books would-be reverters as realized losses. The tail isn't trades running *past* the stop — it's trades losing on their own merits during the hold and exiting underwater via the time-stop/window-end.
+
+**Analogy — the see-saw and the thermostat.** The z-stop is a **see-saw**: push one end down (tighter stop → lower drawdown) and the other rises (worse net); push the other way and it reverses. You can tilt it all day, but you never *lift* it — the whole see-saw sits below the waterline on this span. And the half-life cap is a **thermostat in a house with no heater**: you can turn the dial anywhere you like and nothing changes, because it was never the thing controlling the temperature.
+
+**THE COMPLETE LEVER TAXONOMY (campaign conclusion):**
+
+| Lever | Behaviour | Creates OOS edge? |
+|---|---|---|
+| Exit \|Z\| | noise (jagged, ±$212) | **No** |
+| Entry \|Z\| | potent; selectivity robust (3.5 > 3.0 on all 4 spans) | **No** — OOS-negative at every value |
+| p-value | potent *below* 0.05 (tight essential); saturates above | **No** — prevents ruin, can't create profit |
+| Half-life | non-binding / inert | **No** |
+| Stop \|Z\| | pure risk/return trade-off | **No** — slides along the frontier, doesn't shift it |
+
+**Final honest verdict: no parameter in this strategy turns out-of-sample losses into profit.** The levers either don't bind, or merely trade one kind of pain for another, or (entry/p-value) buy *survival* without *profit*. **Naive Hyperliquid stat-arb over 2025–26 is breakeven-to-negative after costs out-of-sample — live deployment is NOT justified on this evidence.** (This matches the independent warning in `BACKTEST_PARAMETER_GUIDE.md:80-83` that naive crypto pairs are usually net-negative after costs.)
+
+**The most promising untested lead — COSTS, not signal.** Round-trip friction is ~0.05% taker fee + 0.05% slippage per leg per fill × 4 fills ≈ **$0.40 per $100 trade** (`backend/simulation/costs.py`), against an observed average net of only **$0.20–$0.78/trade**. **Costs are the same order of magnitude as the entire edge** — so the strategy may be gross-positive but friction-negative. This is cheaply and decisively testable: re-run s3 with `taker_fee_pct` / `slippage_pct` cut (e.g. 0.05 → 0.02, a maker-style execution assumption) and see how much of the −$1,313 is friction vs signal. If a realistic cost reduction flips it positive, the productive work is **execution** (maker orders, better fills, fewer round-trips), not more parameter tuning. If it stays negative even at near-zero costs, the signal itself is dead and the strategy needs a fundamentally different edge.
+
+**Other structural directions (untested, require code changes):** a **regime filter** (only trade when recent reversion quality is high — the losses cluster in regimes where pairs broadly stop reverting), a **mid-trade cointegration re-check** (exit when the relationship breaks, rather than waiting for the z-stop/time-stop), or **portfolio-level risk caps** (limit concurrent correlated pairs — what turns many small losses into a 22–42% drawdown).
+
+---
