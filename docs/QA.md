@@ -527,3 +527,60 @@ Widening the stop improves net (−$1,664 → −$1,290) but worsens drawdown (2
 **Other structural directions (untested, require code changes):** a **regime filter** (only trade when recent reversion quality is high — the losses cluster in regimes where pairs broadly stop reverting), a **mid-trade cointegration re-check** (exit when the relationship breaks, rather than waiting for the z-stop/time-stop), or **portfolio-level risk caps** (limit concurrent correlated pairs — what turns many small losses into a 22–42% drawdown).
 
 ---
+
+## 2026-07-21 — COST DECOMPOSITION: the conclusion REVERSES — there IS a positive out-of-sample gross edge; friction destroys it
+
+**Q:** [Diagnostic proposed after every parameter was exhausted: is the deficit *signal* or *friction*? Re-ran the best config (entry 3.5) on the OOS spans with `taker_fee_pct`/`slippage_pct` set to 0.02 and to 0.00, decomposing `net = gross − friction`.] How much of the out-of-sample loss is execution cost?
+
+**A:** **Almost all of it — and this REVERSES the campaign's conclusion. The strategy has a genuine positive out-of-sample gross edge of +$2,554; friction of $3,090 destroys it. The earlier "no edge, don't deploy" verdict was wrong — it over-generalised from s3, which turned out to be the one flat span.**
+
+**Measured decomposition (entry 3.5, all three OOS spans):**
+
+| Span | Net (actual) | **Gross (measured, zero-friction)** | Friction | Max DD: net → gross |
+|---|---|---|---|---|
+| s2 | −$170 | **+$1,181** (69.1% win) | $1,352 | 17.57% → **10.14%** |
+| s3 | −$1,313 | −$200 (66.4% win) | $1,113 | 22.35% → **14.48%** |
+| s4 | +$948 | **+$1,573** (68.5% win) | $626 | 6.98% → **5.64%** |
+| **OOS total** | **−$536** | **+$2,554** | **$3,090** | — |
+
+The identity closes **exactly**: `$2,554 − $3,090 = −$536`, matching the actual OOS net to the cent. Friction ≈ **$0.398/trade** (measured consistently across spans: $0.375 / $0.416 / $0.417).
+
+**The cost model is exactly linear** — the intermediate rung confirms it. On s3: 0.00 → −$200, 0.02 → −$648, 0.05 → −$1,313 (predicted −$645 vs actual −$648; and s4 gross predicted +$1,574 vs actual +$1,573.47, accurate to 53 cents).
+
+**Break-even is close.** Friction scales linearly with the per-side rate, so OOS turns positive once it falls below **0.0413%** (from today's 0.05%) — a mere **17% cost reduction**. Beyond that:
+- **0.02%** per side → OOS ≈ **+$1,318**
+- **0.01%** (realistic maker fills) → OOS ≈ **+$1,936**
+- **0.00%** → **+$2,554**
+
+Note also that **friction inflates drawdown substantially** — removing it takes s2 from 17.6% → 10.1% and s3 from 22.4% → 14.5%. The risk profile at low cost is genuinely good (5.6–14.5%) with 66–69% win rates.
+
+**THE DEEPER INSIGHT — "selectivity" was largely a FRICTION artifact.** Friction is a roughly *fixed ~$0.40 tax per trade*, so it disproportionately destroys low-edge-per-trade configurations. Reconstructing gross for the in-sample entry sweep with the measured constant:
+
+| Entry \|Z\| | Net (s1) | Gross/trade | **Gross total (s1)** |
+|---|---|---|---|
+| 3.0 | +$1,865 | $0.60 | **+$5,612** |
+| 3.5 | +$2,307 | $1.18 | +$3,474 |
+| 3.75 | +$1,916 | $1.98 | +$2,396 |
+| 4.0 | +$1,020 | $3.03 | +$1,174 |
+
+**At zero cost, entry 3.0 is the BEST config, not the worst** — and this holds out-of-sample too (entry 3.0 OOS gross ≈ **+$4,668** vs entry 3.5's +$2,554, derived from the same constant). Entry 3.0 only *looked* catastrophic (−$5,445 OOS, 38–42% drawdowns) because it trades 3× as often and therefore pays 3× the friction. **The optimal entry threshold is a function of the cost level:** at high costs be ruthlessly selective (3.5+); at low costs trade far more (entry 3.0 overtakes 3.5 below roughly 0.015% per side). This reframes the campaign's headline "selectivity is the dominant lever" as substantially a *friction* finding — selectivity was the right response to an expensive execution assumption, not an intrinsic property of the signal.
+
+**Analogy — a toll road.** Every trade pays the same ~$0.40 toll regardless of how far it travels. The signal generates real value on every trip, but the short trips (marginal |z| ≈ 3 dislocations, ~$0.60 of gross each) barely clear the toll, while long trips (|z| ≥ 4, ~$3 of gross) clear it easily. Raising the entry bar was simply *refusing to take short trips because the toll ate them* — sensible while the toll is high, but it also forgoes an enormous number of genuinely profitable journeys. **Lower the toll and the whole road network becomes worth driving.** The previous conclusion mistook "the tolls exceed our fares" for "nobody wants to travel."
+
+**CORRECTED VERDICT:** the signal is **not** dead. It produces a real, out-of-sample-robust gross edge (3 of 4 spans strongly positive, good drawdowns, 66–69% win rates). **The entire deficit is execution cost.** The productive work is therefore **execution engineering, not parameter tuning** — a different and far more tractable problem.
+
+**HONEST CAVEATS — this is not a free lunch:**
+1. **Zero-cost is a counterfactual upper bound**, not an achievable strategy. It measures the edge; it is not a config you can run.
+2. **Maker orders do not guarantee fills.** A two-legged pair trade with passive orders risks one leg filling and the other not — **legging risk** the backtest does not model (the failsafe-close path exists and itself costs money).
+3. **Passive fills are adverse-selected** — you get filled precisely when the market moves against you. Simply lowering `slippage_pct` does **not** capture this; real maker execution carries its own hidden cost that could consume much of the modelled saving.
+4. Funding **is** included in all gross figures (it is not zeroable via these params), so that drag is already accounted for.
+5. The entry-3.0 gross figures are *derived* from the measured $0.398/trade constant, not directly measured. The constant is well-established (three spans, 0.375–0.417) but those specific numbers should be confirmed by direct runs before acting on them.
+
+**NEXT STEPS (execution-focused, replacing the parameter roadmap):**
+1. **Establish Hyperliquid's real fee schedule** — maker vs taker tiers, any rebates. This sets the achievable floor and tells us immediately whether the 0.0413% break-even is reachable.
+2. **Validate the 0.05% slippage assumption against real fills** — it may be pessimistic (or optimistic) for these markets; the whole conclusion is sensitive to it.
+3. **Directly measure entry 3.0 at low cost** on the OOS spans (confirm the +$4,668 derived figure), then re-derive the cost-dependent optimal entry.
+4. **Model maker execution honestly** — fill probability, adverse selection, and legging risk — rather than just lowering `slippage_pct`. This is the crux: it decides whether the edge is harvestable.
+5. Only then reconsider live deployment. The edge is real, but **"real gross edge" ≠ "profitable after realistic execution"** — that gap is exactly what step 4 measures.
+
+---
