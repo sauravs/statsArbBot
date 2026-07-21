@@ -282,9 +282,49 @@ Final step, on **s3** (worst OOS span, entry 3.5 baseline = −$1,313 / 22.35% D
 | Half-life | non-binding / inert | No |
 | Stop \|Z\| | risk/return trade-off | No |
 
-**VERDICT: naive Hyperliquid stat-arb 2025–26 is breakeven-to-negative after costs out-of-sample.
-Live deployment is NOT justified.** Best untested lead = **costs, not signal**: friction ≈ $0.40 per
-$100 trade vs avg net $0.20–0.78/trade — the same order as the entire edge. Test by cutting
-`taker_fee_pct`/`slippage_pct` 0.05→0.02 on s3. Other structural options (code changes): regime
-filter, mid-trade cointegration re-check, portfolio-level risk caps. Full write-up in `docs/QA.md`
-(2026-07-21 left-tail attack).
+**VERDICT (⚠️ SUPERSEDED — see the cost decomposition below):** *"naive Hyperliquid stat-arb 2025–26
+is breakeven-to-negative after costs; live deployment is NOT justified."* This was right about the
+**net** result but wrong about the **cause** — it assumed the signal was dead. The cost decomposition
+below shows the signal is fine and **friction** is the whole problem. Kept for honesty. Full write-up
+in `docs/QA.md` (2026-07-21 left-tail attack).
+
+### ✅ COST DECOMPOSITION — the conclusion REVERSES: real gross edge, destroyed by friction (2026-07-21)
+
+Re-ran entry 3.5 on the OOS spans with `taker_fee_pct`/`slippage_pct` = 0.02 and 0.00:
+
+| Span | Net (actual) | **Gross (measured)** | Friction | Max DD: net → gross |
+|---|---|---|---|---|
+| s2 | −$170 | **+$1,181** (69.1% win) | $1,352 | 17.57% → **10.14%** |
+| s3 | −$1,313 | −$200 (66.4% win) | $1,113 | 22.35% → **14.48%** |
+| s4 | +$948 | **+$1,573** (68.5% win) | $626 | 6.98% → **5.64%** |
+| **OOS** | **−$536** | **+$2,554** | **$3,090** | — |
+
+- **Identity closes exactly** ($2,554 − $3,090 = −$536 ✓). Friction ≈ **$0.398/trade** (consistent
+  across spans: 0.375 / 0.416 / 0.417). Cost model is **exactly linear** (s3: 0.00→−$200,
+  0.02→−$648, 0.05→−$1,313; s4 gross predicted +$1,574 vs actual +$1,573.47).
+- **The signal is NOT dead.** Positive OOS gross edge, 3 of 4 spans strongly positive, 66–69% win
+  rates, and *good* drawdowns once friction is removed (5.6–14.5%). The earlier verdict
+  over-generalised from s3 — the one flat span.
+- **Break-even needs only a ~17% cost cut:** OOS turns positive below **0.0413%** per side.
+  At 0.02% → **+$1,318**; at 0.01% (maker fills) → **+$1,936**; at 0.00% → +$2,554.
+- **"Selectivity" was largely a FRICTION artifact.** Friction is a fixed ~$0.40/trade tax, so it
+  kills low-edge-per-trade configs. Gross totals on s1: entry 3.0 = **+$5,612**, 3.5 = +$3,474,
+  3.75 = +$2,396, 4.0 = +$1,174 — **at zero cost entry 3.0 is the BEST, not the worst** (OOS too:
+  3.0 gross ≈ +$4,668 vs 3.5's +$2,554). 3.0 only looked catastrophic because it pays 3× the
+  friction. **Optimal entry is a function of the cost level** (3.0 overtakes 3.5 below ~0.015%/side).
+- Analogy: *a toll road.* Every trade pays the same ~$0.40 toll. Short trips (|z|≈3, ~$0.60 gross)
+  barely clear it; long trips (|z|≥4, ~$3) clear it easily. Raising the entry bar was just refusing
+  short trips because the toll ate them — sensible at a high toll, but it forgoes many genuinely
+  profitable journeys. **Lower the toll and the whole network is worth driving.**
+
+**CAVEATS (not a free lunch):** zero-cost is a *counterfactual upper bound*, not a runnable config;
+maker orders don't guarantee fills (**legging risk** on a 2-legged trade, unmodelled); passive fills
+are **adverse-selected** (lowering `slippage_pct` does NOT capture this); entry-3.0 gross figures are
+*derived* from the friction constant, not directly measured. Funding **is** included in gross.
+
+**CORRECTED ROADMAP — execution, not parameters:** (1) get Hyperliquid's real maker/taker schedule;
+(2) validate the 0.05% slippage assumption against real fills; (3) directly measure entry 3.0 at low
+cost, re-derive the cost-dependent optimal entry; (4) model maker execution *honestly* (fill
+probability, adverse selection, legging risk) — this decides whether the edge is harvestable;
+(5) only then reconsider live. **"Real gross edge" ≠ "profitable after realistic execution."**
+Full write-up in `docs/QA.md` (2026-07-21 cost decomposition).
