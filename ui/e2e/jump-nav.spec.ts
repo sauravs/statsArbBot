@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 const PASSCODE = process.env.DASHBOARD_PASSWORD ?? "123456";
 
@@ -36,6 +37,15 @@ async function waitForStableHeight(page: Page) {
 // is pushed far down. A bidirectional floating jump button lets the operator
 // hop straight to Manual Trades and back to the top without dragging the
 // scrollbar the whole way.
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
+
 test.describe("Manual Trading — jump-to-section FAB", () => {
   test("FAB jumps down to Manual Trades then back to the top", async ({
     page,
