@@ -29,6 +29,11 @@ export default function RecordManualTradeModal({
   const [pvalueMax, setPvalueMax] = useState(seedPvalueMax);
   const [maxHalfLife, setMaxHalfLife] = useState(seedMaxHalfLife);
   const [showFilters, setShowFilters] = useState(false);
+  // Realised-execution capture: the ACTUAL market-order fill per leg. Optional —
+  // blank just leaves entry slippage unmeasurable for this trade. When supplied,
+  // P&L is booked against the real fill rather than the reference price.
+  const [fill1, setFill1] = useState("");
+  const [fill2, setFill2] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,8 +41,13 @@ export default function RecordManualTradeModal({
   const c2 = parseFloat(leg2);
   const pMax = parseFloat(pvalueMax);
   const hlMax = parseFloat(maxHalfLife);
+  const f1 = parseFloat(fill1);
+  const f2 = parseFloat(fill2);
+  // Blank is fine (optional); a value that is present must be a positive number.
+  const fillValid =
+    (fill1.trim() === "" || f1 > 0) && (fill2.trim() === "" || f2 > 0);
   const filtersValid = pMax > 0 && pMax <= 1 && hlMax > 0;
-  const valid = c1 > 0 && c2 > 0 && filtersValid;
+  const valid = c1 > 0 && c2 > 0 && filtersValid && fillValid;
 
   async function submit() {
     if (!valid) return;
@@ -51,6 +61,10 @@ export default function RecordManualTradeModal({
         capital_leg2_usd: c2,
         pvalue_max: pMax,
         max_half_life_h: hlMax,
+        // Omit rather than send null when left blank, so the field stays absent
+        // from the payload and the server keeps it NULL.
+        ...(fill1.trim() !== "" ? { fill_price_leg1: f1 } : {}),
+        ...(fill2.trim() !== "" ? { fill_price_leg2: f2 } : {}),
       });
       onRecorded();
       onClose();
@@ -90,6 +104,27 @@ export default function RecordManualTradeModal({
         onChange={setLeg2}
         disabled={busy}
         testid="capital-leg2"
+      />
+
+      <p className="mb-2 mt-4 text-xs text-muted">
+        <span className="text-fg">Actual fill prices (optional)</span> — enter what
+        the exchange actually filled you at. Recording them measures your real
+        slippage against the reference price captured above, and books P&amp;L
+        against what you truly paid. Leave blank if unknown.
+      </p>
+      <CapitalField
+        label={`Fill price — Leg 1 (${pair.base_market})`}
+        value={fill1}
+        onChange={setFill1}
+        disabled={busy}
+        testid="fill-price-leg1"
+      />
+      <CapitalField
+        label={`Fill price — Leg 2 (${pair.quote_market})`}
+        value={fill2}
+        onChange={setFill2}
+        disabled={busy}
+        testid="fill-price-leg2"
       />
 
       <button

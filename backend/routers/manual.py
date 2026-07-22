@@ -62,6 +62,14 @@ class RecordBody(BaseModel):
     # Bounds mirror the backtest strategy fields (routers/backtest.py).
     pvalue_max: float = Field(default=config.PVALUE_MAX, gt=0.0, le=1.0)
     max_half_life_h: float = Field(default=config.MAX_HALF_LIFE_H, gt=0.0, le=1000.0)
+    # Realised-execution capture: the operator's ACTUAL market-order fill per
+    # leg. Optional — omitting them just leaves slippage unmeasurable for that
+    # trade; supplying them lets `realised slippage = (fill − reference)/
+    # reference` be computed against the server-captured entry reference, and
+    # makes the stored P&L reflect what was actually paid rather than assuming
+    # a fill at the reference price.
+    fill_price_leg1: float | None = Field(default=None, gt=0)
+    fill_price_leg2: float | None = Field(default=None, gt=0)
 
 
 def _entry_filter_detail(body: RecordBody, a: PairAnalysis) -> str:
@@ -90,6 +98,21 @@ class CloseBody(BaseModel):
     exit_price_leg1: float = Field(gt=0)
     exit_price_leg2: float = Field(gt=0)
     closed_at: datetime | None = None
+
+
+def _entry_fills(trade: dict) -> tuple[float, float]:
+    """The entry prices P&L should be valued against.
+
+    Prefer the operator's **actual** fills when recorded, falling back to the
+    server-captured reference for trades taken before fill capture existed (or
+    when the optional inputs were skipped). Valuing against the real fill makes
+    the stored P&L include entry slippage instead of silently assuming the
+    position was opened at the reference price.
+    """
+    return (
+        trade.get("fill_price_leg1") or trade["entry_price_leg1"],
+        trade.get("fill_price_leg2") or trade["entry_price_leg2"],
+    )
 
 
 @router.post("/record", status_code=201)
@@ -191,6 +214,10 @@ async def record_manual_trade(body: RecordBody) -> dict:
         "capital_leg2_usd": body.capital_leg2_usd,
         "recorded_at": datetime.now(timezone.utc),
         "status": "OPEN",
+        # The operator's ACTUAL fills, paired with the reference prices above so
+        # realised entry slippage is computable. Optional (may be None).
+        "fill_price_leg1": body.fill_price_leg1,
+        "fill_price_leg2": body.fill_price_leg2,
     }
     return await get_manual_trade_repository().create(data)
 
@@ -276,10 +303,13 @@ async def manual_portfolio(
             quote_price = prices.get(t["quote_market"])
             if base_price is None or quote_price is None:
                 continue
+            # Mark against the actual entry fills when recorded, so unrealized
+            # P&L is on the same basis as the realised P&L booked on close.
+            mark_entry1, mark_entry2 = _entry_fills(t)
             pnl = compute_manual_pnl(
                 z_score=t["z_score"],
-                entry_price_leg1=t["entry_price_leg1"],
-                entry_price_leg2=t["entry_price_leg2"],
+                entry_price_leg1=mark_entry1,
+                entry_price_leg2=mark_entry2,
                 exit_price_leg1=base_price,
                 exit_price_leg2=quote_price,
                 capital_leg1_usd=t["capital_leg1_usd"],
@@ -309,10 +339,34 @@ async def close_manual_trade(trade_id: str, body: CloseBody) -> dict:
     if trade["status"] == "CLOSED":
         raise HTTPException(status_code=409, detail="Trade is already closed.")
 
+    # Capture the REFERENCE prices at close time so they pair with the
+    # operator's actual exit fills and make realised exit slippage computable.
+    # Best-effort by design: a price-fetch failure must never block closing a
+    # real position, so the references are simply left NULL for that trade.
+    exit_ref1: float | None = None
+    exit_ref2: float | None = None
+    client = make_data_client()
+    try:
+        prices = await current_prices(
+            client, [trade["base_market"], trade["quote_market"]]
+        )
+        exit_ref1 = prices.get(trade["base_market"])
+        exit_ref2 = prices.get(trade["quote_market"])
+    except Exception as exc:
+        logger.warning(
+            "close reference-price fetch failed (exit slippage unmeasurable): %s", exc
+        )
+    finally:
+        try:
+            await client.aclose()
+        except Exception as exc:  # must not mask the close result/error
+            logger.warning("data client close failed: %s", exc)
+
+    entry_leg1, entry_leg2 = _entry_fills(trade)
     pnl = compute_manual_pnl(
         z_score=trade["z_score"],
-        entry_price_leg1=trade["entry_price_leg1"],
-        entry_price_leg2=trade["entry_price_leg2"],
+        entry_price_leg1=entry_leg1,
+        entry_price_leg2=entry_leg2,
         exit_price_leg1=body.exit_price_leg1,
         exit_price_leg2=body.exit_price_leg2,
         capital_leg1_usd=trade["capital_leg1_usd"],
@@ -325,6 +379,8 @@ async def close_manual_trade(trade_id: str, body: CloseBody) -> dict:
         exit_price_leg2=body.exit_price_leg2,
         pnl=pnl.pnl,
         closed_at=closed_at,
+        exit_ref_price_leg1=exit_ref1,
+        exit_ref_price_leg2=exit_ref2,
     )
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Manual trade {trade_id} not found.")

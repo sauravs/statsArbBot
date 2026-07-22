@@ -284,6 +284,17 @@ export interface ManualTrade {
   exit_price_leg1: number | null;
   exit_price_leg2: number | null;
   pnl: number | null;
+  /**
+   * Realised-execution capture (slippage measurement). `fill_price_leg*` are the
+   * operator's actual entry fills, paired with `entry_price_leg*` (the reference
+   * captured at record time); `exit_ref_price_leg*` are the references captured
+   * server-side at close, paired with `exit_price_leg*` (the actual exit fills).
+   * Null when not recorded or when a reference fetch failed.
+   */
+  fill_price_leg1: number | null;
+  fill_price_leg2: number | null;
+  exit_ref_price_leg1: number | null;
+  exit_ref_price_leg2: number | null;
 }
 
 export interface ManualTradesResponse {
@@ -306,6 +317,14 @@ export function recordManualTrade(input: {
    */
   pvalue_max?: number;
   max_half_life_h?: number;
+  /**
+   * Realised-execution capture: the operator's ACTUAL market-order fill per leg.
+   * Optional — omitting them leaves entry slippage unmeasurable for the trade.
+   * When supplied, realised slippage is computable against the server-captured
+   * reference price, and P&L is booked against the real fill.
+   */
+  fill_price_leg1?: number;
+  fill_price_leg2?: number;
 }): Promise<ManualTrade> {
   return proxyPost<ManualTrade>("api/manual/record", input);
 }

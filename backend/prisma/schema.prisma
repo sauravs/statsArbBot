@@ -167,16 +167,29 @@ model ManualTrade {
   p_value          Float? // fresh Engle-Granger p-value re-validated at entry (#147)
   z_score          Float // current rolling Z of the spread at record time
   spread_value     Float // current spread (S1 − β·S2 − α) at record time
-  entry_price_leg1 Float // base close captured at record time
-  entry_price_leg2 Float // quote close captured at record time
+  entry_price_leg1 Float // base close captured at record time (REFERENCE)
+  entry_price_leg2 Float // quote close captured at record time (REFERENCE)
   capital_leg1_usd Float
   capital_leg2_usd Float
   recorded_at      DateTime          @default(now()) @db.Timestamptz
   status           ManualTradeStatus @default(OPEN)
   closed_at        DateTime?         @db.Timestamptz
-  exit_price_leg1  Float?
-  exit_price_leg2  Float?
+  exit_price_leg1  Float? // operator's ACTUAL exit fill
+  exit_price_leg2  Float? // operator's ACTUAL exit fill
   pnl              Float? // realised per-leg P&L sum, set on close
+
+  // ── Realised-execution capture (slippage measurement) ────────────────────
+  // The backtest charges a modelled `slippage_pct` per fill, but the true cost
+  // of a market order is only knowable from real fills. Pairing an ACTUAL fill
+  // with the REFERENCE price captured at the same instant makes realised
+  // slippage computable per leg: entry → (fill_price − entry_price)/entry_price,
+  // exit → (exit_price − exit_ref_price)/exit_ref_price, signed by leg side.
+  // All nullable: rows recorded before this, and operators who skip the
+  // optional entry-fill inputs, stay valid.
+  fill_price_leg1     Float? // operator's ACTUAL entry fill, base leg
+  fill_price_leg2     Float? // operator's ACTUAL entry fill, quote leg
+  exit_ref_price_leg1 Float? // base REFERENCE captured server-side at close
+  exit_ref_price_leg2 Float? // quote REFERENCE captured server-side at close
 
   @@index([exchange, mode, status])
   @@index([recorded_at])
