@@ -584,3 +584,76 @@ Note also that **friction inflates drawdown substantially** — removing it take
 5. Only then reconsider live deployment. The edge is real, but **"real gross edge" ≠ "profitable after realistic execution"** — that gap is exactly what step 4 measures.
 
 ---
+
+## 2026-07-22 — Execution economics: real fees, MEASURED slippage, and the cost-dependent optimal entry
+
+**Q:** [Three-step follow-up to the cost decomposition: (1) get Hyperliquid's real maker/taker fee schedule, (2) measure actual slippage rather than assuming 0.05%, (3) directly measure entry 3.0's gross to re-derive the cost-dependent optimal entry.] Is the edge harvestable, and at what entry threshold?
+
+**A:** **Taker execution is a coin flip (+$187 OOS, inside the ±$212 noise floor). Maker execution is solidly profitable (+$1,114 even charging adverse selection at the full half-spread). And entry 3.5 remains the right config at every realistic cost level — entry 3.0's larger gross edge only wins under near-perfect execution.**
+
+### 1. Hyperliquid's real fee schedule
+
+| Tier (14-day volume) | Taker | Maker |
+|---|---|---|
+| **0 — base** | **0.045%** | **0.015%** |
+| 1 (>$5M) | 0.040% | 0.012% |
+| 2 (>$25M) | 0.035% | 0.008% |
+| 3 (>$100M) | 0.030% | 0.004% |
+| 4 (>$500M) | 0.028% | 0.000% |
+
+Plus staking discounts 5–40% (Wood→Diamond) and maker rebates to −0.003% at top tiers. **Our modelled 0.05% taker was slightly pessimistic** (real base 0.045%), and **maker is 3× cheaper than taker** — the single most important number here.
+
+### 2. Measured slippage (not assumed)
+
+Queried Hyperliquid's live L2 order book for every coin the strategy actually trades, weighted by leg-fill count (**160 coins, 97% leg-fill coverage**). Half-spread is the correct slippage proxy: at **$100/leg** against top-of-book depth in the hundreds of thousands, market impact beyond the touch is negligible.
+
+**Trade-weighted half-spread = 0.0316%** — median 0.0165%, P25 0.0086%, P75 0.0328%, P90 0.0615%, max 0.279% (worst: HMSTR 0.279%, BOME 0.243%, PURR 0.196%, NOT 0.135%, TURBO 0.120%).
+
+So the modelled **0.05% slippage was too pessimistic** — real crossing cost is ~0.032%.
+
+### 3. Measured gross by entry threshold, and the full economics
+
+Direct zero-cost runs at both entry thresholds across the three OOS spans:
+
+| Config | **Gross (measured)** | Friction @0.10% | Break-even rate | Zero-cost DD (s2/s3/s4) |
+|---|---|---|---|---|
+| entry 3.5 | +$2,554 | $3,090 | **0.0827%** | 10.1 / 14.5 / 5.6% |
+| entry 3.0 | **+$4,379** | $9,825 | **0.0446%** | 26.6 / 22.3 / 8.7% |
+
+*(entry 3.0 gross: s2 +$2,688, s3 −$158, s4 +$1,849. Consistency check: $4,379 − $9,825 = −$5,446, matching the measured entry-3.0 OOS net of −$5,445 exactly.)*
+
+**Net under each execution regime** (friction scales linearly with fee+slippage per fill):
+
+| Regime | Total/fill | **entry 3.5** | **entry 3.0** |
+|---|---|---|---|
+| Model assumption (0.05 + 0.05) | 0.100% | −$536 | −$5,446 |
+| **Real taker** (0.045 + 0.0316) | 0.0766% | **+$187** | −$3,147 |
+| Taker + 15% staking | 0.0699% | +$394 | −$2,489 |
+| **Maker + full half-spread charged** (0.015 + 0.0316) | 0.0466% | **+$1,114** | −$199 |
+| **Maker, no spread cost** (0.015 + 0) | 0.015% | +$2,091 | **+$2,905** |
+
+### Conclusions
+
+1. **Taker execution is not a business.** +$187 across three OOS spans sits *inside* the measured ±$212 single-span noise floor — statistically indistinguishable from zero. Even with 15% staking discounts it's +$394 on $10k over ~11 months (~4%/yr) with 17–22% drawdowns. Not worth the risk.
+2. **Maker execution is where the edge lives.** At 0.015% fee, even charging adverse selection at the *full* half-spread (a deliberately pessimistic assumption — a resting order that fills has not crossed the spread) it returns **+$1,114**. The gap between taker and maker execution is worth ~**$1,900 OOS** — nearly 4× the strategy's entire net deficit. **This is an execution-quality story end to end.**
+3. **Entry 3.5 remains the right config — my earlier "entry 3.0 is actually best" was over-stated.** True: entry 3.0 has **1.71× the gross edge**, confirming that friction (not signal) is what made it look catastrophic. But it also carries **3.2× the friction** and **~2× the drawdown**. Entry 3.0 only overtakes 3.5 below **0.0271% total per fill** — i.e. only under near-perfect execution. At realistic maker levels (0.0466%) entry 3.0 is still **negative** (−$199) while 3.5 makes +$1,114. Even where 3.0 wins on dollars it is worse risk-adjusted (gross/DD ≈ 228 vs 253). **So "selectivity was a friction artifact" holds for the *gross* ranking, but the *practical* ranking at achievable costs still favours 3.5.**
+
+**Analogy — the toll road, revisited.** Earlier we found the toll (~$0.40/trade) was eating the fares, and that at zero toll the *scenic route* (entry 3.0, many short trips) generates the most total value. Measuring the real toll booth changes the picture: the toll is somewhat cheaper than feared (0.077% not 0.10%), and there is an **express lane** — maker orders at a third the price. But the scenic route only pays off if the toll is *nearly free*; at any realistic price the **direct route (entry 3.5) is still the one to drive**, because it makes far fewer toll-paying trips per dollar of value delivered.
+
+### A cheap, high-leverage improvement discovered along the way
+
+Slippage dispersion is wide (P90 = 0.0615%, worst 0.279%) and **the scan currently admits any cointegrated pair regardless of tradability**. Excluding coins above ~0.06% half-spread would cut trade-weighted slippage materially while losing relatively few trades — a **spread/liquidity filter on pair selection** is a cheap, targeted change and the natural companion to the maker work.
+
+### Caveats
+
+1. **Spreads are a current snapshot**, not historical spreads during the 2025 spans. The strategy enters at extreme |z| dislocations, which often coincide with volatility — when spreads *widen*. **The taker case above is therefore optimistic**, which makes the "taker is a coin flip" verdict, if anything, generous.
+2. **Maker fill probability and legging risk remain unmodelled.** A resting two-legged order can fill on one side only; the failsafe-close path costs money. This is the single biggest unknown.
+3. Adverse selection is charged as a flat half-spread in the table above — a crude proxy, not a measurement.
+
+### Next steps
+1. **Model maker execution honestly** — fill probability, adverse selection, legging risk. This is now *the* deciding question, and it needs code, not sweeps.
+2. **Add a spread/liquidity filter** to pair selection (exclude >0.06% half-spread markets) and re-run — cheap and likely a direct improvement.
+3. **Sample spreads during volatile periods**, not just calm ones, to de-bias the slippage estimate.
+4. Live deployment remains unjustified until (1) resolves: **"real gross edge" ≠ "profitable after realistic execution."**
+
+---
