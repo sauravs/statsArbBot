@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 // Phase 8 — Walk-Forward Backtest. Drives the real backtest engine against the
 // offline demo data (SCAN_DATA_SOURCE=fake): create a strategy with short
@@ -42,6 +43,15 @@ async function runToCompletion(page: Page) {
   const status = page.getByTestId("strategy-detail").getByTestId("bt-status-badge");
   await expect(status).toHaveText("COMPLETED", { timeout: 30_000 });
 }
+
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
 
 test.describe("Phase 8 — Walk-Forward Backtest", () => {
   test("create + run a backtest → completes with ranked results + report", async ({ page }) => {

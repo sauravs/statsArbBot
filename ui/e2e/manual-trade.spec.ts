@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 const PASSCODE = process.env.DASHBOARD_PASSWORD ?? "123456";
 
@@ -41,6 +42,15 @@ async function setNativeInput(page: Page, testid: string, value: string) {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }, value);
 }
+
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
 
 test.describe("Manual Trading — PR-1 UX quick wins (#37)", () => {
   test("header nav, both-leg signal, base/quote header, and Charts affordance", async ({
@@ -342,9 +352,16 @@ test.describe("Manual Trading — chart link + entry overlay", () => {
     await expect(badge).toContainText("Showing your recorded entry");
     await expect(page.getByTestId("pair-charts")).toBeVisible({ timeout: 15_000 });
 
-    // The Z panel legend gained the "your entry" readout (overlay is wired through).
+    // The Z panel legend gained the recorded-entry readout (overlay is wired
+    // through). The legend renders it as `entry <signed Z>` (PairCharts.tsx), which
+    // is what distinguishes it from the always-present threshold readout
+    // `entry ±1.5` — so match the signed number, not the word.
+    //
+    // This previously asserted /your entry/, a string the app has never rendered:
+    // the overlay's label has been "entry" since it was introduced (#121). The
+    // assertion could not pass, and went unnoticed because e2e did not run in CI.
     const zPanel = page.getByTestId("chart-zscore").locator("..");
-    await expect(zPanel).toContainText(/your entry/);
+    await expect(zPanel).toContainText(/entry\s-?\d+\.\d{2}/);
 
     // Opening the same pair WITHOUT entry params shows no overlay badge.
     await page.goto(new URL(page.url()).pathname);

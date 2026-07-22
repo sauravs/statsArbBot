@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 // Phase 7 — Fast-Forward Simulation. Drives the real replay engine against the
 // offline demo data (SCAN_DATA_SOURCE=fake): seed a cointegration scan → create a
@@ -24,6 +25,15 @@ async function ensurePairs(page: Page) {
     await expect(rows.first()).toBeVisible({ timeout: 20_000 });
   }
 }
+
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
 
 test.describe("Phase 7 — Fast-Forward Simulation", () => {
   test("create a replay → it completes → saved aggregates render", async ({ page }) => {

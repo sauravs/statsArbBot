@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 const PASSCODE = process.env.DASHBOARD_PASSWORD ?? "123456";
 
@@ -10,6 +11,15 @@ async function login(page: Page) {
   }
   await expect(page).toHaveURL(/\/dashboard$/);
 }
+
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
 
 test.describe("Phase 2 — scan → pairs table", () => {
   test("run a scan, pairs render, and survive a reload", async ({ page }) => {

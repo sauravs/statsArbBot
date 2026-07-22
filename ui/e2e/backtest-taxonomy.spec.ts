@@ -1,4 +1,5 @@
 import { test as base, expect, Locator, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 // Strategy-list taxonomy UX (PRs #217 / #218), driven through the real app against
 // the offline demo data. The point of this screen is that a run's net P&L can never
@@ -11,10 +12,10 @@ import { test as base, expect, Locator, Page } from "@playwright/test";
 // classification is exercised end-to-end — form → API → DB → list → detail — rather
 // than against a hand-built object.
 //
-// The suite runs fullyParallel against ONE shared backend, so other specs create
-// strategies concurrently. Every fixture name therefore carries a per-test tag,
-// every assertion is scoped to a row this test owns, and nothing asserts a global
-// count. Rows are deleted afterwards so repeated runs don't silt up the demo list.
+// The suite is serial and each file resets the backend first, but these specs still
+// scope every assertion to a row they own and never assert a global count: the demo
+// list is shared state, and a test that only passes because the database happened to
+// be empty is exactly the kind this suite had too many of.
 
 const PASSCODE = process.env.DASHBOARD_PASSWORD ?? "123456";
 
@@ -94,6 +95,15 @@ function row(page: Page, name: string): Locator {
 async function filterToFamily(page: Page, label: string) {
   await page.getByTestId("family-filter-select").selectOption({ label });
 }
+
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
 
 test.describe("Backtest strategy taxonomy", () => {
   test.beforeEach(async ({ page }) => {
