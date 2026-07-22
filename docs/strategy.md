@@ -329,7 +329,15 @@ probability, adverse selection, legging risk) — this decides whether the edge 
 (5) only then reconsider live. **"Real gross edge" ≠ "profitable after realistic execution."**
 Full write-up in `docs/QA.md` (2026-07-21 cost decomposition). **Steps 1–3 are now DONE — see below.**
 
-### 💰 Execution economics: real fees + MEASURED slippage → maker is the whole game (2026-07-22)
+### 💰 Execution economics: real fees + MEASURED slippage (2026-07-22)
+
+> ⚠️ **OPERATOR CONSTRAINT — read this first.** The operator will trade signals **manually with
+> MARKET orders only** (pick a trade off the manual-trading screen after a re-scan, execute at
+> whatever price the exchange gives). **There will be no limit/maker orders and no automated
+> execution.** So the **taker row below is the operative one (+$187 = statistically zero)**; the
+> maker rows are analytically interesting but **unavailable**. The maker-modelling work (fill
+> probability / adverse selection / legging risk) is **dropped**. See the roadmap at the end of
+> this section.
 
 **Real Hyperliquid fees (base tier): taker 0.045%, maker 0.015%** (tiers fall to 0.028%/0.000% at
 >$500M; staking discounts 5–40%). **Measured slippage: trade-weighted half-spread = 0.0316%**
@@ -369,7 +377,23 @@ dislocations when spreads *widen*, so the taker case is optimistic. **Maker fill
 legging risk remain unmodelled** — the biggest unknown. Adverse selection charged as a flat
 half-spread is a crude proxy.
 
-**NEXT:** (1) model maker execution honestly (fill probability / adverse selection / legging) — needs
-code, and is now *the* deciding question; (2) add the spread/liquidity filter and re-run; (3) sample
-spreads in volatile periods to de-bias; (4) live remains unjustified until (1) resolves. Full
-write-up in `docs/QA.md` (2026-07-22 execution economics).
+**NEXT — CORRECTED for market-order-only manual trading:**
+- ~~model maker execution honestly~~ **DROPPED** — irrelevant; the operator always crosses the spread.
+  Note the backtest **already models market orders correctly**: `taker_fee_pct` is charged on every
+  leg at entry+exit and `apply_slippage()` fills adversely (BUY above / SELL below,
+  `backend/simulation/costs.py:49-51`). There is **no maker/limit assumption anywhere in the model**,
+  so no modelling gap exists for the operator's intended execution.
+- **(1) Add a liquidity/spread filter to the backtest universe — now THE deciding experiment.**
+  `_universe()` (`backend/backtest/engine.py:604-606`) returns *all* available markets with no
+  liquidity filter, so this needs a small code change. Slippage by tier: P25 **0.0086%**, median
+  **0.0165%**, mean **0.0316%** → holding gross constant, OOS would be **+$898 / +$654 / +$187**.
+  **Caveat: narrowing the universe also shrinks gross** (fewer pairs → fewer trades), so the net
+  effect is genuinely uncertain and must be *measured*, not extrapolated.
+- **(2) Add a market-impact estimate.** The measured half-spread assumes **$100/leg** at
+  top-of-book. Manual size will be far larger, and in thin alt perps book-walking could dominate
+  every cost measured so far.
+- **(3) Sample spreads in volatile periods** — entries happen at extreme dislocations when spreads
+  widen, so the taker case above is optimistic.
+- **(4) Live remains unjustified**: on market orders the strategy is currently **+$187 OOS,
+  inside the ±$212 noise floor**. Only (1) could change that. Full write-up in `docs/QA.md`
+  (2026-07-22 execution economics + market-order correction).
