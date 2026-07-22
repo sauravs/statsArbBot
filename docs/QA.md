@@ -697,3 +697,46 @@ Slippage dispersion is wide (P90 = 0.0615%, worst 0.279%) and **the scan current
 **Method note (worth keeping):** this is the second time a stated constraint reversed the recommended direction — first the cost decomposition overturned "the signal is dead", now the market-order constraint overturns "maker execution is the whole game". Both prior conclusions were correct *given their assumptions*; both assumptions turned out not to match reality. **Establish the operator's actual execution constraints before optimising against a hypothetical one.**
 
 ---
+
+## 2026-07-22 — Why does the dashboard show so many PROFITABLE strategies when the analysis says the strategy loses money?
+
+**Q:** [Screenshot of `/dashboard/backtest` — "STRATEGIES 69", sorted by Net P&L descending, with the top 15 rows all green: $2,688 / $2,485 / $2,307 / $2,145 / $2,127 / $2,051 / $1,916 / $1,865 ×3 / $1,850 / $1,849 / $1,573 / $1,181 / $1,020.] Based on everything you ran, why does the dashboard show so many positive/profitable net results, when your terminal analysis kept reporting negative, disheartening ones? Explain with simple analogies.
+
+**A:** **Nothing on the dashboard is wrong. It faithfully answers "what did this run produce?" — but that is a different question from "would this make money going forward?" Three things separate the two, and the leaderboard shows none of them.**
+
+**1. The list is sorted best-first — you are looking at a winners' podium, not a summary.** Every loss is still in that list of 69, just scrolled below the fold: **−$5,445, −$3,334, −$1,313, −$1,289, −$822, −$170**. *Analogy — the casino's "Today's Winners" board:* it glows with jackpot photos, and nobody is lying; the losers simply don't get a line on the board.
+
+**2. Categorise the visible top 15 and the answer falls out immediately:**
+
+| What it actually is | Count | Examples from the screenshot |
+|---|---|---|
+| **In-sample** (the single 2026-03-01→06-23 window) | **11** | `entry-sweep-3.5 $2,307`, `sweep-exit-0.1 $2,485`, `Untitled strategy $1,864.90` |
+| **Zero-cost counterfactuals** (fees + slippage set to 0) | **4** | `cost000-e30-s2 $2,688`, `cost-000-s4 $1,573`, `cost-000-s2 $1,181` |
+| **Realistic *and* out-of-sample** | **0** | — |
+
+**Not one row in the visible top 15 is a realistic out-of-sample result.** That is the whole answer in one table.
+
+- The **in-sample** rows all ran on the *same* date window — the one span that happened to be a good regime for this strategy. *Analogy — auditioning with the one song you have practised for months:* you will sound brilliant, and it tells the panel nothing about sight-reading. The out-of-sample spans were the sight-reading test, and that is where it fell apart.
+- The **zero-cost** rows exist only to isolate the raw signal by removing friction. They are **diagnostics, not strategies** — untradeable, because you cannot trade for free. *Analogy — a car's top speed measured in a vacuum:* a real, useful physics number, and not how fast you will get to work.
+
+**3. Sixty-nine attempts.** Searching 69 configurations and admiring the best is not the same as finding an edge; with that many tries the leader is partly just the luckiest draw. *Analogy — 69 people each flip 10 coins:* someone gets 9 heads, and a sorted leaderboard invites you to crown them "the gifted flipper."
+
+**The honest scorecard — the same config (entry 3.5) across four windows:**
+
+| Span | Net P&L | |
+|---|---|---|
+| **s1 (in-sample)** | **+$2,307** | ← the row visible at #3 on the dashboard |
+| s2 | −$170 | |
+| s3 | −$1,313 | |
+| s4 | +$948 | |
+| **Out-of-sample total** | **−$536** | |
+
+*Analogy — a golfer's best hole:* the dashboard shows their finest shot from every round ever played, ranked. It says nothing about their average round — and the average round is what you would be paying for.
+
+**Why this is a UI/labelling gap, not a data bug.** The leaderboard reports net P&L per run correctly. It just doesn't surface the three qualifiers that decide whether a number is meaningful: **(a)** in-sample vs out-of-sample, **(b)** whether the cost assumptions were realistic or zeroed, **(c)** how many configurations were searched before this one topped the list. A `cost-000` counterfactual currently sits next to a real run looking like its peer — visually identical, economically incomparable.
+
+**Suggested improvement (not yet implemented):** add **span**, **fee/slippage**, and an **in-sample flag** as columns (or badges) on the strategy list, so counterfactual and in-sample runs can never be mistaken for tradeable results. Optionally default the sort to something less seductive than net-P&L-descending.
+
+**The one-line version:** *the dashboard shows the best results of a long search on a lucky window under friction-free assumptions; the analysis reports what happens on windows the strategy has never seen, paying real costs. Both are true — only the second one predicts your money.*
+
+---
