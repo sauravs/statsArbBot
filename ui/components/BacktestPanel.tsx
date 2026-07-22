@@ -189,7 +189,9 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
         </p>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[22rem_1fr]">
+      {/* 26rem, not 22rem: the grouped list carries safety badges and per-family
+          statistics that a 22rem column truncates into uselessness. */}
+      <div className="grid gap-6 lg:grid-cols-[26rem_1fr]">
         <div className="space-y-6">
           <CreateStrategyForm
             onCreated={async (s) => {
