@@ -327,4 +327,49 @@ are **adverse-selected** (lowering `slippage_pct` does NOT capture this); entry-
 cost, re-derive the cost-dependent optimal entry; (4) model maker execution *honestly* (fill
 probability, adverse selection, legging risk) — this decides whether the edge is harvestable;
 (5) only then reconsider live. **"Real gross edge" ≠ "profitable after realistic execution."**
-Full write-up in `docs/QA.md` (2026-07-21 cost decomposition).
+Full write-up in `docs/QA.md` (2026-07-21 cost decomposition). **Steps 1–3 are now DONE — see below.**
+
+### 💰 Execution economics: real fees + MEASURED slippage → maker is the whole game (2026-07-22)
+
+**Real Hyperliquid fees (base tier): taker 0.045%, maker 0.015%** (tiers fall to 0.028%/0.000% at
+>$500M; staking discounts 5–40%). **Measured slippage: trade-weighted half-spread = 0.0316%**
+(160 coins, 97% leg-fill coverage; median 0.0165%, P90 0.0615%, max 0.279%). Both our modelled
+0.05% fee *and* 0.05% slippage were pessimistic.
+
+**Measured gross by entry (OOS, zero-cost runs):**
+
+| Config | Gross | Friction @0.10% | Break-even rate | Zero-cost DD (s2/s3/s4) |
+|---|---|---|---|---|
+| entry 3.5 | +$2,554 | $3,090 | **0.0827%** | 10.1 / 14.5 / 5.6% |
+| entry 3.0 | **+$4,379** | $9,825 | **0.0446%** | 26.6 / 22.3 / 8.7% |
+
+**Net by execution regime:**
+
+| Regime | Total/fill | entry 3.5 | entry 3.0 |
+|---|---|---|---|
+| Model (0.05+0.05) | 0.100% | −$536 | −$5,446 |
+| **Real taker** (0.045+0.0316) | 0.0766% | **+$187** | −$3,147 |
+| Taker +15% staking | 0.0699% | +$394 | −$2,489 |
+| **Maker + full half-spread** (0.015+0.0316) | 0.0466% | **+$1,114** | −$199 |
+| Maker, no spread cost (0.015+0) | 0.015% | +$2,091 | **+$2,905** |
+
+- **Taker is NOT a business:** +$187 sits inside the ±$212 noise floor — statistically zero.
+- **Maker is where the edge lives:** +$1,114 even charging adverse selection at the *full*
+  half-spread. Taker→maker is worth ~**$1,900 OOS**, ~4× the entire net deficit.
+- **entry 3.5 stays the right config.** Entry 3.0 has 1.71× the gross (confirming the friction-artifact
+  thesis) but 3.2× the friction and ~2× the drawdown; it only overtakes 3.5 below **0.0271%/fill**
+  (near-perfect execution) and is still *negative* at realistic maker levels. "Selectivity was a
+  friction artifact" holds for the **gross** ranking; the **practical** ranking still favours 3.5.
+- **Cheap win found:** slippage dispersion is wide (P90 0.0615%, worst 0.279%) and the scan admits
+  any cointegrated pair regardless of tradability. **Add a spread/liquidity filter** (exclude
+  >0.06% half-spread markets) — targeted, cheap, likely a direct improvement.
+
+**CAVEATS:** spreads are a *current* snapshot, not historical — and the strategy enters at extreme
+dislocations when spreads *widen*, so the taker case is optimistic. **Maker fill probability and
+legging risk remain unmodelled** — the biggest unknown. Adverse selection charged as a flat
+half-spread is a crude proxy.
+
+**NEXT:** (1) model maker execution honestly (fill probability / adverse selection / legging) — needs
+code, and is now *the* deciding question; (2) add the spread/liquidity filter and re-run; (3) sample
+spreads in volatile periods to de-bias; (4) live remains unjustified until (1) resolves. Full
+write-up in `docs/QA.md` (2026-07-22 execution economics).
