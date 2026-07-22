@@ -9,6 +9,8 @@ import {
   classifySpan,
   groupByFamily,
   median,
+  sortGroups,
+  sortStrategies,
 } from "@/lib/strategyTaxonomy";
 
 // Fixtures mirror real rows from the production database (69 hyperliquid
@@ -295,5 +297,97 @@ describe("groupByFamily", () => {
 
   it("omits families with no members", () => {
     expect(groupByFamily(rows).map((g) => g.family)).not.toContain("z-stop");
+  });
+});
+
+describe("sortStrategies", () => {
+  const rows = [
+    strategy({ id: "b", name: "entry-sweep-3.75", net_pnl: 1916, created_at: "2026-07-02" }),
+    strategy({ id: "a", name: "entry-sweep-4.0", net_pnl: 1020, created_at: "2026-07-03" }),
+    strategy({ id: "c", name: "entry-sweep-3.5", net_pnl: 2307, created_at: "2026-07-01" }),
+    strategy({ id: "d", name: "entry-sweep-1.5", net_pnl: null, created_at: "2026-07-04" }),
+  ];
+
+  it("ranks by net P&L, nulls last", () => {
+    expect(sortStrategies(rows, "pnl").map((s) => s.id)).toEqual(["c", "b", "a", "d"]);
+  });
+
+  it("orders by name numerically so a sweep reads as its curve", () => {
+    // 3.5 < 3.75 < 4.0 — a plain string sort would put "3.75" before "3.5".
+    expect(sortStrategies(rows, "default").map((s) => s.name)).toEqual([
+      "entry-sweep-1.5",
+      "entry-sweep-3.5",
+      "entry-sweep-3.75",
+      "entry-sweep-4.0",
+    ]);
+  });
+
+  it("orders by newest first", () => {
+    expect(sortStrategies(rows, "newest").map((s) => s.id)).toEqual(["d", "a", "b", "c"]);
+  });
+
+  it("does not mutate its input", () => {
+    const before = rows.map((s) => s.id);
+    sortStrategies(rows, "pnl");
+    expect(rows.map((s) => s.id)).toEqual(before);
+  });
+});
+
+// The bug this guards: picking a sort in the default grouped view moved rows only
+// WITHIN each group, so the groups stayed put, the header medians stayed put, and
+// with the groups collapsed nothing on screen changed at all — indistinguishable
+// from a broken control.
+describe("sortGroups", () => {
+  const groups = groupByFamily([
+    strategy({ name: "reval-3.5-s3", ...S3, net_pnl: -1313, created_at: "2026-07-01" }),
+    strategy({ name: "entry-sweep-3.5", entry_threshold: 3.5, net_pnl: 2307, created_at: "2026-07-05" }),
+    strategy({ name: "entry-sweep-2.5", entry_threshold: 2.5, net_pnl: -5640, created_at: "2026-07-04" }),
+    strategy({ name: "hl-24-s3", ...S3, net_pnl: -1348, created_at: "2026-07-09" }),
+  ]);
+
+  it("reorders the groups themselves when ranking by net P&L", () => {
+    // Entry sweep's median (-1666.5) sits below revalidation's (-1313), so the
+    // order must actually change rather than staying in FAMILY_ORDER.
+    const order = sortGroups(groups, "pnl").map((g) => g.family);
+    expect(order).toEqual(["revalidation", "half-life", "entry-sweep"]);
+  });
+
+  it("ranks groups by MEDIAN, not by their best member", () => {
+    // Entry sweep holds the single best row in the set (+$2,307). Ranking by best
+    // would float it to the top and rebuild the leaderboard; by median it sinks.
+    expect(sortGroups(groups, "pnl")[0].family).not.toBe("entry-sweep");
+  });
+
+  it("orders groups by their newest member", () => {
+    expect(sortGroups(groups, "newest").map((g) => g.family)).toEqual([
+      "half-life",
+      "entry-sweep",
+      "revalidation",
+    ]);
+  });
+
+  it("orders groups alphabetically by label", () => {
+    expect(sortGroups(groups, "name").map((g) => g.label)).toEqual([
+      "Entry |Z| sweep",
+      "Half-life sweep",
+      "Multi-span re-validation",
+    ]);
+  });
+
+  it("leaves the deliberate FAMILY_ORDER alone on 'default'", () => {
+    expect(sortGroups(groups, "default").map((g) => g.family)).toEqual(
+      groups.map((g) => g.family),
+    );
+  });
+
+  it("sinks groups with nothing scored yet", () => {
+    const withUnrun = groupByFamily([
+      strategy({ name: "stop-6.0-s3", ...S3, net_pnl: -1291 }),
+      strategy({ name: "pval-sweep-0.05", pvalue_max: 0.05, net_pnl: null }),
+    ]);
+    expect(sortGroups(withUnrun, "pnl").map((g) => g.family)).toEqual([
+      "z-stop",
+      "pvalue-sweep",
+    ]);
   });
 });

@@ -6,8 +6,11 @@ import {
   FAMILY_DESCRIPTIONS,
   classify,
   groupByFamily,
+  sortGroups,
+  sortStrategies,
   type Classification,
   type FamilyKey,
+  type SortKey,
 } from "@/lib/strategyTaxonomy";
 import { COUNTERFACTUAL_ROW_STYLE, FamilyBadge, SafetyBadges } from "./SafetyBadges";
 import InfoTip from "./InfoTip";
@@ -25,7 +28,6 @@ import InfoTip from "./InfoTip";
 // unseen data. Counterfactuals stay visible — hiding them would trade one distortion
 // for another — but they are struck through with stripes and a loud badge.
 
-type SortKey = "default" | "pnl" | "newest" | "name";
 type SpanFilter = "all" | "oos" | "in-sample";
 type CostFilter = "all" | "tradeable" | "diagnostic";
 
@@ -88,8 +90,14 @@ export default function StrategyList({
       .map(({ s }) => s);
   }, [classified, realisticOnly, family, spanFilter, costFilter]);
 
-  const sorted = useMemo(() => sortRows(visible, sort), [visible, sort]);
-  const groups = useMemo(() => (grouped ? groupByFamily(sorted) : []), [grouped, sorted]);
+  const sorted = useMemo(() => sortStrategies(visible, sort), [visible, sort]);
+  // Sort the groups too, not just the rows inside them — otherwise picking a sort
+  // in the default grouped view moves nothing the operator can see.
+  const groups = useMemo(
+    () => (grouped ? sortGroups(groupByFamily(sorted), sort) : []),
+    [grouped, sorted, sort],
+  );
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.family));
 
   const filtersActive =
     realisticOnly || family !== "all" || spanFilter !== "all" || costFilter !== "all";
@@ -143,6 +151,21 @@ export default function StrategyList({
               Realistic runs only
               <InfoTip text="Show only runs with tradeable costs AND a span the config had never seen — the only rows whose net P&L is evidence about future money. Everything else is either untradeable (costs zeroed) or was measured on the window the parameters were tuned on." />
             </span>
+            {/* Collapsing every group leaves a screen with no rows on it and no
+                obvious way back short of clicking each header. */}
+            {grouped && groups.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCollapsed(allCollapsed ? new Set() : new Set(groups.map((g) => g.family)));
+                }}
+                className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:border-blue/60 hover:text-text"
+                data-testid="expand-all-btn"
+              >
+                {allCollapsed ? "Expand all" : "Collapse all"}
+              </button>
+            )}
           </label>
 
           <div className="grid grid-cols-2 gap-2">
@@ -163,7 +186,13 @@ export default function StrategyList({
             >
               <select
                 value={sort}
-                onChange={(e) => setSort(e.target.value as SortKey)}
+                onChange={(e) => {
+                  setSort(e.target.value as SortKey);
+                  // A sort you cannot see is useless: if the groups happen to be
+                  // collapsed, reordering them silently is indistinguishable from
+                  // the control being broken. Asking for an order re-opens the rows.
+                  setCollapsed(new Set());
+                }}
                 className={selectClass}
                 data-testid="sort-select"
               >
@@ -397,24 +426,6 @@ export function rowTooltip(s: Strategy, c: Classification): string {
       : `${c.description}\n\n${c.autoDescription}`;
 
   return [s.name, prose, config].join("\n\n");
-}
-
-function sortRows(rows: Strategy[], sort: SortKey): Strategy[] {
-  const out = [...rows];
-  switch (sort) {
-    case "pnl":
-      // Nulls last — a strategy that never ran is not a $0 result.
-      return out.sort((a, b) => (b.net_pnl ?? -Infinity) - (a.net_pnl ?? -Infinity));
-    case "newest":
-      return out.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-    case "default":
-    case "name":
-      // Numeric-aware so a sweep reads in parameter order: entry-sweep-3.5 sorts
-      // before 3.75 before 4.0, which is the order that shows the curve.
-      return out.sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
-      );
-  }
 }
 
 function Control({
