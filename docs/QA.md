@@ -657,3 +657,43 @@ Slippage dispersion is wide (P90 = 0.0615%, worst 0.279%) and **the scan current
 4. Live deployment remains unjustified until (1) resolves: **"real gross edge" ≠ "profitable after realistic execution."**
 
 ---
+
+## 2026-07-22 — CORRECTION: the operator trades MARKET orders only — the maker path is off the table
+
+**Q:** The previous entries recommend maker execution as the way to harvest the edge, and list "model maker execution honestly" as the deciding next step. But I will not use limit orders — I intend to **trade manually with MARKET orders**, picking a trade from the manual-trading section after a re-scan and executing at whatever price the exchange gives. Do the docs need correcting?
+
+**A:** **Yes — corrected here. The maker analysis stays on record as valid analysis, but it is NOT available to this operator, so the taker row is the operative one: +$187 out-of-sample, which is statistically zero. The maker-modelling work is dropped.**
+
+**1. The backtest already models market orders correctly — there is no modelling gap.** Verified in code: `taker_fee_pct` is charged on the filled notional of **every leg at both entry and exit**, and `apply_slippage()` moves each fill **adversely** — a BUY fills above the reference price, a SELL below (`backend/simulation/costs.py:49-51`, `_fill_leg`, `simulate_pair_entry`, `compute_exit_pnl`). That is precisely a market order crossing the spread. **There is no maker/limit assumption anywhere in the cost model.** So the simulator already represents the operator's intended execution, and the previously-proposed work — fill probability, legging risk, adverse selection on resting orders — is **irrelevant and is dropped**. None of it applies when you always cross.
+
+**2. The operative economics are the taker row.**
+
+| Regime | Total/fill | OOS net | Status |
+|---|---|---|---|
+| **Real taker (0.045% fee + 0.0316% spread)** | 0.0766% | **+$187** | ✅ **operative** |
+| Maker + full half-spread | 0.0466% | +$1,114 | ❌ unavailable |
+| Maker, no spread cost | 0.015% | +$2,091 | ❌ unavailable |
+
+**+$187 across three OOS spans sits inside the ±$212 single-span noise floor — statistically indistinguishable from zero**, with 17–22% drawdowns. And it is the *optimistic* case: the 0.0316% half-spread was measured on **calm books**, whereas entries fire at extreme |z| dislocations, exactly when spreads widen. **On current evidence the strategy is not worth trading manually with market orders.**
+
+**3. A second cost that is not in any number so far: market impact.** The measured half-spread assumes **$100/leg**, where top-of-book depth (often hundreds of thousands of dollars) makes impact negligible. Manual trading at meaningful size — $5–10k/leg — in thin alt perps (TURBO, SAGA, HMSTR) would **walk the book**, adding a cost that appears nowhere in this analysis and that scales *against* you as size grows. Bigger size does not scale the edge linearly; it erodes it.
+
+**4. What could still make market-order manual trading viable — the one remaining lever.** Slippage is wildly dispersed: **P25 = 0.0086%, median = 0.0165%, mean = 0.0316%, worst = 0.279%.** The mean is dragged up by illiquid junk a human would never choose. Restricting to tight-spread markets — which is what manual selection naturally does — changes taker economics materially:
+
+| Universe | Slippage | Total/fill | OOS net (gross held constant) |
+|---|---|---|---|
+| All markets (current) | 0.0316% | 0.0766% | +$187 |
+| Median-and-better | 0.0165% | 0.0615% | **+$654** |
+| Top-quartile liquidity | 0.0086% | 0.0536% | **+$898** |
+
+**Two important caveats on that table:** (a) it holds **gross constant**, but narrowing the universe means fewer markets → fewer pairs → fewer trades → **less gross edge**, so the true net is uncertain and must be *measured*; (b) the backtest **cannot currently do this** — `_universe()` returns every available market with no liquidity filter (`backend/backtest/engine.py:604-606`), so it needs a small code change.
+
+**Corrected roadmap:**
+1. **Add a liquidity/spread filter to the backtest universe** and re-run entry 3.5 on the three OOS spans with real taker costs (fee 0.045%, slippage = the filtered universe's actual half-spread). **This is now the deciding experiment** — it answers "is this worth trading by hand with market orders?" with a measurement rather than an extrapolation.
+2. **Add a market-impact / book-walking estimate** sized to the operator's actual per-leg notional.
+3. **Sample spreads during volatile periods** to de-bias the slippage estimate toward the moments trades actually fire.
+4. **Live remains unjustified** until (1) shows a durable positive net under taker costs.
+
+**Method note (worth keeping):** this is the second time a stated constraint reversed the recommended direction — first the cost decomposition overturned "the signal is dead", now the market-order constraint overturns "maker execution is the whole game". Both prior conclusions were correct *given their assumptions*; both assumptions turned out not to match reality. **Establish the operator's actual execution constraints before optimising against a hypothetical one.**
+
+---
