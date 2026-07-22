@@ -98,8 +98,15 @@ class PrismaManualTradeRepository:
         exit_price_leg2: float,
         pnl: float,
         closed_at: datetime,
+        exit_ref_price_leg1: float | None = None,
+        exit_ref_price_leg2: float | None = None,
     ) -> dict | None:
         """Mark a trade CLOSED with its exit prices and realised P&L.
+
+        ``exit_ref_price_leg*`` are the server-captured REFERENCE prices at close
+        time; paired with the operator's actual ``exit_price_leg*`` fills they
+        make exit slippage measurable. Omitted (``None``) when the reference
+        fetch fails — closing must never be blocked by a price lookup.
 
         Returns the updated row, or ``None`` if the id does not exist.
         """
@@ -107,17 +114,21 @@ class PrismaManualTradeRepository:
         from prisma.errors import RecordNotFoundError
 
         db = await get_db()
+        data: dict = {
+            "status": "CLOSED",
+            "exit_price_leg1": exit_price_leg1,
+            "exit_price_leg2": exit_price_leg2,
+            "pnl": pnl,
+            "closed_at": closed_at,
+        }
+        # Only write the references when we actually have them, so a failed
+        # price fetch leaves the columns NULL rather than storing a bogus 0.
+        if exit_ref_price_leg1 is not None:
+            data["exit_ref_price_leg1"] = exit_ref_price_leg1
+        if exit_ref_price_leg2 is not None:
+            data["exit_ref_price_leg2"] = exit_ref_price_leg2
         try:
-            record = await db.manualtrade.update(
-                where={"id": trade_id},
-                data={
-                    "status": "CLOSED",
-                    "exit_price_leg1": exit_price_leg1,
-                    "exit_price_leg2": exit_price_leg2,
-                    "pnl": pnl,
-                    "closed_at": closed_at,
-                },
-            )
+            record = await db.manualtrade.update(where={"id": trade_id}, data=data)
         except RecordNotFoundError:
             return None
         # prisma-client-py returns None from update() when no row matched.
@@ -163,6 +174,12 @@ class PrismaManualTradeRepository:
             "exit_price_leg1": r.exit_price_leg1,
             "exit_price_leg2": r.exit_price_leg2,
             "pnl": r.pnl,
+            # Realised-execution capture (slippage measurement). getattr keeps
+            # in-memory test fakes and any pre-migration row shape working.
+            "fill_price_leg1": getattr(r, "fill_price_leg1", None),
+            "fill_price_leg2": getattr(r, "fill_price_leg2", None),
+            "exit_ref_price_leg1": getattr(r, "exit_ref_price_leg1", None),
+            "exit_ref_price_leg2": getattr(r, "exit_ref_price_leg2", None),
         }
 
 

@@ -456,3 +456,112 @@ def test_list_and_portfolio_hide_other_source_trades(client, monkeypatch):
     # Switch back → it reappears.
     monkeypatch.setattr(config, "SCAN_DATA_SOURCE", recorded_source)
     assert client.get("/api/manual", headers=AUTH).json()["count"] == 1
+
+
+# --- realised-execution capture: actual fills + reference prices --------------
+# The backtest charges a *modelled* slippage_pct per fill; the true cost of a
+# market order is only knowable from real fills. These tests pin the storage
+# contract that makes realised slippage computable per leg.
+
+
+def test_record_stores_actual_entry_fills(client):
+    """Optional fill prices round-trip, paired with the reference prices."""
+    _scan(client)
+    r = client.post(
+        "/api/manual/record",
+        json={
+            "base_market": "AAA-USD",
+            "quote_market": "BBB-USD",
+            "capital_leg1_usd": 100.0,
+            "capital_leg2_usd": 100.0,
+            "fill_price_leg1": 123.45,
+            "fill_price_leg2": 67.89,
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    t = r.json()
+    assert t["fill_price_leg1"] == pytest.approx(123.45)
+    assert t["fill_price_leg2"] == pytest.approx(67.89)
+    # The server-captured reference is kept alongside, so realised entry
+    # slippage = (fill - reference) / reference is computable.
+    assert t["entry_price_leg1"] > 0 and t["entry_price_leg2"] > 0
+
+
+def test_record_fills_are_optional(client):
+    """Omitting the fills is valid — they simply stay None (unmeasurable)."""
+    _scan(client)
+    t = _record(client).json()
+    assert t["fill_price_leg1"] is None
+    assert t["fill_price_leg2"] is None
+
+
+def test_record_rejects_non_positive_fill(client):
+    _scan(client)
+    r = client.post(
+        "/api/manual/record",
+        json={
+            "base_market": "AAA-USD",
+            "quote_market": "BBB-USD",
+            "capital_leg1_usd": 100.0,
+            "capital_leg2_usd": 100.0,
+            "fill_price_leg1": 0,
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 422
+
+
+def test_close_captures_exit_reference_prices(client):
+    """Closing stamps the server-side reference to pair with the actual exit fill."""
+    _scan(client)
+    trade = _record(client).json()
+    closed = client.post(
+        f"/api/manual/{trade['id']}/close",
+        json={"exit_price_leg1": 10.0, "exit_price_leg2": 20.0},
+        headers=AUTH,
+    ).json()
+    # Operator's actual fills stored as given...
+    assert closed["exit_price_leg1"] == pytest.approx(10.0)
+    assert closed["exit_price_leg2"] == pytest.approx(20.0)
+    # ...and the reference captured server-side, so exit slippage is computable.
+    assert closed["exit_ref_price_leg1"] is not None
+    assert closed["exit_ref_price_leg2"] is not None
+    assert closed["exit_ref_price_leg1"] > 0
+
+
+def test_pnl_uses_actual_fill_not_reference(client):
+    """P&L is booked against what was actually paid, including entry slippage.
+
+    Two identical trades differing only in the recorded entry fill must produce
+    different P&L — otherwise the stored result silently assumes a fill at the
+    reference price and understates the true cost of execution.
+    """
+    _scan(client)
+    ref = _record(client).json()
+    # Same pair/size, but a materially worse recorded entry fill on leg 1.
+    worse = client.post(
+        "/api/manual/record",
+        json={
+            "base_market": "AAA-USD",
+            "quote_market": "BBB-USD",
+            "capital_leg1_usd": 100.0,
+            "capital_leg2_usd": 100.0,
+            "fill_price_leg1": ref["entry_price_leg1"] * 1.05,
+            "fill_price_leg2": ref["entry_price_leg2"],
+        },
+        headers=AUTH,
+    ).json()
+
+    exits = {
+        "exit_price_leg1": ref["entry_price_leg1"] * 1.10,
+        "exit_price_leg2": ref["entry_price_leg2"] * 0.90,
+    }
+    pnl_ref = client.post(
+        f"/api/manual/{ref['id']}/close", json=exits, headers=AUTH
+    ).json()["pnl"]
+    pnl_worse = client.post(
+        f"/api/manual/{worse['id']}/close", json=exits, headers=AUTH
+    ).json()["pnl"]
+
+    assert pnl_ref != pytest.approx(pnl_worse)
