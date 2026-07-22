@@ -754,6 +754,12 @@ class FakeManualTradeRepository:
             exit_price_leg1=row.get("exit_price_leg1"),
             exit_price_leg2=row.get("exit_price_leg2"),
             pnl=row.get("pnl"),
+            # Realised-execution capture: mirror the Prisma repo's dict shape so
+            # these keys are always present (None when not recorded).
+            fill_price_leg1=row.get("fill_price_leg1"),
+            fill_price_leg2=row.get("fill_price_leg2"),
+            exit_ref_price_leg1=row.get("exit_ref_price_leg1"),
+            exit_ref_price_leg2=row.get("exit_ref_price_leg2"),
         )
         self.store[trade_id] = row
         return dict(row)
@@ -791,7 +797,15 @@ class FakeManualTradeRepository:
         return dict(max(rows, key=lambda r: r["recorded_at"]))
 
     async def close(
-        self, trade_id, *, exit_price_leg1, exit_price_leg2, pnl, closed_at
+        self,
+        trade_id,
+        *,
+        exit_price_leg1,
+        exit_price_leg2,
+        pnl,
+        closed_at,
+        exit_ref_price_leg1=None,
+        exit_ref_price_leg2=None,
     ) -> dict | None:
         row = self.store.get(trade_id)
         if row is None:
@@ -803,6 +817,12 @@ class FakeManualTradeRepository:
             pnl=pnl,
             closed_at=closed_at.isoformat() if isinstance(closed_at, datetime) else closed_at,
         )
+        # Mirror the Prisma repo: only write references when we actually have
+        # them, so a failed price fetch leaves the columns NULL.
+        if exit_ref_price_leg1 is not None:
+            row["exit_ref_price_leg1"] = exit_ref_price_leg1
+        if exit_ref_price_leg2 is not None:
+            row["exit_ref_price_leg2"] = exit_ref_price_leg2
         return dict(row)
 
     async def delete(self, trade_id) -> bool:
