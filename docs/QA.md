@@ -735,7 +735,13 @@ Slippage dispersion is wide (P90 = 0.0615%, worst 0.279%) and **the scan current
 
 **Why this is a UI/labelling gap, not a data bug.** The leaderboard reports net P&L per run correctly. It just doesn't surface the three qualifiers that decide whether a number is meaningful: **(a)** in-sample vs out-of-sample, **(b)** whether the cost assumptions were realistic or zeroed, **(c)** how many configurations were searched before this one topped the list. A `cost-000` counterfactual currently sits next to a real run looking like its peer — visually identical, economically incomparable.
 
-**Suggested improvement (not yet implemented):** add **span**, **fee/slippage**, and an **in-sample flag** as columns (or badges) on the strategy list, so counterfactual and in-sample runs can never be mistaken for tradeable results. Optionally default the sort to something less seductive than net-P&L-descending.
+**Suggested improvement — ✅ IMPLEMENTED 2026-07-22 (PR #217).** The strategy list no longer defaults to a net-P&L ranking. Runs are grouped into the experiment family they came from, each header showing the **median and range** rather than the best; every row carries a **cost badge** (zero / reduced / modelled) and a **span badge**, both derived from config rather than from names, since an operator-typed name can lie and `taker_fee_pct = 0` cannot. Counterfactuals stay visible — striped and struck through — behind a **"realistic runs only"** toggle that collapses the 69 to **12**, of which **11 are losses**. P&L sort is still available, just no longer the default. Classification lives in one tested module, `ui/lib/strategyTaxonomy.ts`.
+
+Three details only became clear once the real 69 were classified, and each one changed the design:
+
+- **"Baseline" had to be a config fingerprint, not a name.** 24 of the 69 share the default name `Untitled strategy`; exactly one is the rank-#1 baseline — and that same config is *also* saved as `entry-sweep-3.0` and `sweep-exit-0.5`, all three landing on the identical $1,865.
+- **In-sample vs out-of-sample had to be four-way, not binary.** Around 15 runs sit *inside or across* the 2026-03-01→06-23 tuning window (`Test A` 03-01→06-15, `6 months same data` 01-01→06-15). A "not exactly s1 ⇒ out-of-sample" rule would have stamped these with the green badge and laundered in-sample results as validation — a worse lie than the one being fixed. Anything overlapping the tuning window by less than 90% now reads **OVERLAPS IN-SAMPLE**.
+- **Cost had to be three tiers.** `cost-002-s3` runs at 0.02/0.02 — neither free nor realistic, and untradeable either way.
 
 **The one-line version:** *the dashboard shows the best results of a long search on a lucky window under friction-free assumptions; the analysis reports what happens on windows the strategy has never seen, paying real costs. Both are true — only the second one predicts your money.*
 

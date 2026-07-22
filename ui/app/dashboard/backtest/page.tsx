@@ -74,8 +74,17 @@ export default function BacktestPage() {
         <p className="mb-2 text-sm text-muted">
           Backtest a strategy across sliding scan/trade windows: each window re-runs
           the cointegration scan to select pairs, then trades them out-of-sample
-          through the same statistical engine the live bot uses. Strategies are ranked
-          by net P&amp;L, with an equity curve, per-window breakdown, and a report.
+          through the same statistical engine the live bot uses. Each run gets an equity
+          curve, a per-window breakdown, and a report.
+        </p>
+        {/* The list used to be a net-P&L leaderboard, which made in-sample and zero-cost
+            runs look like peers of tradeable ones (docs/QA.md 2026-07-22). Say plainly
+            what the grouping is for. */}
+        <p className="mb-2 text-sm text-muted">
+          Runs are grouped by the experiment they belong to rather than ranked: a net-P&amp;L
+          ranking hides the two things that decide whether a number means anything — whether
+          the costs were realistic, and whether the span was one the parameters had already
+          been tuned on. Both are badged on every row.
         </p>
         <BacktestDataBanner source={health?.data_source} reloadKey={sourceKey} />
         <BacktestPanel reloadKey={sourceKey} />
