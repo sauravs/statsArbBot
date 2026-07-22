@@ -440,6 +440,56 @@ const FAMILY_ORDER: FamilyKey[] = [
   "ad-hoc",
 ];
 
+export type SortKey = "default" | "pnl" | "newest" | "name";
+
+/** Sort rows. "default" is name-ascending with numeric awareness, so a sweep reads
+ *  in parameter order (entry-sweep-3.5 before 3.75 before 4.0) — the order that
+ *  shows the curve rather than the podium. */
+export function sortStrategies(rows: Strategy[], sort: SortKey): Strategy[] {
+  const out = [...rows];
+  switch (sort) {
+    case "pnl":
+      // Nulls last — a strategy that never ran is not a $0 result.
+      return out.sort((a, b) => (b.net_pnl ?? -Infinity) - (a.net_pnl ?? -Infinity));
+    case "newest":
+      return out.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+    case "default":
+    case "name":
+      return out.sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+      );
+  }
+}
+
+/** Sort the GROUPS themselves. Without this, choosing a sort in the default grouped
+ *  view changes nothing an operator can see: rows move inside their group, but the
+ *  groups stay in a fixed order and the headers show the same medians — and if the
+ *  groups happen to be collapsed, literally nothing on screen moves. An explicit
+ *  sort request has to reorder what is actually visible.
+ *
+ *  Under "pnl" this ranks by MEDIAN, matching what the header displays and keeping
+ *  the median-not-best principle intact even when the operator asks for a ranking. */
+export function sortGroups(groups: FamilyGroup[], sort: SortKey): FamilyGroup[] {
+  const out = [...groups];
+  switch (sort) {
+    case "pnl":
+      // Groups with nothing scored yet sink to the bottom rather than pretending
+      // to be worth $0.
+      return out.sort((a, b) => (b.medianNet ?? -Infinity) - (a.medianNet ?? -Infinity));
+    case "newest":
+      return out.sort((a, b) => newestCreatedAt(b).localeCompare(newestCreatedAt(a)));
+    case "name":
+      return out.sort((a, b) => a.label.localeCompare(b.label));
+    case "default":
+      // The deliberate order set by FAMILY_ORDER — honest families first.
+      return out;
+  }
+}
+
+function newestCreatedAt(g: FamilyGroup): string {
+  return g.strategies.reduce((max, s) => (s.created_at ?? "") > max ? (s.created_at ?? "") : max, "");
+}
+
 export function groupByFamily(strategies: Strategy[]): FamilyGroup[] {
   const buckets = new Map<FamilyKey, Strategy[]>();
   for (const s of strategies) {
