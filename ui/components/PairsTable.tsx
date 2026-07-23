@@ -59,6 +59,8 @@ const TIPS = {
     "Zero-crossings: how many times the spread crossed its mean in the formation window. More crossings = more reliably mean-reverting (a quality proxy).",
   pValue:
     "Engle-Granger cointegration test p-value. Lower means stronger evidence the two markets move together over the long run (typically kept below 0.05).",
+  serial:
+    "Row number in the current sort order — renumbers when you re-sort. The last number is the total pairs shown.",
   price:
     "Current price of each leg — the latest hourly close of the base and quote markets (base / quote).",
   signal:
@@ -141,6 +143,10 @@ export default function PairsTable({
       <table className="w-full text-sm" data-testid="pairs-table">
         <thead>
           <tr className="border-b border-border text-xs uppercase tracking-wider text-muted">
+            {/* Serial number — a plain row ordinal, deliberately not sortable. */}
+            <th className="w-10 select-none whitespace-nowrap px-2 py-2 text-right">
+              #<InfoTip text={TIPS.serial} />
+            </th>
             {headers.map((h) => (
               <th
                 key={h.key}
@@ -168,7 +174,7 @@ export default function PairsTable({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((p) => {
+          {sorted.map((p, i) => {
             const sig = signal(p.z_score, threshold);
             const href = `/dashboard/pair/${encodeURIComponent(p.base_market)}/${encodeURIComponent(p.quote_market)}`;
             return (
@@ -177,6 +183,12 @@ export default function PairsTable({
                 className="border-b border-border/50 hover:bg-bg/40"
                 data-testid="pair-row"
               >
+                <td
+                  className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted"
+                  data-testid="pair-serial"
+                >
+                  {i + 1}
+                </td>
                 <td className="whitespace-nowrap px-2 py-2 font-medium">
                   <Link
                     href={href}
@@ -241,6 +253,18 @@ export default function PairsTable({
             );
           })}
         </tbody>
+        <tfoot>
+          {/* Total shown alongside the data, so it stays visible when the page is
+              scrolled past the heading's count badge. Reflects the rows in the
+              table (the triage filter's "showing X of Y" hint upstream states the
+              pre-filter total when one is active). 10 columns: #, Pair, Hedge β,
+              Half-life, Z-score, Zero-x, p-value, Price, Signal, Action. */}
+          <tr className="border-t border-border text-xs text-muted">
+            <td colSpan={10} className="px-2 py-2 text-right" data-testid="pairs-total">
+              {sorted.length} {sorted.length === 1 ? "pair" : "pairs"} total
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );

@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resetDemoStateVia } from "./helpers/reset";
 
 // UI-configurable Option-B Z thresholds (issue #74): edit entry/exit/stop on the
 // dashboard → applied app-wide → the pair-detail Z chart reflects them.
@@ -34,6 +35,15 @@ async function setThresholds(
   await page.getByTestId("threshold-stop").fill(stop);
   await page.getByTestId("threshold-apply").click();
 }
+
+// Every test starts from a known backend state. The FastAPI process holds global
+// config (data source, signal thresholds, scan state) and the database keeps every
+// row an earlier test created, so without this a test's result depends on what ran
+// before it — which is exactly why this suite used to fail a different set of tests
+// on every run. See e2e/helpers/reset.ts.
+test.beforeEach(async () => {
+  await resetDemoStateVia();
+});
 
 test.describe("Manual Trading — configurable Z thresholds (#74)", () => {
   // Restore defaults after each test so the runtime change doesn't leak into the
@@ -88,8 +98,11 @@ test.describe("Manual Trading — configurable Z thresholds (#74)", () => {
     await login(page);
 
     // Capture the badge before editing so the assertion is leak-proof regardless
-    // of any prior test's (restored) state.
+    // of any prior test's (restored) state. Wait for it to have LOADED first — it
+    // renders "…" until the thresholds arrive, and capturing that placeholder made
+    // the final comparison fail against the real values a moment later.
     const badge = page.getByTestId("strategy-thresholds-badge");
+    await expect(badge).toHaveText(/entry ±/);
     const before = await badge.textContent();
 
     await page.getByTestId("threshold-edit").click();
