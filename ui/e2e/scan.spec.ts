@@ -38,6 +38,13 @@ test.describe("Phase 2 — scan → pairs table", () => {
     expect(count).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("pairs-table")).toContainText("DEMO1-USD");
 
+    // Serial column numbers the rows 1..N, and the footer states the total.
+    await expect(page.getByTestId("pair-serial").first()).toHaveText("1");
+    await expect(page.getByTestId("pair-serial").last()).toHaveText(String(count));
+    await expect(page.getByTestId("pairs-total")).toHaveText(
+      `${count} ${count === 1 ? "pair" : "pairs"} total`,
+    );
+
     // Survive reload: pairs are read back from the DB, not in-memory state.
     await page.reload();
     await expect(page.getByTestId("pair-row").first()).toBeVisible({
