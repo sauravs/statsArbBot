@@ -185,7 +185,7 @@ BACKTEST_MIN_COMPLETENESS: float = _env(
 )
 
 # Market eligibility filters.
-MIN_LIQUIDITY_USD: float = _env("MIN_LIQUIDITY_USD", default=10_000.0, cast=float)
+MIN_LIQUIDITY_USD: float = _env("MIN_LIQUIDITY_USD", default=1_000_000.0, cast=float)
 STABLECOIN_KEYWORDS: tuple[str, ...] = (
     "USDC", "USDT", "DAI", "BUSD", "TUSD",
     "FRAX", "LUSD", "USDD", "USDP", "PYUSD",
