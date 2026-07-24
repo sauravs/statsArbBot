@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Strategy } from "@/lib/api";
 import {
   BASELINE_REFERENCE,
+  DSR_SIGNIFICANT,
   autoDescription,
   classify,
   classifyCost,
   classifyFamily,
   classifySpan,
+  dsrLevel,
   groupByFamily,
   median,
   sortGroups,
@@ -389,5 +391,21 @@ describe("sortGroups", () => {
       "z-stop",
       "pvalue-sweep",
     ]);
+  });
+});
+
+describe("dsrLevel — corrected-significance bucketing (Slice 4, gate B3)", () => {
+  it("is 'unknown' when the DSR is missing or NaN", () => {
+    expect(dsrLevel(null)).toBe("unknown");
+    expect(dsrLevel(undefined)).toBe("unknown");
+    expect(dsrLevel(NaN)).toBe("unknown");
+  });
+
+  it("is 'significant' only at or above the 0.95 threshold", () => {
+    expect(dsrLevel(DSR_SIGNIFICANT)).toBe("significant");
+    expect(dsrLevel(0.99)).toBe("significant");
+    expect(dsrLevel(0.9499)).toBe("insignificant");
+    expect(dsrLevel(0.5)).toBe("insignificant");
+    expect(dsrLevel(0)).toBe("insignificant");
   });
 });

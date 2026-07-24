@@ -802,3 +802,16 @@ Because costs are **per-trade**, filtering up removes the (illiquid-driven) gros
 **Why bigger size hurts:** impact grows **∝ Q^1.5** while gross grows only **∝ Q**, so *per-dollar* returns fall as you scale up — bigger size **erodes** the edge, it doesn't multiply it. Validated on the live cache: a thin alt (~$29k/hr, σ≈5%) costs ≈**0.19%/leg at $1k** and ≈**0.42% at $5k** (matches `PHASE2_STRATEGY_PLAN.md` §4.3); BTC-class depth ≈0%. This is gate **B5** ("executable at real size") and it's an **honesty** charge, not an alpha lever — it can only make the honest net *worse* at real manual size. Combined with the strategy living in thin markets, it's the single most important reason the +$187/+$157 taker figure is *optimistic*: at real size the true net is lower still.
 
 ---
+
+## 2026-07-25 — What does the "DSR" badge mean? (Slice 4 — multiple-testing correction)
+
+**Q:** The strategy list has a new "DSR" badge. What is it, and does any config pass?
+
+**A:** **DSR = Deflated Sharpe Ratio** (Bailey & López de Prado). The leaderboard shows the *best of a long search* — 69 configs were tried, so the top one is plausibly just the **luckiest draw**, not the most skillful. DSR asks the honest question: *given the observed Sharpe, how likely is the true Sharpe positive **after** correcting for how many configs were searched* (plus return non-normality and sample length)? It returns a probability in [0,1]:
+
+- **`DSR 0.9x ✓` (green)** — ≥ **0.95**: survives the correction; significant at 5% *after* the search is accounted for. This is what **gate B3** requires.
+- **`DSR 0.xx` (grey)** — < 0.95: after deflating for the 69-config search, indistinguishable from the luckiest draw. Not significant.
+
+It's computed in-house (`backend/stats/deflated_sharpe.py`, stdlib only — no scipy/mlfinlab) and surfaced per row via `GET /api/backtest/significance`. **On today's evidence nothing clears it** — consistent with the standing NO-GO: the honest OOS nets (+$187 flat / +$157 per-market, both inside the ±$212 noise floor) are exactly the kind of result deflation flags as "could be luck." A companion **PBO** (Probability of Backtest Overfitting) is implemented and tested, but *not* shown on the leaderboard: PBO/CSCV needs configs measured over the *same* windows, and the saved configs span different date ranges — so it's kept as a tool for a controlled overfitting study, not a leaderboard badge. **Bottom line:** the dashboard now answers "would this survive the search?", not just "what did this run produce?".
+
+---

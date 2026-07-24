@@ -12,7 +12,7 @@ import {
   type FamilyKey,
   type SortKey,
 } from "@/lib/strategyTaxonomy";
-import { COUNTERFACTUAL_ROW_STYLE, FamilyBadge, SafetyBadges } from "./SafetyBadges";
+import { COUNTERFACTUAL_ROW_STYLE, DsrBadge, FamilyBadge, SafetyBadges } from "./SafetyBadges";
 import InfoTip from "./InfoTip";
 
 // Strategy comparison for the walk-forward backtest (PRD F8.4), rebuilt around the
@@ -396,6 +396,7 @@ function Row({
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1">
         <SafetyBadges classification={c} compact />
+        <DsrBadge dsr={s.dsr} />
         {showFamily && <FamilyBadge classification={c} />}
         <span className="ml-auto">
           <BacktestStatusBadge status={s.status} />

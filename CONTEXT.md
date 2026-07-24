@@ -51,6 +51,8 @@
 - **Funding rate** — periodic (hourly on dYdX) payment between long and short perp holders; a real carrying cost that motivates the tighter `|Z|<0.5` exit.
 - **Half-spread** — half the bid/ask gap; the per-leg cost of crossing the book at top-of-book. **Per-market spread** (Phase-2 Slice 1, `simulation/spread_cost.py`) charges each market its own half-spread (volume→spread curve) instead of one flat `slippage_pct`.
 - **Market impact** — the *extra* adverse fill from a large order **walking the book**, beyond the half-spread. Modelled size-aware as `σ·√(Q/ADV)` (Phase-2 Slice 3, `simulation/market_impact.py`); grows ∝ Q^1.5, so bigger size erodes the edge. Gate **B5** ("executable at real size").
+- **Deflated Sharpe Ratio (DSR)** — the probability a strategy's *true* Sharpe is positive after correcting for the **number of configs searched** (the best of 69 is plausibly the luckiest draw), return non-normality, and sample length (Bailey & López de Prado; Phase-2 Slice 4, `stats/deflated_sharpe.py`). DSR > 0.95 clears gate **B3**. Surfaced as a dashboard badge.
+- **PBO (Probability of Backtest Overfitting)** — via CSCV; the chance the in-sample-best config underperforms the median out-of-sample. A validated tool for a same-window overfitting study (not wired to the mixed-span leaderboard).
 
 ---
 

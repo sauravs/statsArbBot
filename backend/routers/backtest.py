@@ -135,6 +135,23 @@ async def list_strategies() -> dict:
     return {"strategies": rows, "count": len(rows)}
 
 
+@router.get("/significance")
+async def strategy_significance() -> dict:
+    """Deflated-Sharpe significance across the saved-strategy search (gate B3).
+
+    Returns ``{n_trials, trial_sr_variance, dsr: {id: value}}`` — a per-config DSR that
+    corrects for the size of the search, so the UI can badge which configs survive
+    multiple-testing correction (DSR > 0.95). See ``stats.significance``.
+    """
+    from stats.significance import compute_leaderboard_dsr
+
+    try:
+        rows = await get_backtest_engine().list()
+    except Exception as exc:
+        raise _guard_db(exc)
+    return compute_leaderboard_dsr(rows)
+
+
 @router.get("/strategies/{strategy_id}")
 async def get_strategy(strategy_id: str) -> dict:
     try:
