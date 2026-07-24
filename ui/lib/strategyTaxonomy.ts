@@ -31,6 +31,21 @@ export const MODELLED_SLIPPAGE_PCT = 0.05;
 export const IN_SAMPLE_START = Date.UTC(2026, 2, 1); // 2026-03-01
 export const IN_SAMPLE_END = Date.UTC(2026, 5, 23); // 2026-06-23
 
+/** Deflated Sharpe Ratio (Phase-2 Slice 4, gate B3): P(true Sharpe > the expected
+ *  max of the search) after correcting for the number of configs tried, return
+ *  non-normality, and sample length. At/above this it survives multiple-testing
+ *  correction at 5%. */
+export const DSR_SIGNIFICANT = 0.95;
+
+export type DsrLevel = "significant" | "insignificant" | "unknown";
+
+/** Bucket a Deflated Sharpe Ratio for badging. `unknown` = not scored (too few
+ *  windows, or the /significance call has not resolved yet). */
+export function dsrLevel(dsr: number | null | undefined): DsrLevel {
+  if (dsr == null || Number.isNaN(dsr)) return "unknown";
+  return dsr >= DSR_SIGNIFICANT ? "significant" : "insignificant";
+}
+
 /** Named re-validation spans (docs/strategy.md). s1 is the in-sample window; s2–s4
  *  step backwards through history and are the honest test. */
 export const SPANS = [

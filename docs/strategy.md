@@ -472,3 +472,18 @@ proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR p
   at the operator's real per-leg size to book the size-aware honest net (gate B5). Runs
   on **prod** (deep history is prod-only). Numbers appended here after the bundled
   Slice 2+3 deploy.
+
+- **Slice 4 — multiple-testing correction (gate B3).** In-house **Deflated Sharpe
+  Ratio** + **PBO/CSCV** (Bailey & López de Prado), stdlib only — no scipy/mlfinlab
+  (`backend/stats/`). DSR = P(true Sharpe > the *expected max* of the search) after
+  correcting for (a) the **number of configs tried** (69 — the "best" is plausibly the
+  luckiest draw), (b) return non-normality, (c) sample length. **DSR > 0.95 clears gate
+  B3.** Surfaced as a **"corrected significance" badge** on the strategy dashboard
+  (`GET /api/backtest/significance` → `ui` `DsrBadge`), so no config is ever recommended
+  on an uncorrected leaderboard. **PBO** is validated (≈1 on a synthetic overfit set,
+  ≈0 on a dominant config) but *not* wired to the leaderboard — CSCV needs configs over
+  identical windows, and the saved configs span different date ranges (s1–s4); it stays
+  a tool for a controlled same-window overfitting study. This is the biggest
+  *statistical* gap closed: the dashboard now answers "would this survive the search?",
+  not just "what did this run produce?". `docs/QA.md` (2026-07-25 DSR entry); `statsmodels`
+  is used only as a cointegration/half-life test oracle, never for DSR.

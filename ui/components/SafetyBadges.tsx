@@ -1,6 +1,12 @@
 "use client";
 
-import type { Classification, CostLabel, SpanLabel } from "@/lib/strategyTaxonomy";
+import {
+  DSR_SIGNIFICANT,
+  dsrLevel,
+  type Classification,
+  type CostLabel,
+  type SpanLabel,
+} from "@/lib/strategyTaxonomy";
 
 // Two deliberately distinct tiers of badge (docs/QA.md 2026-07-22):
 //
@@ -86,6 +92,34 @@ export function SafetyBadges({
         {compact ? span.short : span.full}
         {classification.spanName && ` ${classification.spanName}`}
       </span>
+    </span>
+  );
+}
+
+/** Deflated-Sharpe "corrected significance" badge (Phase-2 Slice 4, gate B3). The
+ *  leaderboard shows the best of a long search; DSR asks whether that best survives
+ *  correction for how many configs were tried. Rendered only when the run has a DSR
+ *  (enough windows to score, and /significance has resolved). */
+export function DsrBadge({ dsr }: { dsr: number | null | undefined }) {
+  const level = dsrLevel(dsr);
+  if (level === "unknown") return null;
+  const significant = level === "significant";
+  const value = (dsr as number).toFixed(2);
+  return (
+    <span
+      title={
+        significant
+          ? `Deflated Sharpe Ratio ${value} ≥ ${DSR_SIGNIFICANT}: this result survives correction for the number of configs searched — significant at 5%. The rare row whose edge is not just the luckiest draw of the sweep.`
+          : `Deflated Sharpe Ratio ${value} < ${DSR_SIGNIFICANT}: after correcting for how many configs were tried, this result is indistinguishable from the luckiest draw of the search. Not significant.`
+      }
+      data-testid="badge-dsr"
+      className={`cursor-help rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+        significant
+          ? "border-green/50 bg-green/15 text-green"
+          : "border-border bg-muted/10 text-muted"
+      }`}
+    >
+      {significant ? `DSR ${value} ✓` : `DSR ${value}`}
     </span>
   );
 }
