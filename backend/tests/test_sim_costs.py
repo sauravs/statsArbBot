@@ -61,6 +61,45 @@ def test_slippage_is_adverse():
     assert fill.quote.fill_price == pytest.approx(50.0 * 0.999)
 
 
+def test_per_leg_slippage_overrides_flat_on_entry():
+    # base/quote get their OWN half-spreads; the flat slippage_pct is ignored per leg.
+    fill = simulate_pair_entry(
+        base_market="A", quote_market="B", direction=LONG_BASE,
+        base_price=100.0, quote_price=50.0, hedge_ratio=1.0,
+        usd_per_trade=100.0, slippage_pct=0.0, taker_fee_pct=0.0,
+        base_slippage_pct=0.1, quote_slippage_pct=0.2,
+    )
+    # BUY base fills above by its own 0.1%; SELL quote fills below by its own 0.2%.
+    assert fill.base.fill_price == pytest.approx(100.0 * 1.001)
+    assert fill.quote.fill_price == pytest.approx(50.0 * 0.998)
+
+
+def test_per_leg_slippage_defaults_to_flat_when_none():
+    # Only base overridden; quote falls back to the flat slippage_pct.
+    fill = simulate_pair_entry(
+        base_market="A", quote_market="B", direction=LONG_BASE,
+        base_price=100.0, quote_price=50.0, hedge_ratio=1.0,
+        usd_per_trade=100.0, slippage_pct=0.05, taker_fee_pct=0.0,
+        base_slippage_pct=0.1,
+    )
+    assert fill.base.fill_price == pytest.approx(100.0 * 1.001)   # own 0.1%
+    assert fill.quote.fill_price == pytest.approx(50.0 * 0.9995)  # flat 0.05%
+
+
+def test_per_leg_slippage_on_exit():
+    pnl = compute_exit_pnl(
+        direction=LONG_BASE,
+        entry_base_px=100.0, entry_quote_px=50.0,
+        exit_base_px=100.0, exit_quote_px=50.0,
+        base_size=1.0, quote_size=1.0,
+        entry_fee=0.0, slippage_pct=0.0, taker_fee_pct=0.0,
+        base_slippage_pct=0.1, quote_slippage_pct=0.2,
+    )
+    # LONG_BASE closes: SELL base (fills below 0.1%), BUY quote (fills above 0.2%).
+    # base leg long: (99.9 − 100)·1 = −0.1 ; quote leg short: (50 − 50.1)·1 = −0.1.
+    assert pnl["gross_pnl"] == pytest.approx(-0.2, abs=1e-6)
+
+
 def test_entry_fee_on_notional():
     fill = simulate_pair_entry(
         base_market="A", quote_market="B", direction=LONG_BASE,
