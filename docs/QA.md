@@ -746,3 +746,13 @@ Three details only became clear once the real 69 were classified, and each one c
 **The one-line version:** *the dashboard shows the best results of a long search on a lucky window under friction-free assumptions; the analysis reports what happens on windows the strategy has never seen, paying real costs. Both are true — only the second one predicts your money.*
 
 ---
+
+## 2026-07-24 — Why did the manual scan list shrink? (`MIN_LIQUIDITY_USD` raised to $1M)
+
+**Q:** The manual/scan pair list got much shorter after the Phase-2 kickoff. What changed, and does the higher liquidity floor make the strategy more profitable?
+
+**A:** Phase-2 Slice 0 raised the scan liquidity floor **`MIN_LIQUIDITY_USD` from `$10,000` → `$1,000,000`** 24h volume (`backend/config.py:188`, `.env.example`). Because the scan pairs every surviving market with every other, the candidate-pair count scales ≈ N²/2, so cutting the market count shrinks the hand-review list **super-linearly**: ≈ **179 markets / ~15,900 candidate pairs** at $10k → ≈ **48 markets / ~1,130 pairs** at $1M (survivor counts from `ohlcv_cache`, `docs/PHASE2_STRATEGY_PLAN.md` §5).
+
+**Does it add edge? No.** This is a **tractability/executability** change (reason *ii* in the plan), not an alpha lever. The old $10k floor was effectively inert (179/179 cached HL markets already cleared it), so it thinned nothing; you were reviewing pairs in names you could not actually fill at size. The plan's "deciding experiment" (§4) **refuted** the raise-the-floor-for-edge hypothesis: the strategy's mid-price gross is *concentrated in the thinnest markets*, so filtering up **loses** money (gross +$2,554 → −$183 at ≥$100k/hr; net worse at every threshold). The names you drop carry no *tradeable* P&L. The floor only affects the **live scan (path a)** — it does **not** touch any backtest (backtest universe is `_universe()`, path b) and does **not** change `ENVIRONMENT` or push the bot toward going live. Tighten to $5M later only if the list stays unwieldy or fills disappoint.
+
+---

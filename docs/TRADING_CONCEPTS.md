@@ -275,9 +275,11 @@ especially on thin pairs. Always discount a backtest for real slippage.
   bid/ask, easier fills, more trustworthy prices.
 - **Open interest (OI)** = contracts currently open (the *stock* of positions).
   Large, lopsided OI → bigger funding swings.
-- The scan filters illiquid markets via `MIN_LIQUIDITY_USD` (**\$10k** 24h volume),
-  because thin markets have wide spreads, **gappy candles** (which break the
-  cointegration alignment and drop the market from the scan), and erratic funding.
+- The scan filters illiquid markets via `MIN_LIQUIDITY_USD` (**\$1M** 24h volume,
+  Phase-2 default; was \$10k), because thin markets have wide spreads, **gappy
+  candles** (which break the cointegration alignment and drop the market from the
+  scan), and erratic funding. The \$1M floor is for *tractability* — a fillable,
+  reviewable shortlist — not for edge (see `docs/PHASE2_STRATEGY_PLAN.md` §5).
 
 **How they interrelate:** high volume + deep liquidity → low slippage, stable basis,
 modest funding. Thin/low-volume → high slippage, jumpy basis, volatile funding, and
@@ -333,7 +335,7 @@ account's minimum-collateral setting (`USD_MIN_COLLATERAL`).
 - **Half-life is your patience budget.** A pair with a 200h half-life ties up
   capital and risk for days per trade. The 72h cap exists for a reason.
 - **Liquidity matters.** Thin markets gap and slip; respect `MIN_LIQUIDITY_USD`
-  (\$10k default) and remember backtests assume fills you may not get live.
+  (\$1M default; was \$10k) and remember backtests assume fills you may not get live.
 - **DEMO is for learning, not for decisions.** Profitable DEMO numbers say the
   *plumbing* works, nothing about real edge. Validate on LIVE.
 - **Start small and staged when going live.** (Live trading is a separate, gated
