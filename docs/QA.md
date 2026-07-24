@@ -790,3 +790,15 @@ The Phase-2 §4 "deciding experiment" re-bucketed the OOS trades by liquidity an
 Because costs are **per-trade**, filtering up removes the (illiquid-driven) gross *faster* than it saves on cost — **net gets worse at every threshold tested**. So the operator's "raise the floor to cut noise and gain edge" hypothesis is **refuted**: liquidity is not an edge lever here. The productive reframe (`PHASE2_STRATEGY_PLAN.md` §5): the problem isn't "too much noise in the universe," it's "the gross edge is untradeable microstructure." The filter is shipped **off** and documented as an honesty/robustness knob so no one enables it expecting profit. (Note: this is the *backtest* universe, "path b" — entirely separate from the live-scan `MIN_LIQUIDITY_USD`, "path a", raised to $1M in Slice 0 for scan tractability.)
 
 ---
+
+## 2026-07-25 — What is "market impact" and why does it make big trades worse? (Slice 3)
+
+**Q:** Phase-2 Slice 3 added a "market impact" charge. What is it, and why does my backtest net get worse when I raise the per-leg size?
+
+**A:** The half-spread is what you pay to cross the book *at top-of-book* (~$100). Trade **bigger** and your market order **walks the book** — filling at progressively worse levels. That extra cost is **market impact**, on top of the spread, and every cost figure before Slice 3 ignored it (they all assumed $100/leg). `MARKET_IMPACT=true` (env, **default OFF**, backtest-only) charges it per leg via the square-root law:
+
+> `impact% = 100 · σ · √(Q / ADV)` — σ = market daily vol, Q = `usd_per_trade`, ADV = mean daily dollar-volume (`backend/simulation/market_impact.py`).
+
+**Why bigger size hurts:** impact grows **∝ Q^1.5** while gross grows only **∝ Q**, so *per-dollar* returns fall as you scale up — bigger size **erodes** the edge, it doesn't multiply it. Validated on the live cache: a thin alt (~$29k/hr, σ≈5%) costs ≈**0.19%/leg at $1k** and ≈**0.42% at $5k** (matches `PHASE2_STRATEGY_PLAN.md` §4.3); BTC-class depth ≈0%. This is gate **B5** ("executable at real size") and it's an **honesty** charge, not an alpha lever — it can only make the honest net *worse* at real manual size. Combined with the strategy living in thin markets, it's the single most important reason the +$187/+$157 taker figure is *optimistic*: at real size the true net is lower still.
+
+---

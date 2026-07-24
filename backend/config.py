@@ -207,6 +207,13 @@ BACKTEST_MIN_DOLLAR_VOLUME: float = _env(
 BACKTEST_MAX_HALF_SPREAD_PCT: float = _env(
     "BACKTEST_MAX_HALF_SPREAD_PCT", default=0.0, cast=float
 )  # percent ceiling; 0 = off
+
+# First-order market-impact charge (Phase-2 Slice 3, gate B5). When ON, the
+# walk-forward backtest adds a size-aware impact term (σ·√(Q/ADV);
+# simulation.market_impact) to each leg's per-market cost, on top of the half-spread.
+# Q = usd_per_trade, so bigger size → more impact — the cost that top-of-book pricing
+# ignores. DEFAULT OFF. Honest cost at real size, NOT alpha (PHASE2_STRATEGY_PLAN §4.3).
+MARKET_IMPACT: bool = _env("MARKET_IMPACT", default=False, cast=_as_bool)
 STABLECOIN_KEYWORDS: tuple[str, ...] = (
     "USDC", "USDT", "DAI", "BUSD", "TUSD",
     "FRAX", "LUSD", "USDD", "USDP", "PYUSD",

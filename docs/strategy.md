@@ -454,3 +454,21 @@ proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR p
   → 10. `backend/simulation/spread_cost.py::filter_universe`; see
   `docs/BACKTEST_PARAMETER_GUIDE.md` §C3 and the 2026-07-25 `docs/QA.md` entry.
   Distinct from Slice 0's `MIN_LIQUIDITY_USD` (that's the live scan, path a).
+
+- **Slice 3 — first-order market-impact charge (gate B5).** `MARKET_IMPACT`
+  (**default OFF**) adds a size-aware `impact% = 100·σ·√(Q/ADV)` term per leg on top of
+  the half-spread (σ from the loaded closes, ADV = mean hourly $-vol × 24,
+  Q = `usd_per_trade`). Every prior cost figure assumed $100/leg top-of-book and so
+  **omitted impact entirely**. The key property: impact ∝ **Q^1.5** vs gross ∝ **Q**, so
+  bigger manual size **erodes** the edge. Validated on the live cache — a thin alt
+  (~$29k/hr, σ≈5%) costs ≈**0.19%/leg @ $1k**, ≈**0.42% @ $5k** (reproduces §4.3); BTC
+  ≈0%. Backtest-only; honest cost at real size, **not** alpha. Combined with the
+  strategy living in thin markets, this is why the +$187 (flat) / +$157 (per-market)
+  taker figures are **optimistic** — the honest net at real size is lower still.
+  `backend/simulation/market_impact.py`; see `docs/TRADING_CONCEPTS.md` (Part 5 "Market
+  impact"), `docs/BACKTEST_PARAMETER_GUIDE.md` §C4, the 2026-07-25 `docs/QA.md` entry.
+
+  **Pending (post-deploy):** re-run s2–s4 with `PER_MARKET_SLIPPAGE=on MARKET_IMPACT=on`
+  at the operator's real per-leg size to book the size-aware honest net (gate B5). Runs
+  on **prod** (deep history is prod-only). Numbers appended here after the bundled
+  Slice 2+3 deploy.

@@ -161,6 +161,23 @@ treat them as indicative.)
 
 ---
 
+## C4. First-order market-impact charge (Phase-2 Slice 3, gate B5)
+
+Every cost above assumes **$100/leg at top-of-book**, where impact is negligible.
+Real manual size (10–100×) **walks the book**. `MARKET_IMPACT=true` adds a size-aware
+impact term per leg, on top of the half-spread:
+
+> `impact% = 100 · σ · √(Q / ADV)` — σ = market daily vol, Q = `usd_per_trade`,
+> ADV = mean daily dollar-volume (`backend/simulation/market_impact.py`).
+
+Key property: **impact ∝ Q^1.5 while gross ∝ Q**, so bigger size *erodes* the edge.
+On the live cache: a thin alt (~$29k/hr, σ≈5%) costs ≈**0.19%/leg @ $1k**, ≈**0.42% @
+$5k** (matches `PHASE2_STRATEGY_PLAN.md` §4.3); BTC-class depth ≈0%. Default OFF;
+backtest-only; an **honesty** charge (gate B5), not an alpha lever — it can only make
+the honest net *worse* at real size, which is precisely the point.
+
+---
+
 ## D. Known limitations surfaced by this investigation
 
 1. **The coverage banner (#88) shows the real-cache span even in `fake` mode**, so
