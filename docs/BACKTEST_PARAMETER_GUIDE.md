@@ -99,6 +99,38 @@ trade 15d**, dates inside **2024-02-01 → 2024-12-01** (or another dense span).
 
 ---
 
+## C2. Per-market realistic cost model (Phase-2 Slice 1)
+
+By default the backtest charges one **flat** `slippage_pct` on every fill, the same
+for BTC as for a dust alt. That overstates liquid-market cost and *understates* thin-
+market cost — and the strategy's gross lives in thin markets, so the flat number
+flatters the result. `PER_MARKET_SLIPPAGE=true` replaces it with a **per-market
+half-spread**, charged per leg on entry and exit.
+
+**How a market's half-spread is resolved** (`backend/simulation/spread_cost.py`):
+1. **Override table** (`SEED_HALF_SPREAD_PCT`) — real measured per-coin half-spreads.
+   Empty today: the 160-coin measurement behind the numbers below was an ephemeral
+   live-order-book snapshot that was never persisted, so it's the extensible hook,
+   not yet populated.
+2. **Volume→spread curve** (the workhorse) — a market's mean **hourly dollar-volume**
+   (`close×volume` from `ohlcv_cache`) maps log-linearly to a half-spread, calibrated
+   to the measured aggregate distribution and clamped to it: `$1M/hr → 0.0165%`
+   (median), `$10k/hr → 0.0615%` (P90), floored at `0.0086%` (P25, liquid tier),
+   capped at `0.279%` (thinnest measured market). Example on the live cache: BTC
+   (~$113M/hr) → `0.0086%`; a $2–4k/hr alt → ~`0.07%`.
+3. **Default** — the measured mean `0.0316%` when no volume is available (e.g. the
+   offline demo source, which carries no volume).
+
+**Scope & intent.** Only the walk-forward backtest is affected (the map is built once
+per run from the loaded universe's dollar-volume); the real-time sim / fast-forward
+paths keep the flat cost. This is an **honesty** knob — it makes the backtest charge
+what each market really costs to cross. It is **not** an alpha lever: raising the
+liquidity floor to chase the thin-market gross *loses* money
+(`docs/PHASE2_STRATEGY_PLAN.md` §4). The curve is a liquidity **proxy**, not a per-coin
+measurement — real per-coin numbers go in the override table as they are captured.
+
+---
+
 ## D. Known limitations surfaced by this investigation
 
 1. **The coverage banner (#88) shows the real-cache span even in `fake` mode**, so

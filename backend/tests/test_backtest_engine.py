@@ -397,3 +397,69 @@ async def test_pause_mid_window_discards_partial_window(ctx, monkeypatch):
     assert done["processed_windows"] == 0            # no window completed
     assert not done["per_window"]                    # partial window not recorded
     assert not done["equity_curve"]                  # no half-window equity points
+
+
+# ── Per-market realistic cost model (Phase-2 Slice 1) ────────────────────────
+
+
+async def _run_net(ctx, **param_over) -> float:
+    """Run one fake-mode sweep to completion; return its net P&L."""
+    engine = BacktestEngine()
+    row = await ctx.repo.create(_params(**param_over))
+    await engine.run(row["id"])
+    done = await ctx.repo.get(row["id"])
+    assert done["status"] == "COMPLETED"
+    assert done["total_trades"] > 0
+    return done["net_pnl"]
+
+
+async def test_per_market_uniform_spread_reproduces_flat(ctx, monkeypatch):
+    """A per-market model with a uniform half-spread == the flat run (exactly).
+
+    Proves the per-leg wiring is a faithful generalisation: charging every market
+    the same 0.1% via the map yields the same net as the flat slippage_pct=0.1.
+    """
+    from simulation import spread_cost
+
+    flat_net = await _run_net(ctx, slippage_pct=0.1, taker_fee_pct=0.0)
+
+    monkeypatch.setattr(config, "PER_MARKET_SLIPPAGE", True)
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT", {"AAA-USD": 0.1, "BBB-USD": 0.1}
+    )
+    pm_net = await _run_net(ctx, slippage_pct=0.0, taker_fee_pct=0.0)
+    assert pm_net == pytest.approx(flat_net, abs=1e-6)
+
+
+async def test_per_market_wider_spread_cuts_net_deterministically(ctx, monkeypatch):
+    """Wider per-market half-spreads charge more, so net falls — and it's stable."""
+    from simulation import spread_cost
+
+    monkeypatch.setattr(config, "PER_MARKET_SLIPPAGE", True)
+
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT", {"AAA-USD": 0.1, "BBB-USD": 0.1}
+    )
+    cheap = await _run_net(ctx, slippage_pct=0.0, taker_fee_pct=0.0)
+
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT", {"AAA-USD": 0.5, "BBB-USD": 0.5}
+    )
+    dear = await _run_net(ctx, slippage_pct=0.0, taker_fee_pct=0.0)
+    dear_again = await _run_net(ctx, slippage_pct=0.0, taker_fee_pct=0.0)
+
+    assert dear < cheap                       # wider spread → more cost → lower net
+    assert dear == pytest.approx(dear_again)  # deterministic across identical runs
+
+
+async def test_per_market_off_ignores_map(ctx, monkeypatch):
+    """With PER_MARKET_SLIPPAGE off, the seed table has no effect (flat cost)."""
+    from simulation import spread_cost
+
+    base = await _run_net(ctx, slippage_pct=0.1, taker_fee_pct=0.0)
+    # A loud override table must NOT change the net while the flag is off (default).
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT", {"AAA-USD": 0.9, "BBB-USD": 0.9}
+    )
+    still_flat = await _run_net(ctx, slippage_pct=0.1, taker_fee_pct=0.0)
+    assert still_flat == pytest.approx(base, abs=1e-6)
