@@ -463,3 +463,75 @@ async def test_per_market_off_ignores_map(ctx, monkeypatch):
     )
     still_flat = await _run_net(ctx, slippage_pct=0.1, taker_fee_pct=0.0)
     assert still_flat == pytest.approx(base, abs=1e-6)
+
+
+# ── Universe liquidity/spread filter (Phase-2 Slice 2) ───────────────────────
+
+
+async def test_universe_filter_prunes_high_spread_pair(monkeypatch):
+    """The universe filter (half-spread ceiling) removes the wide-spread pair from
+    the backtest, shrinking the traded universe — filter ON vs OFF differ."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+    from simulation import spread_cost
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+
+    a1, a2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    b1, b2 = _cointegrated(23, beta=1.5, alpha=-3.0)
+    candles = {
+        "AAA-USD": _candles(a1), "BBB-USD": _candles(a2),   # tight-spread pair
+        "CCC-USD": _candles(b1), "DDD-USD": _candles(b2),   # wide-spread pair
+    }
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+    # Fake mode has no cached volume, so drive the ceiling via the override table.
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT",
+        {"AAA-USD": 0.02, "BBB-USD": 0.02, "CCC-USD": 0.09, "DDD-USD": 0.09},
+    )
+
+    async def run(name):
+        engine = BacktestEngine()
+        row = await repo.create(_params(name=name))
+        await engine.run(row["id"])
+        return await repo.get(row["id"])
+
+    off = await run("filter-off")
+    assert off["status"] == "COMPLETED"
+    # The wide-spread pair trades when unfiltered (it is genuinely cointegrated).
+    assert any("CCC-USD" in p or "DDD-USD" in p for p in off["per_pair_pnl"])
+
+    # Ceiling 0.05% drops CCC/DDD (0.09%) from the universe entirely.
+    monkeypatch.setattr(config, "BACKTEST_MAX_HALF_SPREAD_PCT", 0.05)
+    on = await run("filter-on")
+    assert on["status"] == "COMPLETED"
+    assert not any("CCC-USD" in p or "DDD-USD" in p for p in on["per_pair_pnl"])
+    # A strictly smaller traded universe → no more trades than the unfiltered run.
+    assert on["total_trades"] <= off["total_trades"]
+
+
+async def test_universe_filter_off_by_default_is_full_universe(monkeypatch):
+    """With both thresholds 0 (default), every market is kept — no pruning."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+    a1, a2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    candles = {"AAA-USD": _candles(a1), "BBB-USD": _candles(a2)}
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+    # Defaults are 0/0 → filter is a no-op; the pair still trades.
+    engine = BacktestEngine()
+    row = await repo.create(_params(name="default"))
+    await engine.run(row["id"])
+    done = await repo.get(row["id"])
+    assert done["status"] == "COMPLETED"
+    assert done["total_trades"] > 0
+    assert "AAA-USD/BBB-USD" in done["per_pair_pnl"]

@@ -440,3 +440,17 @@ proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR p
   it stays *optimistic*; the definitive honest number lands after Slice 3 (market impact)
   + Slice 4 (deflated-Sharpe correction). A same-engine flat control (flag off) was not
   run — both land at "zero", so it would not change any decision.
+
+- **Slice 2 — backtest universe liquidity/spread filter (path b).** Optional,
+  **default-OFF** knobs (`BACKTEST_MIN_DOLLAR_VOLUME` $/hr floor,
+  `BACKTEST_MAX_HALF_SPREAD_PCT` ceiling) that prune the backtest universe *before*
+  the scan, reusing the Slice-1 `get_dollar_volumes` + `spread_cost`. Shipped **with
+  the §4 refutation documented**: this is the engine change the plan calls the
+  "deciding experiment," and it is an **honesty/robustness** knob, **not** an alpha
+  lever. The evidence is decisive — gross is concentrated in the thinnest markets, so
+  filtering up **loses** money (gross +$2,554 → −$183 @ ≥$100k/hr; net worse at every
+  threshold). Do **not** enable it expecting profit. Live-cache survivor counts (avg
+  over cached bars): 179 → 74 (≥$40k/hr) → 7 (≥$1M/hr); half-spread ≤0.05% → 85, ≤0.02%
+  → 10. `backend/simulation/spread_cost.py::filter_universe`; see
+  `docs/BACKTEST_PARAMETER_GUIDE.md` §C3 and the 2026-07-25 `docs/QA.md` entry.
+  Distinct from Slice 0's `MIN_LIQUIDITY_USD` (that's the live scan, path a).
