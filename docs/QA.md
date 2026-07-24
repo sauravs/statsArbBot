@@ -768,4 +768,25 @@ Three details only became clear once the real 69 were classified, and each one c
 
 **Does it make the strategy profitable? No — and it's not meant to.** It's an **honesty** upgrade, not an alpha lever. Charging thin markets their real (wider) spread makes the very trades that generate the gross *more* expensive, so honest net can only move **down or sideways**, never up, versus the flat 0.05%. The path to a "yes" is unchanged (OOS net ≥ +$424, DSR-corrected, size-aware — §7). Scope: only the **walk-forward backtest** (the map is built once per run); real-time sim / fast-forward keep the flat cost; `ENVIRONMENT` and go-live are untouched.
 
+**Confirmed empirically (2026-07-25, prod).** Re-running entry-3.5 s2–s4 at per-market cost gave OOS net **+$157** (vs the flat-real-taker +$187) — *below*, exactly as predicted. Still inside the ±$212 noise floor → statistically zero, NO-GO unchanged (`docs/strategy.md` Phase-2 campaign).
+
+---
+
+## 2026-07-25 — Does raising the backtest liquidity filter gain edge? (Slice 2)
+
+**Q:** Phase-2 Slice 2 added a backtest universe liquidity/spread filter. If I turn it on and only trade the liquid names, does the strategy make more money?
+
+**A: No. The evidence is decisive, and it's the opposite of intuition.** The filter (`BACKTEST_MIN_DOLLAR_VOLUME` / `BACKTEST_MAX_HALF_SPREAD_PCT`, both **default OFF**) prunes the backtest's market universe *before* the scan — drop markets below an hourly dollar-volume floor and/or above a half-spread ceiling. It exists to make the backtest **honest** (exclude untradeable dust, stress-test robustness), **not** to gain edge.
+
+The Phase-2 §4 "deciding experiment" re-bucketed the OOS trades by liquidity and found the gross edge is **concentrated in the thinnest markets**:
+
+| Both-legs floor | Trades | Gross | Net @ real taker |
+|---|---|---|---|
+| none (full) | 7,787 | **+$2,554** | +$187 (inside noise floor) |
+| ≥ $100k/hr | 2,417 | −$183 | ≈ −$700 |
+| ≥ $1M/hr | 823 | +$44 | ≈ −$130 |
+| ≥ $5M/hr | 218 | +$98 | ≈ +$54 (218 trades — statistically zero) |
+
+Because costs are **per-trade**, filtering up removes the (illiquid-driven) gross *faster* than it saves on cost — **net gets worse at every threshold tested**. So the operator's "raise the floor to cut noise and gain edge" hypothesis is **refuted**: liquidity is not an edge lever here. The productive reframe (`PHASE2_STRATEGY_PLAN.md` §5): the problem isn't "too much noise in the universe," it's "the gross edge is untradeable microstructure." The filter is shipped **off** and documented as an honesty/robustness knob so no one enables it expecting profit. (Note: this is the *backtest* universe, "path b" — entirely separate from the live-scan `MIN_LIQUIDITY_USD`, "path a", raised to $1M in Slice 0 for scan tractability.)
+
 ---

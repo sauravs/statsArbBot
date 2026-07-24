@@ -50,7 +50,7 @@ from replay.historical_feed import (
 from replay.working_repo import WorkingSimRepository
 from simulation.engine import _close_position, run_tick
 from simulation.feed import PairTick
-from simulation.spread_cost import build_slippage_map
+from simulation.spread_cost import build_slippage_map, filter_universe
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +244,13 @@ class BacktestEngine:
         # warm-up and silently produce no trades (matches replay.engine's load_start).
         markets = await _universe(exchange)
         load_start = windows[cursor_idx].scan_start - timedelta(hours=zwindow + 2)
+        # Optional liquidity/spread universe filter (Phase-2 Slice 2, path b). Prune
+        # BEFORE loading history + scanning so it actually narrows the traded universe
+        # (the §4 "deciding experiment"). DEFAULT OFF → returns the full universe.
+        if config.BACKTEST_MIN_DOLLAR_VOLUME > 0 or config.BACKTEST_MAX_HALF_SPREAD_PCT > 0:
+            markets = await _filter_universe(
+                exchange, markets, load_start, windows[-1].trade_end
+            )
         candles_by_market, funding_by_market = await _load_history(
             exchange, markets, load_start, windows[-1].trade_end
         )
@@ -613,6 +620,37 @@ def _session_params(row: dict) -> dict:
 async def _universe(exchange: str) -> list[str]:
     source = make_candle_source(exchange=exchange)
     return await source.available_markets()
+
+
+async def _filter_universe(exchange, markets, start, end) -> list[str]:
+    """Prune the backtest universe by the configured liquidity floor / spread ceiling
+    (Phase-2 Slice 2). Real mode: per-market mean dollar-volume drives both filters.
+    Fake mode: no cached volume, so the floor is a no-op (markets kept on unknown
+    volume) and only the half-spread ceiling (from the demo/seed table) applies.
+    """
+    dollar_volumes: dict[str, float] = {}
+    if config.SCAN_DATA_SOURCE != "fake":
+        from ingest.cache_repository import get_ohlcv_cache_repository
+
+        dollar_volumes = await get_ohlcv_cache_repository().get_dollar_volumes(
+            exchange=exchange,
+            resolution=config.CANDLE_RESOLUTION,
+            start=start,
+            end=end,
+            markets=list(markets),
+        )
+    kept = filter_universe(
+        list(markets),
+        dollar_volumes,
+        min_dollar_volume=config.BACKTEST_MIN_DOLLAR_VOLUME,
+        max_half_spread_pct=config.BACKTEST_MAX_HALF_SPREAD_PCT,
+    )
+    logger.info(
+        "backtest universe filter: %d → %d markets (min_$vol=%s, max_half_spread=%s)",
+        len(markets), len(kept),
+        config.BACKTEST_MIN_DOLLAR_VOLUME, config.BACKTEST_MAX_HALF_SPREAD_PCT,
+    )
+    return kept
 
 
 async def _build_slippage_map(exchange, markets, start, end) -> dict[str, float]:
