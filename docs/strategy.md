@@ -417,9 +417,26 @@ proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR p
   sideways** vs the flat 0.05%, never up. `backend/simulation/spread_cost.py`;
   see `docs/BACKTEST_PARAMETER_GUIDE.md` §C2 and the 2026-07-24 `docs/QA.md` entry.
 
-  **Pending (post-deploy):** re-run **s2–s4** with `PER_MARKET_SLIPPAGE=on` to book the
-  honest OOS net at per-market cost. This must run on **prod** — the deep 2024+ HL
-  history for s2/s3/s4 lives only there, not in local dev — so the numbers land after
-  Slice 1 is promoted + deployed. Expectation from the model: net ≤ the +$187 flat-cost
-  figure (thin-market trades get *more* expensive), i.e. still inside/under the ±$212
-  noise floor. Numbers to be appended here once the prod sweep completes.
+  **Attribution re-run (2026-07-25, prod, `PER_MARKET_SLIPPAGE=on`).** Fresh entry-3.5
+  OOS sweeps cloning the exact cost-000 config (spans/params), now charging real taker
+  fee (0.045%) + **per-market** slippage. Ran on prod (deep 2024+ HL history is
+  prod-only). Rows `per-market-3.5-s2/s3/s4`
+  (`cmrz6qpb10001wulpxmllt6to` / `cmrz6qpd10002wulpuujuiate` / `cmrz6qpfq0003wulpdv53iw1n`):
+
+  | Span | Trades | Win% | Net (per-market) |
+  |---|---|---|---|
+  | s2 (2025-11-07→2026-03-01) | 3,595 | 66.8% | **+$73.80** |
+  | s3 (2025-07-16→2025-11-07) | 2,657 | 62.8% | **−$1,030.32** |
+  | s4 (2025-03-24→2025-07-16) | 1,500 | 64.7% | **+$1,113.74** |
+  | **OOS total** | **7,752** | **~65%** | **+$157.22** |
+
+  **Read (attribution only — spread-only, NOT a new verdict).** Gross reconstructs to
+  ≈ **+$2,553** (matches the +$2,554 zero-cost figure) at **~$0.31/trade** per-market
+  friction. Per-market net **+$157** lands **just below** the documented flat-real-taker
+  **+$187** — exactly the model's prediction: the trades cluster in thin markets that pay
+  **wider-than-mean** spreads, so honest cost moves net **down** (~$30), never up. It
+  remains **well inside the ±$212 noise floor → statistically zero. NO-GO unchanged.**
+  This figure is still **pre-impact** (assumes $100/leg top-of-book) and **pre-DSR**, so
+  it stays *optimistic*; the definitive honest number lands after Slice 3 (market impact)
+  + Slice 4 (deflated-Sharpe correction). A same-engine flat control (flag off) was not
+  run — both land at "zero", so it would not change any decision.
