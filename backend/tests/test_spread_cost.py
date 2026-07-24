@@ -2,8 +2,8 @@
 Unit tests for the per-market half-spread cost model (Phase-2 Slice 1).
 
 Pins the resolution order (override → volume curve → default), the curve's
-calibration to the measured anchors, its monotonicity/clamps, and the per-run
-``build_slippage_map`` helper.
+calibration to the measured anchors, its monotonicity/clamps, and the universe
+``filter_universe`` helper (Slice 2).
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from simulation.spread_cost import (
     DEFAULT_HALF_SPREAD_PCT,
     _CAP_PCT,
     _FLOOR_PCT,
-    build_slippage_map,
     filter_universe,
     half_spread_pct,
 )
@@ -56,21 +55,6 @@ def test_demo_markets_resolve_deterministically():
     # Demo markets carry no volume; they resolve from the demo table, not the curve.
     assert half_spread_pct("DEMO1-USD") == pytest.approx(0.02)
     assert half_spread_pct("NOISE2-USD", None) == pytest.approx(0.12)
-
-
-def test_build_slippage_map_uses_volumes_and_falls_back():
-    markets = ["DEMO1-USD", "LIQUID", "THIN"]
-    volumes = {"LIQUID": 1_000_000.0, "THIN": 10_000.0}  # DEMO1 absent → demo table
-    m = build_slippage_map(markets, volumes)
-    assert m["DEMO1-USD"] == pytest.approx(0.02)
-    assert m["LIQUID"] == pytest.approx(0.0165, abs=1e-9)
-    assert m["THIN"] == pytest.approx(0.0615, abs=1e-9)
-
-
-def test_build_slippage_map_no_volumes_is_demo_or_default():
-    m = build_slippage_map(["DEMO2-USD", "SOMECOIN"])
-    assert m["DEMO2-USD"] == pytest.approx(0.04)
-    assert m["SOMECOIN"] == pytest.approx(DEFAULT_HALF_SPREAD_PCT)
 
 
 # ── Universe liquidity/spread filter (Phase-2 Slice 2) ───────────────────────

@@ -535,3 +535,55 @@ async def test_universe_filter_off_by_default_is_full_universe(monkeypatch):
     assert done["status"] == "COMPLETED"
     assert done["total_trades"] > 0
     assert "AAA-USD/BBB-USD" in done["per_pair_pnl"]
+
+
+# ── First-order market impact (Phase-2 Slice 3) ──────────────────────────────
+
+
+async def test_market_impact_charges_and_scales_super_linearly(monkeypatch):
+    """Impact ON costs money end-to-end, and per-notional net degrades with size
+    (impact ∝ Q^1.5 vs gross ∝ Q) — the size-aware gate-B5 charge."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+    import ingest.cache_repository as cache_module
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    # Non-fake so the cost map fetches per-market dollar-volume (mocked below); the
+    # candle source is still the injected in-memory fake.
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "dydx")
+    s1, s2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    candles = {"AAA-USD": _candles(s1), "BBB-USD": _candles(s2)}
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+
+    class _FakeCacheRepo:
+        async def get_dollar_volumes(self, **_):
+            return {"AAA-USD": 2_000.0, "BBB-USD": 2_000.0}  # thin → material impact
+
+    monkeypatch.setattr(
+        cache_module, "get_ohlcv_cache_repository", lambda: _FakeCacheRepo()
+    )
+
+    async def run(**over):
+        engine = BacktestEngine()
+        row = await repo.create(_params(slippage_pct=0.0, taker_fee_pct=0.0, **over))
+        await engine.run(row["id"])
+        return await repo.get(row["id"])
+
+    # Impact OFF (default): zero-cost baseline at $100/leg.
+    off = await run(name="mi-off", usd_per_trade=100.0)
+    assert off["total_trades"] > 0
+
+    monkeypatch.setattr(config, "MARKET_IMPACT", True)
+    on_100 = await run(name="mi-on-100", usd_per_trade=100.0)
+    # Impact is charged → strictly lower net than the impact-off baseline.
+    assert on_100["net_pnl"] < off["net_pnl"]
+    assert on_100["total_trades"] == off["total_trades"]  # same trades, just costed
+
+    # Bigger per-leg size (capital headroom keeps the same 1-pair trade set): impact
+    # grows ∝ Q^1.5 while gross grows ∝ Q, so per-notional net is worse at $5k/leg.
+    on_5000 = await run(name="mi-on-5000", usd_per_trade=5_000.0, starting_capital=1_000_000.0)
+    assert on_5000["total_trades"] == on_100["total_trades"]
+    assert on_5000["net_pnl"] / 5_000.0 < on_100["net_pnl"] / 100.0

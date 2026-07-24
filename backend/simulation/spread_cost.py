@@ -99,18 +99,6 @@ def half_spread_pct(market: str, dollar_volume: float | None = None) -> float:
     return _volume_curve(dollar_volume)
 
 
-def build_slippage_map(
-    markets: list[str], dollar_volumes: dict[str, float] | None = None
-) -> dict[str, float]:
-    """Per-market half-spread map for a backtest run: ``{market: half_spread_pct}``.
-
-    ``dollar_volumes`` maps market → hourly dollar-volume (empty/omitted in fake
-    mode, where markets resolve via the demo table / default).
-    """
-    dv = dollar_volumes or {}
-    return {m: half_spread_pct(m, dv.get(m)) for m in markets}
-
-
 def filter_universe(
     markets: list[str],
     dollar_volumes: dict[str, float] | None = None,

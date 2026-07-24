@@ -50,7 +50,8 @@ from replay.historical_feed import (
 from replay.working_repo import WorkingSimRepository
 from simulation.engine import _close_position, run_tick
 from simulation.feed import PairTick
-from simulation.spread_cost import build_slippage_map, filter_universe
+from simulation.market_impact import impact_pct, realized_daily_vol
+from simulation.spread_cost import filter_universe, half_spread_pct
 
 logger = logging.getLogger(__name__)
 
@@ -262,13 +263,14 @@ class BacktestEngine:
         pts_per_window = max(2, _MAX_CURVE_POINTS // total)
 
         session_base = _session_params(row)
-        # Per-market realistic cost model (Phase-2 Slice 1). When enabled, resolve a
-        # per-market half-spread once for the run and thread it through the session,
-        # so each leg is charged its market's spread instead of the flat
-        # slippage_pct. DEFAULT OFF → session has no map → cost model stays flat.
-        if config.PER_MARKET_SLIPPAGE:
+        # Per-market cost map (Phase-2 Slices 1 & 3). When either the per-market spread
+        # model or the size-aware market-impact charge is on, resolve a per-market cost
+        # once for the run and thread it through the session, so each leg is charged its
+        # market's spread (+ impact) instead of the flat slippage_pct. DEFAULT OFF →
+        # session has no map → cost model stays flat.
+        if config.PER_MARKET_SLIPPAGE or config.MARKET_IMPACT:
             session_base["slippage_by_market"] = await _build_slippage_map(
-                exchange, markets, load_start, windows[-1].trade_end
+                exchange, markets, load_start, windows[-1].trade_end, row, candles_by_market
             )
         terminal = None
 
@@ -653,13 +655,21 @@ async def _filter_universe(exchange, markets, start, end) -> list[str]:
     return kept
 
 
-async def _build_slippage_map(exchange, markets, start, end) -> dict[str, float]:
-    """Per-market half-spread map for the run (Phase-2 Slice 1).
+async def _build_slippage_map(
+    exchange, markets, start, end, row, candles_by_market
+) -> dict[str, float]:
+    """Per-market per-leg cost map for the run (Phase-2 Slices 1 & 3):
+    ``{market: half_spread_or_flat + impact}`` (percent).
 
-    Real mode: per-market mean hourly dollar-volume → volume→spread curve. Fake
-    mode (``SCAN_DATA_SOURCE=fake``): the demo cache has no volume, so dollar-volume
-    stays empty and markets resolve via the demo table / measured-mean default in
-    ``simulation.spread_cost``.
+    - **Base** cost per leg is the market's half-spread (Slice 1, when
+      ``PER_MARKET_SLIPPAGE``) else the strategy's flat ``slippage_pct``.
+    - **Impact** (Slice 3, when ``MARKET_IMPACT``) adds a size-aware ``σ·√(Q/ADV)``
+      term: σ from the loaded closes, ADV = mean hourly dollar-volume × 24,
+      Q = ``usd_per_trade``.
+
+    Real mode reads per-market dollar-volume from the cache; fake mode
+    (``SCAN_DATA_SOURCE=fake``) has none, so the spread falls back to the demo/mean
+    default and impact (needing ADV) is 0.
     """
     dollar_volumes: dict[str, float] = {}
     if config.SCAN_DATA_SOURCE != "fake":
@@ -672,7 +682,20 @@ async def _build_slippage_map(exchange, markets, start, end) -> dict[str, float]
             end=end,
             markets=list(markets),
         )
-    return build_slippage_map(list(markets), dollar_volumes)
+    flat = row["slippage_pct"]
+    per_leg_usd = row["usd_per_trade"]
+    out: dict[str, float] = {}
+    for m in markets:
+        dv = dollar_volumes.get(m)
+        base = half_spread_pct(m, dv) if config.PER_MARKET_SLIPPAGE else flat
+        impact = 0.0
+        if config.MARKET_IMPACT:
+            closes = [c["close"] for c in candles_by_market.get(m, [])]
+            sigma = realized_daily_vol(closes)
+            adv = (dv or 0.0) * 24.0
+            impact = impact_pct(sigma, per_leg_usd, adv)
+        out[m] = base + impact
+    return out
 
 
 async def _load_history(exchange, markets, start, end):
