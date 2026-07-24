@@ -463,3 +463,127 @@ async def test_per_market_off_ignores_map(ctx, monkeypatch):
     )
     still_flat = await _run_net(ctx, slippage_pct=0.1, taker_fee_pct=0.0)
     assert still_flat == pytest.approx(base, abs=1e-6)
+
+
+# ── Universe liquidity/spread filter (Phase-2 Slice 2) ───────────────────────
+
+
+async def test_universe_filter_prunes_high_spread_pair(monkeypatch):
+    """The universe filter (half-spread ceiling) removes the wide-spread pair from
+    the backtest, shrinking the traded universe — filter ON vs OFF differ."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+    from simulation import spread_cost
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+
+    a1, a2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    b1, b2 = _cointegrated(23, beta=1.5, alpha=-3.0)
+    candles = {
+        "AAA-USD": _candles(a1), "BBB-USD": _candles(a2),   # tight-spread pair
+        "CCC-USD": _candles(b1), "DDD-USD": _candles(b2),   # wide-spread pair
+    }
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+    # Fake mode has no cached volume, so drive the ceiling via the override table.
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT",
+        {"AAA-USD": 0.02, "BBB-USD": 0.02, "CCC-USD": 0.09, "DDD-USD": 0.09},
+    )
+
+    async def run(name):
+        engine = BacktestEngine()
+        row = await repo.create(_params(name=name))
+        await engine.run(row["id"])
+        return await repo.get(row["id"])
+
+    off = await run("filter-off")
+    assert off["status"] == "COMPLETED"
+    # The wide-spread pair trades when unfiltered (it is genuinely cointegrated).
+    assert any("CCC-USD" in p or "DDD-USD" in p for p in off["per_pair_pnl"])
+
+    # Ceiling 0.05% drops CCC/DDD (0.09%) from the universe entirely.
+    monkeypatch.setattr(config, "BACKTEST_MAX_HALF_SPREAD_PCT", 0.05)
+    on = await run("filter-on")
+    assert on["status"] == "COMPLETED"
+    assert not any("CCC-USD" in p or "DDD-USD" in p for p in on["per_pair_pnl"])
+    # A strictly smaller traded universe → no more trades than the unfiltered run.
+    assert on["total_trades"] <= off["total_trades"]
+
+
+async def test_universe_filter_off_by_default_is_full_universe(monkeypatch):
+    """With both thresholds 0 (default), every market is kept — no pruning."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+    a1, a2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    candles = {"AAA-USD": _candles(a1), "BBB-USD": _candles(a2)}
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+    # Defaults are 0/0 → filter is a no-op; the pair still trades.
+    engine = BacktestEngine()
+    row = await repo.create(_params(name="default"))
+    await engine.run(row["id"])
+    done = await repo.get(row["id"])
+    assert done["status"] == "COMPLETED"
+    assert done["total_trades"] > 0
+    assert "AAA-USD/BBB-USD" in done["per_pair_pnl"]
+
+
+# ── First-order market impact (Phase-2 Slice 3) ──────────────────────────────
+
+
+async def test_market_impact_charges_and_scales_super_linearly(monkeypatch):
+    """Impact ON costs money end-to-end, and per-notional net degrades with size
+    (impact ∝ Q^1.5 vs gross ∝ Q) — the size-aware gate-B5 charge."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+    import ingest.cache_repository as cache_module
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    # Non-fake so the cost map fetches per-market dollar-volume (mocked below); the
+    # candle source is still the injected in-memory fake.
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "dydx")
+    s1, s2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    candles = {"AAA-USD": _candles(s1), "BBB-USD": _candles(s2)}
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+
+    class _FakeCacheRepo:
+        async def get_dollar_volumes(self, **_):
+            return {"AAA-USD": 2_000.0, "BBB-USD": 2_000.0}  # thin → material impact
+
+    monkeypatch.setattr(
+        cache_module, "get_ohlcv_cache_repository", lambda: _FakeCacheRepo()
+    )
+
+    async def run(**over):
+        engine = BacktestEngine()
+        row = await repo.create(_params(slippage_pct=0.0, taker_fee_pct=0.0, **over))
+        await engine.run(row["id"])
+        return await repo.get(row["id"])
+
+    # Impact OFF (default): zero-cost baseline at $100/leg.
+    off = await run(name="mi-off", usd_per_trade=100.0)
+    assert off["total_trades"] > 0
+
+    monkeypatch.setattr(config, "MARKET_IMPACT", True)
+    on_100 = await run(name="mi-on-100", usd_per_trade=100.0)
+    # Impact is charged → strictly lower net than the impact-off baseline.
+    assert on_100["net_pnl"] < off["net_pnl"]
+    assert on_100["total_trades"] == off["total_trades"]  # same trades, just costed
+
+    # Bigger per-leg size (capital headroom keeps the same 1-pair trade set): impact
+    # grows ∝ Q^1.5 while gross grows ∝ Q, so per-notional net is worse at $5k/leg.
+    on_5000 = await run(name="mi-on-5000", usd_per_trade=5_000.0, starting_capital=1_000_000.0)
+    assert on_5000["total_trades"] == on_100["total_trades"]
+    assert on_5000["net_pnl"] / 5_000.0 < on_100["net_pnl"] / 100.0

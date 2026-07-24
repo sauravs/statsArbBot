@@ -194,6 +194,26 @@ MIN_LIQUIDITY_USD: float = _env("MIN_LIQUIDITY_USD", default=1_000_000.0, cast=f
 # real-time sim/FF paths keep the flat cost, so nothing changes unless enabled.
 # Honest cost, NOT alpha (docs/PHASE2_STRATEGY_PLAN.md §4/§7 Slice 1).
 PER_MARKET_SLIPPAGE: bool = _env("PER_MARKET_SLIPPAGE", default=False, cast=_as_bool)
+
+# Backtest universe liquidity/spread filter (Phase-2 Slice 2, path b). Both DEFAULT
+# OFF (0 = no filter). When set, the walk-forward backtest prunes its market universe
+# BEFORE the scan: drop markets whose mean hourly dollar-volume is below the floor
+# and/or whose modelled half-spread exceeds the ceiling. This is an HONESTY/robustness
+# knob, NOT an alpha lever — the §4 "deciding experiment" showed filtering up LOSES
+# money (the gross lives in the thinnest markets). See docs/PHASE2_STRATEGY_PLAN.md §4/§5.
+BACKTEST_MIN_DOLLAR_VOLUME: float = _env(
+    "BACKTEST_MIN_DOLLAR_VOLUME", default=0.0, cast=float
+)  # $/hr floor; 0 = off
+BACKTEST_MAX_HALF_SPREAD_PCT: float = _env(
+    "BACKTEST_MAX_HALF_SPREAD_PCT", default=0.0, cast=float
+)  # percent ceiling; 0 = off
+
+# First-order market-impact charge (Phase-2 Slice 3, gate B5). When ON, the
+# walk-forward backtest adds a size-aware impact term (σ·√(Q/ADV);
+# simulation.market_impact) to each leg's per-market cost, on top of the half-spread.
+# Q = usd_per_trade, so bigger size → more impact — the cost that top-of-book pricing
+# ignores. DEFAULT OFF. Honest cost at real size, NOT alpha (PHASE2_STRATEGY_PLAN §4.3).
+MARKET_IMPACT: bool = _env("MARKET_IMPACT", default=False, cast=_as_bool)
 STABLECOIN_KEYWORDS: tuple[str, ...] = (
     "USDC", "USDT", "DAI", "BUSD", "TUSD",
     "FRAX", "LUSD", "USDD", "USDP", "PYUSD",

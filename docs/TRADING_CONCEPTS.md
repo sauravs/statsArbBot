@@ -270,6 +270,23 @@ In this bot: the live path places **market orders with a 5% price buffer**
 assume clean fills**, so live results are typically *worse* than backtests,
 especially on thin pairs. Always discount a backtest for real slippage.
 
+### Market impact — "the splash gets bigger faster than your order"
+The **half-spread** is what you pay to cross the book *at top-of-book* (≈$100). Trade
+**bigger** and your market order **walks the book** — filling at progressively worse
+levels. That extra cost is **market impact**, and it is separate from, and on top of,
+the spread. It matters enormously here because the strategy's gross P&L lives in the
+*thinnest* markets — exactly where impact is worst.
+
+Modelled with the standard **square-root law** (`backend/simulation/market_impact.py`,
+Phase-2 Slice 3): `impact% ≈ 100 · σ · √(Q / ADV)`, where **σ** is the market's daily
+volatility, **Q** your per-leg size, and **ADV** its average daily dollar-volume. The
+key property: impact grows **∝ Q^1.5** while gross grows only **∝ Q**, so **bigger size
+erodes the edge, it doesn't scale it.** On the live cache a thin alt (~$29k/hr, σ≈5%)
+costs ≈**0.19%/leg at $1k** and ≈**0.42%/leg at $5k** — several times the entire
+top-of-book cost; BTC-class depth costs ≈0%. Every pre-Phase-2 cost figure assumed
+$100/leg, so it **omitted impact entirely** — the honest cost at real manual size is
+worse. (Charged in the backtest only when `MARKET_IMPACT=on`; default off.)
+
 ### Volume & open interest — "traffic flow vs cars parked"
 - **Volume** = amount traded over a period (the *flow*). Higher volume → tighter
   bid/ask, easier fills, more trustworthy prices.

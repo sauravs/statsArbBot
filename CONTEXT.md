@@ -49,6 +49,8 @@
 - **Approval gate** — an interface that must approve a signal before execution. Implementations: **stub** (`approve_all`/`reject_all`, used in early phases/tests) and **Telegram** (human ✅/❌, later phase).
 - **Collateral / free collateral** — account equity available to open new positions.
 - **Funding rate** — periodic (hourly on dYdX) payment between long and short perp holders; a real carrying cost that motivates the tighter `|Z|<0.5` exit.
+- **Half-spread** — half the bid/ask gap; the per-leg cost of crossing the book at top-of-book. **Per-market spread** (Phase-2 Slice 1, `simulation/spread_cost.py`) charges each market its own half-spread (volume→spread curve) instead of one flat `slippage_pct`.
+- **Market impact** — the *extra* adverse fill from a large order **walking the book**, beyond the half-spread. Modelled size-aware as `σ·√(Q/ADV)` (Phase-2 Slice 3, `simulation/market_impact.py`); grows ∝ Q^1.5, so bigger size erodes the edge. Gate **B5** ("executable at real size").
 
 ---
 

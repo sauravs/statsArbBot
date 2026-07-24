@@ -131,6 +131,53 @@ measurement — real per-coin numbers go in the override table as they are captu
 
 ---
 
+## C3. Backtest universe liquidity/spread filter (Phase-2 Slice 2)
+
+By default the walk-forward backtest scans **every** market in the OHLCV cache
+(≈179 HL markets) — no liquidity gate (this is `_universe()`, "path b", entirely
+separate from the live-scan `MIN_LIQUIDITY_USD`). Two optional, **default-OFF** knobs
+prune that universe *before* the scan:
+
+| Env var | Meaning | Default |
+|---|---|---|
+| `BACKTEST_MIN_DOLLAR_VOLUME` | drop markets below this **hourly** dollar-volume (`close×volume`) | `0` (off) |
+| `BACKTEST_MAX_HALF_SPREAD_PCT` | drop markets whose modelled half-spread (`spread_cost`) exceeds this | `0` (off) |
+
+Example survivor counts on the live HL cache (avg over cached bars): full **179** →
+`≥$40k/hr` **74** → `≥$200k/hr` **33** → `≥$1M/hr` **7**; half-spread `≤0.05%` **85**,
+`≤0.02%` **10**. (Exact counts depend on the window the volumes are averaged over, so
+treat them as indicative.)
+
+> **⚠️ This is an honesty/robustness knob, NOT an alpha lever — and the evidence is
+> decisive.** The Phase-2 §4 "deciding experiment" re-bucketed the OOS trades by
+> liquidity and found the gross edge is **concentrated in the thinnest markets**:
+> entry-3.5 OOS gross collapses from **+$2,554 (full)** to **−$183 (≥$100k/hr)** or
+> **+$44 (≥$1M/hr)**, and because costs are per-trade, **net gets *worse* at every
+> threshold**. Raising the floor removes the (illiquid-driven) gross faster than it
+> saves on cost. **Do not enable this filter expecting more profit** — it exists to
+> make the backtest *honest* (exclude untradeable dust, stress-test robustness), and
+> the answer to "does filtering up gain edge?" is already **no**
+> (`docs/PHASE2_STRATEGY_PLAN.md` §4–§5).
+
+---
+
+## C4. First-order market-impact charge (Phase-2 Slice 3, gate B5)
+
+Every cost above assumes **$100/leg at top-of-book**, where impact is negligible.
+Real manual size (10–100×) **walks the book**. `MARKET_IMPACT=true` adds a size-aware
+impact term per leg, on top of the half-spread:
+
+> `impact% = 100 · σ · √(Q / ADV)` — σ = market daily vol, Q = `usd_per_trade`,
+> ADV = mean daily dollar-volume (`backend/simulation/market_impact.py`).
+
+Key property: **impact ∝ Q^1.5 while gross ∝ Q**, so bigger size *erodes* the edge.
+On the live cache: a thin alt (~$29k/hr, σ≈5%) costs ≈**0.19%/leg @ $1k**, ≈**0.42% @
+$5k** (matches `PHASE2_STRATEGY_PLAN.md` §4.3); BTC-class depth ≈0%. Default OFF;
+backtest-only; an **honesty** charge (gate B5), not an alpha lever — it can only make
+the honest net *worse* at real size, which is precisely the point.
+
+---
+
 ## D. Known limitations surfaced by this investigation
 
 1. **The coverage banner (#88) shows the real-cache span even in `fake` mode**, so

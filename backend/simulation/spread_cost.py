@@ -99,13 +99,34 @@ def half_spread_pct(market: str, dollar_volume: float | None = None) -> float:
     return _volume_curve(dollar_volume)
 
 
-def build_slippage_map(
-    markets: list[str], dollar_volumes: dict[str, float] | None = None
-) -> dict[str, float]:
-    """Per-market half-spread map for a backtest run: ``{market: half_spread_pct}``.
+def filter_universe(
+    markets: list[str],
+    dollar_volumes: dict[str, float] | None = None,
+    *,
+    min_dollar_volume: float = 0.0,
+    max_half_spread_pct: float = 0.0,
+) -> list[str]:
+    """Prune a backtest universe by a liquidity floor and/or half-spread ceiling
+    (Phase-2 Slice 2). Both default 0 → no-op (returns ``markets`` unchanged).
 
-    ``dollar_volumes`` maps market → hourly dollar-volume (empty/omitted in fake
-    mode, where markets resolve via the demo table / default).
+    - ``min_dollar_volume``: drop markets whose known hourly dollar-volume is below
+      the floor. A market with **unknown** volume (absent from ``dollar_volumes``,
+      e.g. the offline demo source) is **kept** — we don't drop on missing data.
+    - ``max_half_spread_pct``: drop markets whose modelled half-spread
+      (:func:`half_spread_pct`, from the same volume) exceeds the ceiling.
+
+    This is an honesty/robustness knob, NOT an alpha lever — the §4 probe showed the
+    gross lives in the thinnest markets, so filtering up loses money.
     """
+    if min_dollar_volume <= 0 and max_half_spread_pct <= 0:
+        return list(markets)
     dv = dollar_volumes or {}
-    return {m: half_spread_pct(m, dv.get(m)) for m in markets}
+    kept: list[str] = []
+    for m in markets:
+        vol = dv.get(m)
+        if min_dollar_volume > 0 and vol is not None and vol < min_dollar_volume:
+            continue
+        if max_half_spread_pct > 0 and half_spread_pct(m, vol) > max_half_spread_pct:
+            continue
+        kept.append(m)
+    return kept
