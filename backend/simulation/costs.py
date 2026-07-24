@@ -112,13 +112,22 @@ def simulate_pair_entry(
     usd_per_trade: float,
     slippage_pct: float,
     taker_fee_pct: float,
+    base_slippage_pct: float | None = None,
+    quote_slippage_pct: float | None = None,
 ) -> PairEntryFill:
-    """Simulate opening a two-leg pair position; returns both filled legs."""
+    """Simulate opening a two-leg pair position; returns both filled legs.
+
+    ``base_slippage_pct`` / ``quote_slippage_pct`` charge each leg its own
+    (per-market) half-spread; each defaults to the flat ``slippage_pct`` when None,
+    so a caller passing only ``slippage_pct`` gets the original uniform behaviour.
+    """
+    base_slip = slippage_pct if base_slippage_pct is None else base_slippage_pct
+    quote_slip = slippage_pct if quote_slippage_pct is None else quote_slippage_pct
     base_side, quote_side = _entry_sides(direction)
     base_size = usd_per_trade / base_price
     quote_size = base_size * abs(hedge_ratio)
-    base = _fill_leg(base_market, base_side, base_price, base_size, slippage_pct, taker_fee_pct)
-    quote = _fill_leg(quote_market, quote_side, quote_price, quote_size, slippage_pct, taker_fee_pct)
+    base = _fill_leg(base_market, base_side, base_price, base_size, base_slip, taker_fee_pct)
+    quote = _fill_leg(quote_market, quote_side, quote_price, quote_size, quote_slip, taker_fee_pct)
     return PairEntryFill(base=base, quote=quote, total_fee=base.fee + quote.fee)
 
 
@@ -135,6 +144,8 @@ def compute_exit_pnl(
     slippage_pct: float,
     taker_fee_pct: float,
     funding_pnl: float = 0.0,
+    base_slippage_pct: float | None = None,
+    quote_slippage_pct: float | None = None,
 ) -> dict:
     """
     Realised P&L for closing a simulated position.
@@ -143,13 +154,19 @@ def compute_exit_pnl(
     The exit reverses each leg's side and pays adverse slippage + taker fee on the
     closing notional. Returns ``{gross_pnl, fee_cost, funding_pnl, net_pnl}`` where
     ``fee_cost`` is entry + exit fees and ``net_pnl = gross − fee_cost + funding``.
+
+    ``base_slippage_pct`` / ``quote_slippage_pct`` charge each exit leg its own
+    (per-market) half-spread; each defaults to the flat ``slippage_pct`` when None
+    — mirrors :func:`simulate_pair_entry` so entry and exit cost the same per leg.
     """
+    base_slip = slippage_pct if base_slippage_pct is None else base_slippage_pct
+    quote_slip = slippage_pct if quote_slippage_pct is None else quote_slippage_pct
     base_side, quote_side = _entry_sides(direction)
     # Closing order takes the opposite side of each leg.
     base_exit_side = "SELL" if base_side == "BUY" else "BUY"
     quote_exit_side = "SELL" if quote_side == "BUY" else "BUY"
-    base_exit_fill = apply_slippage(base_exit_side, exit_base_px, slippage_pct)
-    quote_exit_fill = apply_slippage(quote_exit_side, exit_quote_px, slippage_pct)
+    base_exit_fill = apply_slippage(base_exit_side, exit_base_px, base_slip)
+    quote_exit_fill = apply_slippage(quote_exit_side, exit_quote_px, quote_slip)
 
     gross_pnl = _leg_pnl(base_side, entry_base_px, base_exit_fill, base_size) + _leg_pnl(
         quote_side, entry_quote_px, quote_exit_fill, quote_size

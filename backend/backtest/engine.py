@@ -50,6 +50,7 @@ from replay.historical_feed import (
 from replay.working_repo import WorkingSimRepository
 from simulation.engine import _close_position, run_tick
 from simulation.feed import PairTick
+from simulation.spread_cost import build_slippage_map
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,14 @@ class BacktestEngine:
         pts_per_window = max(2, _MAX_CURVE_POINTS // total)
 
         session_base = _session_params(row)
+        # Per-market realistic cost model (Phase-2 Slice 1). When enabled, resolve a
+        # per-market half-spread once for the run and thread it through the session,
+        # so each leg is charged its market's spread instead of the flat
+        # slippage_pct. DEFAULT OFF → session has no map → cost model stays flat.
+        if config.PER_MARKET_SLIPPAGE:
+            session_base["slippage_by_market"] = await _build_slippage_map(
+                exchange, markets, load_start, windows[-1].trade_end
+            )
         terminal = None
 
         def _pending() -> str | None:
@@ -604,6 +613,28 @@ def _session_params(row: dict) -> dict:
 async def _universe(exchange: str) -> list[str]:
     source = make_candle_source(exchange=exchange)
     return await source.available_markets()
+
+
+async def _build_slippage_map(exchange, markets, start, end) -> dict[str, float]:
+    """Per-market half-spread map for the run (Phase-2 Slice 1).
+
+    Real mode: per-market mean hourly dollar-volume → volume→spread curve. Fake
+    mode (``SCAN_DATA_SOURCE=fake``): the demo cache has no volume, so dollar-volume
+    stays empty and markets resolve via the demo table / measured-mean default in
+    ``simulation.spread_cost``.
+    """
+    dollar_volumes: dict[str, float] = {}
+    if config.SCAN_DATA_SOURCE != "fake":
+        from ingest.cache_repository import get_ohlcv_cache_repository
+
+        dollar_volumes = await get_ohlcv_cache_repository().get_dollar_volumes(
+            exchange=exchange,
+            resolution=config.CANDLE_RESOLUTION,
+            start=start,
+            end=end,
+            markets=list(markets),
+        )
+    return build_slippage_map(list(markets), dollar_volumes)
 
 
 async def _load_history(exchange, markets, start, end):

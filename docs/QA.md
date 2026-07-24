@@ -756,3 +756,16 @@ Three details only became clear once the real 69 were classified, and each one c
 **Does it add edge? No.** This is a **tractability/executability** change (reason *ii* in the plan), not an alpha lever. The old $10k floor was effectively inert (179/179 cached HL markets already cleared it), so it thinned nothing; you were reviewing pairs in names you could not actually fill at size. The plan's "deciding experiment" (§4) **refuted** the raise-the-floor-for-edge hypothesis: the strategy's mid-price gross is *concentrated in the thinnest markets*, so filtering up **loses** money (gross +$2,554 → −$183 at ≥$100k/hr; net worse at every threshold). The names you drop carry no *tradeable* P&L. The floor only affects the **live scan (path a)** — it does **not** touch any backtest (backtest universe is `_universe()`, path b) and does **not** change `ENVIRONMENT` or push the bot toward going live. Tighten to $5M later only if the list stays unwieldy or fills disappoint.
 
 ---
+
+## 2026-07-24 — Per-market cost model: why one backtest now charges different slippage per coin
+
+**Q:** Phase-2 Slice 1 added a "per-market" cost model. What does it change, and does it make the strategy profitable?
+
+**A:** Until now the backtest charged **one flat `slippage_pct`** on every fill — the same cost to cross BTC as to cross a dust alt. That's wrong in *both* directions: it overstates the cost of liquid names and **understates** the cost of thin ones. Since the strategy's gross P&L lives in the thinnest markets (§4 of `PHASE2_STRATEGY_PLAN.md`), the flat number flatters the result. Slice 1 adds `PER_MARKET_SLIPPAGE` (env flag, **default OFF**): when ON, each leg is charged its **market's half-spread**, resolved as override-table → **volume→spread curve** → measured-mean default (`backend/simulation/spread_cost.py`).
+
+- **The curve** maps a market's mean hourly dollar-volume (`close×volume`) to a half-spread, calibrated to the measured distribution: `$1M/hr→0.0165%` (median), `$10k/hr→0.0615%` (P90), floored at `0.0086%` (liquid, P25), capped at `0.279%` (thinnest measured). On the live cache BTC (~$113M/hr) → `0.0086%`; a $2–4k/hr alt → ~`0.07%`.
+- **Why a curve and not a per-coin table?** The 160-coin measurement that produced the aggregate percentiles was an ephemeral live-order-book snapshot and was **never persisted** — there's no per-coin table to seed from. The curve uses the per-market *volume* we do have (in `ohlcv_cache`) as a liquidity proxy; the override table is the extensible hook for real per-coin numbers as they're captured (operator decision 2026-07-24).
+
+**Does it make the strategy profitable? No — and it's not meant to.** It's an **honesty** upgrade, not an alpha lever. Charging thin markets their real (wider) spread makes the very trades that generate the gross *more* expensive, so honest net can only move **down or sideways**, never up, versus the flat 0.05%. The path to a "yes" is unchanged (OOS net ≥ +$424, DSR-corrected, size-aware — §7). Scope: only the **walk-forward backtest** (the map is built once per run); real-time sim / fast-forward keep the flat cost; `ENVIRONMENT` and go-live are untouched.
+
+---

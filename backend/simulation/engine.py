@@ -210,8 +210,26 @@ async def run_tick(
     return summary
 
 
+def _per_leg_slippage(
+    session: dict, base_market: str, quote_market: str
+) -> tuple[float | None, float | None]:
+    """Per-leg slippage % from the session's per-market half-spread map.
+
+    The backtest sets ``session["slippage_by_market"]`` only when
+    ``config.PER_MARKET_SLIPPAGE`` is on (Phase-2 Slice 1). With no map, returns
+    ``(None, None)`` so the cost model falls back to the flat ``slippage_pct`` —
+    preserving Phase-1 backtests and the real-time sim/FF paths unchanged.
+    """
+    by_market = session.get("slippage_by_market")
+    if not by_market:
+        return None, None
+    flat = session.get("slippage_pct", 0.05)
+    return by_market.get(base_market, flat), by_market.get(quote_market, flat)
+
+
 async def _open_position(repo, session: dict, snap: PairTick, usd_per_trade: float, now) -> None:
     direction = direction_from_z(snap.z_score)
+    base_slip, quote_slip = _per_leg_slippage(session, snap.base_market, snap.quote_market)
     fill = simulate_pair_entry(
         base_market=snap.base_market,
         quote_market=snap.quote_market,
@@ -222,6 +240,8 @@ async def _open_position(repo, session: dict, snap: PairTick, usd_per_trade: flo
         usd_per_trade=usd_per_trade,
         slippage_pct=session.get("slippage_pct", 0.05),
         taker_fee_pct=session.get("taker_fee_pct", 0.05),
+        base_slippage_pct=base_slip,
+        quote_slippage_pct=quote_slip,
     )
     await repo.create_position(
         {
@@ -256,8 +276,17 @@ async def _close_position(
     available) passes 0 so it doesn't charge slippage/fees on a fill that never
     happened — the only realised cost there is the already-paid entry fee + funding.
     """
+    # Per-market slippage applies only when the exit uses the session's costs; a
+    # caller forcing slippage_pct=0 (a synthetic close with no real fill) charges
+    # neither flat nor per-market slippage.
+    use_session_costs = slippage_pct is None
     slippage_pct = session.get("slippage_pct", 0.05) if slippage_pct is None else slippage_pct
     taker_fee_pct = session.get("taker_fee_pct", 0.05) if taker_fee_pct is None else taker_fee_pct
+    base_slip, quote_slip = (
+        _per_leg_slippage(session, pos["base_market"], pos["quote_market"])
+        if use_session_costs
+        else (None, None)
+    )
     pnl = compute_exit_pnl(
         direction=pos["direction"],
         entry_base_px=pos["entry_base_px"],
@@ -270,6 +299,8 @@ async def _close_position(
         slippage_pct=slippage_pct,
         taker_fee_pct=taker_fee_pct,
         funding_pnl=pos.get("funding_pnl", 0.0),
+        base_slippage_pct=base_slip,
+        quote_slippage_pct=quote_slip,
     )
     age = _age_hours(pos.get("entry_time"), now) or 0.0
     await repo.create_trade(

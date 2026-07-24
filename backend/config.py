@@ -186,6 +186,14 @@ BACKTEST_MIN_COMPLETENESS: float = _env(
 
 # Market eligibility filters.
 MIN_LIQUIDITY_USD: float = _env("MIN_LIQUIDITY_USD", default=1_000_000.0, cast=float)
+
+# Per-market realistic cost model (Phase-2 Slice 1). When ON, the walk-forward
+# backtest charges each leg its market's half-spread (seed override table →
+# volume→spread curve → measured-mean default; simulation.spread_cost) instead of
+# the flat per-strategy `slippage_pct`. DEFAULT OFF — Phase-1 runs and the
+# real-time sim/FF paths keep the flat cost, so nothing changes unless enabled.
+# Honest cost, NOT alpha (docs/PHASE2_STRATEGY_PLAN.md §4/§7 Slice 1).
+PER_MARKET_SLIPPAGE: bool = _env("PER_MARKET_SLIPPAGE", default=False, cast=_as_bool)
 STABLECOIN_KEYWORDS: tuple[str, ...] = (
     "USDC", "USDT", "DAI", "BUSD", "TUSD",
     "FRAX", "LUSD", "USDD", "USDP", "PYUSD",

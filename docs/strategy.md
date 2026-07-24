@@ -397,3 +397,29 @@ half-spread is a crude proxy.
 - **(4) Live remains unjustified**: on market orders the strategy is currently **+$187 OOS,
   inside the ±$212 noise floor**. Only (1) could change that. Full write-up in `docs/QA.md`
   (2026-07-22 execution economics + market-order correction).
+
+---
+
+## Phase-2 campaign — honest measurement machinery (2026-07-24 →)
+
+Standing verdict unchanged: **NO-GO for live trading.** Phase-2 does **not** ship a
+strategy; it builds the measurement + selection machinery so any future edge can be
+proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR per slice.
+
+- **Slice 0 — `MIN_LIQUIDITY_USD` $10k → $1M** (live scan, path a). Tractability, not
+  alpha; no backtest/trading/`ENVIRONMENT` change. Shipped + deployed to prod.
+- **Slice 1 — per-market realistic cost model.** `PER_MARKET_SLIPPAGE` (default OFF)
+  replaces the flat `slippage_pct` with a per-market half-spread charged per leg:
+  override table → **volume→spread curve** (calibrated to the measured percentiles:
+  liquid→0.0086%, median 0.0165% @ $1M/hr, P90 0.0615% @ $10k/hr, cap 0.279%) →
+  measured-mean default. Backtest-only; sim/FF stay flat. Honest cost, **not** alpha —
+  charging thin markets their real (wider) spread can only move honest net **down or
+  sideways** vs the flat 0.05%, never up. `backend/simulation/spread_cost.py`;
+  see `docs/BACKTEST_PARAMETER_GUIDE.md` §C2 and the 2026-07-24 `docs/QA.md` entry.
+
+  **Pending (post-deploy):** re-run **s2–s4** with `PER_MARKET_SLIPPAGE=on` to book the
+  honest OOS net at per-market cost. This must run on **prod** — the deep 2024+ HL
+  history for s2/s3/s4 lives only there, not in local dev — so the numbers land after
+  Slice 1 is promoted + deployed. Expectation from the model: net ≤ the +$187 flat-cost
+  figure (thin-market trades get *more* expensive), i.e. still inside/under the ±$212
+  noise floor. Numbers to be appended here once the prod sweep completes.

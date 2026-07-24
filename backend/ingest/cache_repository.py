@@ -103,6 +103,50 @@ class PrismaOhlcvCacheRepository:
         )
         return sorted(g["market"] for g in groups)
 
+    async def get_dollar_volumes(
+        self,
+        *,
+        exchange: str,
+        resolution: str,
+        start,
+        end,
+        markets: list[str] | None = None,
+    ) -> dict[str, float]:
+        """Per-market mean hourly dollar-volume over ``[start, end]``.
+
+        Feeds the per-market half-spread curve (Phase-2 Slice 1,
+        ``simulation.spread_cost``). Returns ``{market: close×volume}`` using
+        ``avg(close) × avg(volume)`` as the dollar-volume proxy — one SQL-side
+        ``GROUP BY market`` aggregate, no bar-level fetch (mirrors ``get_markets``'
+        reason for grouping server-side). An exact ``avg(close×volume)`` would need
+        a raw expression aggregate; over a backtest window ``close`` is stable
+        enough that the product of the means is a faithful liquidity proxy for the
+        monotone volume→spread curve.
+        """
+        from db.client import get_db
+
+        db = await get_db()
+        where: dict = {
+            "exchange": exchange,
+            "resolution": resolution,
+            "timestamp": {"gte": start, "lte": end},
+        }
+        if markets:
+            where["market"] = {"in": list(markets)}
+        groups = await db.ohlcvcache.group_by(
+            by=["market"],
+            where=where,
+            avg={"close": True, "volume": True},
+        )
+        out: dict[str, float] = {}
+        for g in groups:
+            avg_close = g["_avg"]["close"]
+            avg_vol = g["_avg"]["volume"]
+            if avg_close is None or avg_vol is None:
+                continue
+            out[g["market"]] = float(avg_close) * float(avg_vol)
+        return out
+
     async def merge_candles_range(
         self,
         market: str,
