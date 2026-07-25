@@ -468,10 +468,29 @@ proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR p
   `backend/simulation/market_impact.py`; see `docs/TRADING_CONCEPTS.md` (Part 5 "Market
   impact"), `docs/BACKTEST_PARAMETER_GUIDE.md` §C4, the 2026-07-25 `docs/QA.md` entry.
 
-  **Pending (post-deploy):** re-run s2–s4 with `PER_MARKET_SLIPPAGE=on MARKET_IMPACT=on`
-  at the operator's real per-leg size to book the size-aware honest net (gate B5). Runs
-  on **prod** (deep history is prod-only). Numbers appended here after the bundled
-  Slice 2+3 deploy.
+  **Gate-B5 size-aware re-run (2026-07-26, prod, `PER_MARKET_SLIPPAGE=on MARKET_IMPACT=on`).**
+  entry-3.5 OOS at **$1,000/leg** (capital scaled to $100k → same 100 slots as the
+  $100 baseline). Rows `b5-3.5-s2/s3/s4`
+  (`cmrzgw10t0001zxtj6wb15k1f` / `cmrzgw12i0002zxtjorbgupf0` / `cmrzgw1510003zxtj8peufw3u`):
+
+  | Span | Trades | Win% | Net @ $1k/leg (spread + impact) |
+  |---|---|---|---|
+  | s2 (2025-11-07→2026-03-01) | 3,565 | 57.9% | **−$22,012.71** |
+  | s3 (2025-07-16→2025-11-07) | 2,611 | 55.0% | **−$28,726.33** |
+  | s4 (2025-03-24→2025-07-16) | 1,495 | 55.8% | **+$69.14** |
+  | **OOS total** | **7,671** | **~56%** | **−$50,669.90** |
+
+  **The size ladder (gate B5 — decisive).** Per-market spread only: **+$157 @ $100/leg**
+  → extrapolates to ≈ **+$1,570 @ $1k** (gross ∝ Q). Add market impact and the **$1k**
+  net is **−$50,670** — a **−50% loss on $100k capital**. Impact alone costs **~$52k**
+  (~$6–7/trade, ≈0.18%/leg avg — matching the §4.3 model), and the win rate collapses
+  **~65% → ~56%** as impact flips thousands of small winners into losers. This is the
+  plan's §4.3 warning — *"structurally unharvestable at real manual size"* — now
+  measured. **Gate B5 fails hard.** ($5k/leg is worse still, but the √-law breaks down
+  as many thin markets hit the 5%/leg impact cap, so no false-precision figure is given.)
+  Combined with Slice 4 (nothing clears DSR > 0.95), the honest, size-aware, multiplicity-
+  corrected verdict is an unambiguous **NO-GO** — exactly what the machinery was built to
+  establish, cheaply and defensibly.
 
 - **Slice 4 — multiple-testing correction (gate B3).** In-house **Deflated Sharpe
   Ratio** + **PBO/CSCV** (Bailey & López de Prado), stdlib only — no scipy/mlfinlab
