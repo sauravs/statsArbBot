@@ -68,6 +68,10 @@ class StrategyBody(BaseModel):
     slippage_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     taker_fee_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     funding_freq_h: int = Field(default=1, ge=1, le=24)
+    # Provenance (Phase-2 Slice 6): new runs are phase 2 by default — created in the
+    # sub-phase-B era and (on prod, flags on) carrying the honest cost model. The 69
+    # phase-1 rows keep phase 1 via the additive migration's backfill.
+    phase: int = Field(default=2, ge=1, le=2)
 
 
 class StrategyUpdateBody(BaseModel):
@@ -91,6 +95,7 @@ class StrategyUpdateBody(BaseModel):
     slippage_pct: float | None = Field(default=None, ge=0.0, le=5.0)
     taker_fee_pct: float | None = Field(default=None, ge=0.0, le=5.0)
     funding_freq_h: int | None = Field(default=None, ge=1, le=24)
+    phase: int | None = Field(default=None, ge=1, le=2)
 
 
 def _normalise_span(start: datetime | None, end: datetime | None) -> None:
@@ -386,6 +391,7 @@ def _default_strategies() -> list[dict]:
             "taker_fee_pct": 0.05,
             "funding_freq_h": 1,
             "status": "PENDING",
+            "phase": 2,  # seeded during/after sub-phase B → phase-2 provenance
         }
         for name, desc, entry, zwin in specs
     ]

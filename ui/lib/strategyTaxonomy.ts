@@ -46,6 +46,21 @@ export function dsrLevel(dsr: number | null | undefined): DsrLevel {
   return dsr >= DSR_SIGNIFICANT ? "significant" : "insignificant";
 }
 
+/** Provenance phase (Phase-2 Slice 6): a run's phase, defaulting to 1 for any row
+ *  that predates the column. An orthogonal axis to cost/span/family. */
+export function phaseOf(s: Strategy): number {
+  return s.phase ?? 1;
+}
+
+export type PhaseFilter = "all" | "phase1" | "phase2";
+
+/** Filter predicate for the Phase toggle — DEFAULT is "all" (Phase 1 is never
+ *  hidden; the badge + toggle disambiguate). */
+export function phaseMatches(s: Strategy, filter: PhaseFilter): boolean {
+  if (filter === "all") return true;
+  return filter === "phase2" ? phaseOf(s) === 2 : phaseOf(s) !== 2;
+}
+
 /** Named re-validation spans (docs/strategy.md). s1 is the in-sample window; s2–s4
  *  step backwards through history and are the honest test. */
 export const SPANS = [

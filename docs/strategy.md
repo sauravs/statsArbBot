@@ -506,3 +506,20 @@ proven or ruled out cheaply (`docs/PHASE2_STRATEGY_PLAN.md` §7). One gated PR p
   *statistical* gap closed: the dashboard now answers "would this survive the search?",
   not just "what did this run produce?". `docs/QA.md` (2026-07-25 DSR entry); `statsmodels`
   is used only as a cointegration/half-life test oracle, never for DSR.
+
+- **Slice 6 — phase tagging (non-destructive provenance).** Additive `phase Int
+  @default(1)` on `Strategy` (`schema.prisma`, migration `0015_strategy_phase`): every
+  existing row backfills to **phase 1** (the preserved baseline — **no row is ever
+  deleted or hidden**), and the create path stamps new runs **phase 2**. The API returns
+  `phase`; the dashboard shows a **"Phase 2" badge** beside the cost/span/DSR badges and
+  a **Phase filter** (Phase 1 / Phase 2 / All, **default All**). An orthogonal provenance
+  axis — a name-prefix convention was rejected (names are unreliable; 24 rows are
+  "Untitled strategy"). Migration is additive + default-backfilled; on prod, `pg_dump`
+  → `prisma migrate deploy`. Closes the operator requirement: tell phase-2 runs from
+  phase-1 without ever losing the phase-1 evidence.
+
+**Phase-2 verdict (final).** All six slices delivered the honest measurement + selection
+machinery. Its verdict on today's signal is unambiguous: **NO-GO** — best honest OOS net
+is a coin flip at $100/leg (+$157), collapses to **−$50,670 at $1k/leg** once market
+impact is charged (gate B5 fails), and **nothing clears DSR > 0.95** (gate B3 fails). The
+machinery now makes any *future* candidate provable or refutable cheaply.

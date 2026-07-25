@@ -439,6 +439,13 @@ model Strategy {
   description String?
   status      BacktestStatus @default(PENDING)
 
+  // Provenance axis (Phase-2 Slice 6): which project phase created this run.
+  // 1 = phase-1 baseline (the 69 saved configs); 2 = phase-2 (sub-phase B onward —
+  // carries the honest per-market cost model when the flags are on). Additive column,
+  // backfilled to 1; NEVER used to hide phase-1 rows. Orthogonal to the cost/span/
+  // family axes (docs/PHASE2_STRATEGY_PLAN.md §7 Slice 6).
+  phase Int @default(1)
+
   // Walk-forward window lengths (PRD F8.1 default 90d scan / 30d trade; configurable
   // so the offline demo can use short windows over the synthetic history).
   scan_window_days  Int @default(90)

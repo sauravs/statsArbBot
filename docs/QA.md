@@ -815,3 +815,16 @@ Because costs are **per-trade**, filtering up removes the (illiquid-driven) gros
 It's computed in-house (`backend/stats/deflated_sharpe.py`, stdlib only — no scipy/mlfinlab) and surfaced per row via `GET /api/backtest/significance`. **On today's evidence nothing clears it** — consistent with the standing NO-GO: the honest OOS nets (+$187 flat / +$157 per-market, both inside the ±$212 noise floor) are exactly the kind of result deflation flags as "could be luck." A companion **PBO** (Probability of Backtest Overfitting) is implemented and tested, but *not* shown on the leaderboard: PBO/CSCV needs configs measured over the *same* windows, and the saved configs span different date ranges — so it's kept as a tool for a controlled overfitting study, not a leaderboard badge. **Bottom line:** the dashboard now answers "would this survive the search?", not just "what did this run produce?".
 
 ---
+
+## 2026-07-26 — How do I tell Phase-2 strategies from Phase-1? (Slice 6)
+
+**Q:** Phase-2 added a lot of runs. How do I distinguish them from the original Phase-1 baseline, and are the old ones still there?
+
+**A:** Every strategy now carries a **`phase`** tag (1 or 2), shown two ways on the Backtest list:
+
+- A **"Phase 2" badge** beside the cost/span/DSR badges on each phase-2 row. Phase-1 rows carry **no** badge — the absence *is* the "phase 1" signal, so the list stays quiet.
+- A **Phase filter** (Phase 1 / Phase 2 / All) next to the span/cost filters. **Default is All** — Phase 1 is never hidden; the badge + toggle just let you focus.
+
+**Your Phase-1 baseline is fully preserved.** The `phase` column was added by an *additive, default-backfilled* migration (`0015_strategy_phase`): every pre-existing row was stamped `phase 1`, and **nothing was deleted or mutated**. New runs (created during/after sub-phase B) are stamped `phase 2` — and on prod, where the honest-cost flags are on, a phase-2 run genuinely carries the per-market spread + market-impact cost model, so the tag is *technically* meaningful, not just a label. Phase is an **orthogonal provenance axis** — it sits alongside the cost tier, span, and family axes, and does not change any of them. (A name-prefix convention was deliberately rejected: names are unreliable — 24 rows are literally "Untitled strategy" — so provenance, like safety, is derived from a real field, not a name.)
+
+---

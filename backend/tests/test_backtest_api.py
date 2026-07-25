@@ -134,6 +134,24 @@ def test_crud_lifecycle(ctx):
     assert ctx.client.get(f"/api/backtest/strategies/{sid}", headers=AUTH).status_code == 404
 
 
+def test_create_stamps_phase_2_by_default(ctx):
+    # A new run created via the API is phase-2 provenance (Slice 6); the phase is
+    # returned by create/get/list so the UI can badge and filter it.
+    created = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()
+    assert created["phase"] == 2
+    sid = created["id"]
+    assert ctx.client.get(f"/api/backtest/strategies/{sid}", headers=AUTH).json()["phase"] == 2
+    assert ctx.client.get("/api/backtest/strategies", headers=AUTH).json()["strategies"][0]["phase"] == 2
+
+
+def test_create_accepts_explicit_phase_1(ctx):
+    # An explicit phase (e.g. re-tagging) is honoured within [1,2].
+    body = {**_CREATE, "phase": 1}
+    assert ctx.client.post("/api/backtest/strategies", json=body, headers=AUTH).json()["phase"] == 1
+    bad = {**_CREATE, "phase": 3}
+    assert ctx.client.post("/api/backtest/strategies", json=bad, headers=AUTH).status_code == 422
+
+
 async def test_cannot_edit_paused_strategy(ctx):
     sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
     # A mid-sweep (PAUSED) strategy must not be editable — it would desync the resume.
