@@ -5,6 +5,7 @@ import {
   deleteStrategy,
   getStrategy,
   listStrategies,
+  listStrategySignificance,
   pauseStrategy,
   runStrategy,
   seedDefaultStrategies,
@@ -36,8 +37,15 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
 
   const refreshList = useCallback(async () => {
     const res = await listStrategies();
-    setStrategies(res.strategies);
-    return res.strategies;
+    // Merge the leaderboard DSR (gate B3) onto each row for the significance badge.
+    // Best-effort: a significance failure must not blank the list, so fall back to
+    // the rows without a DSR (the badge simply doesn't render).
+    const sig = await listStrategySignificance().catch(() => null);
+    const rows = sig
+      ? res.strategies.map((s) => ({ ...s, dsr: sig.dsr[s.id] ?? null }))
+      : res.strategies;
+    setStrategies(rows);
+    return rows;
   }, []);
 
   useEffect(() => {

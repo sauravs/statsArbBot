@@ -6,13 +6,21 @@ import {
   FAMILY_DESCRIPTIONS,
   classify,
   groupByFamily,
+  phaseMatches,
   sortGroups,
   sortStrategies,
   type Classification,
   type FamilyKey,
+  type PhaseFilter,
   type SortKey,
 } from "@/lib/strategyTaxonomy";
-import { COUNTERFACTUAL_ROW_STYLE, FamilyBadge, SafetyBadges } from "./SafetyBadges";
+import {
+  COUNTERFACTUAL_ROW_STYLE,
+  DsrBadge,
+  FamilyBadge,
+  PhaseBadge,
+  SafetyBadges,
+} from "./SafetyBadges";
 import InfoTip from "./InfoTip";
 
 // Strategy comparison for the walk-forward backtest (PRD F8.4), rebuilt around the
@@ -58,6 +66,9 @@ export default function StrategyList({
   const [spanFilter, setSpanFilter] = useState<SpanFilter>("all");
   const [costFilter, setCostFilter] = useState<CostFilter>("all");
   const [collapsed, setCollapsed] = useState<Set<FamilyKey>>(new Set());
+  // Phase filter (Slice 6). DEFAULT "all" — Phase 1 is never hidden; the badge +
+  // toggle do the disambiguation (operator decision 2026-07-24).
+  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
 
   // Classify once per render pass; both the filters and every row need it.
   const classified = useMemo(
@@ -73,7 +84,8 @@ export default function StrategyList({
 
   const visible = useMemo(() => {
     return classified
-      .filter(({ c }) => {
+      .filter(({ s, c }) => {
+        if (!phaseMatches(s, phaseFilter)) return false;
         if (realisticOnly && !c.safety.realistic) return false;
         if (family !== "all" && c.family !== family) return false;
         if (spanFilter === "oos" && c.safety.span !== "OUT_OF_SAMPLE") return false;
@@ -88,7 +100,7 @@ export default function StrategyList({
         return true;
       })
       .map(({ s }) => s);
-  }, [classified, realisticOnly, family, spanFilter, costFilter]);
+  }, [classified, realisticOnly, family, spanFilter, costFilter, phaseFilter]);
 
   const sorted = useMemo(() => sortStrategies(visible, sort), [visible, sort]);
   // Sort the groups too, not just the rows inside them — otherwise picking a sort
@@ -100,7 +112,11 @@ export default function StrategyList({
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.family));
 
   const filtersActive =
-    realisticOnly || family !== "all" || spanFilter !== "all" || costFilter !== "all";
+    realisticOnly ||
+    family !== "all" ||
+    spanFilter !== "all" ||
+    costFilter !== "all" ||
+    phaseFilter !== "all";
 
   function toggleGroup(key: FamilyKey) {
     setCollapsed((prev) => {
@@ -242,6 +258,18 @@ export default function StrategyList({
                 <option value="all">All costs</option>
                 <option value="tradeable">Tradeable only</option>
                 <option value="diagnostic">Diagnostics only</option>
+              </select>
+            </Control>
+            <Control label="Phase">
+              <select
+                value={phaseFilter}
+                onChange={(e) => setPhaseFilter(e.target.value as PhaseFilter)}
+                className={selectClass}
+                data-testid="phase-filter-select"
+              >
+                <option value="all">All phases</option>
+                <option value="phase1">Phase 1</option>
+                <option value="phase2">Phase 2</option>
               </select>
             </Control>
           </div>
@@ -396,6 +424,8 @@ function Row({
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1">
         <SafetyBadges classification={c} compact />
+        <PhaseBadge phase={s.phase} />
+        <DsrBadge dsr={s.dsr} />
         {showFamily && <FamilyBadge classification={c} />}
         <span className="ml-auto">
           <BacktestStatusBadge status={s.status} />

@@ -31,6 +31,36 @@ export const MODELLED_SLIPPAGE_PCT = 0.05;
 export const IN_SAMPLE_START = Date.UTC(2026, 2, 1); // 2026-03-01
 export const IN_SAMPLE_END = Date.UTC(2026, 5, 23); // 2026-06-23
 
+/** Deflated Sharpe Ratio (Phase-2 Slice 4, gate B3): P(true Sharpe > the expected
+ *  max of the search) after correcting for the number of configs tried, return
+ *  non-normality, and sample length. At/above this it survives multiple-testing
+ *  correction at 5%. */
+export const DSR_SIGNIFICANT = 0.95;
+
+export type DsrLevel = "significant" | "insignificant" | "unknown";
+
+/** Bucket a Deflated Sharpe Ratio for badging. `unknown` = not scored (too few
+ *  windows, or the /significance call has not resolved yet). */
+export function dsrLevel(dsr: number | null | undefined): DsrLevel {
+  if (dsr == null || Number.isNaN(dsr)) return "unknown";
+  return dsr >= DSR_SIGNIFICANT ? "significant" : "insignificant";
+}
+
+/** Provenance phase (Phase-2 Slice 6): a run's phase, defaulting to 1 for any row
+ *  that predates the column. An orthogonal axis to cost/span/family. */
+export function phaseOf(s: Strategy): number {
+  return s.phase ?? 1;
+}
+
+export type PhaseFilter = "all" | "phase1" | "phase2";
+
+/** Filter predicate for the Phase toggle — DEFAULT is "all" (Phase 1 is never
+ *  hidden; the badge + toggle disambiguate). */
+export function phaseMatches(s: Strategy, filter: PhaseFilter): boolean {
+  if (filter === "all") return true;
+  return filter === "phase2" ? phaseOf(s) === 2 : phaseOf(s) !== 2;
+}
+
 /** Named re-validation spans (docs/strategy.md). s1 is the in-sample window; s2–s4
  *  step backwards through history and are the honest test. */
 export const SPANS = [

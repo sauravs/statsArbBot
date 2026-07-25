@@ -292,4 +292,45 @@ test.describe("Backtest strategy taxonomy", () => {
       "not a forecast of your money",
     );
   });
+
+  test("phase provenance: a Phase-2 badge marks new runs and the Phase toggle filters (Slice 6)", async ({
+    page,
+    tag,
+  }) => {
+    const p1 = `phase1-${tag}`;
+    const p2 = `phase2-${tag}`;
+    // Phase is provenance, not a form field — seed one phase-1 (preserved baseline)
+    // and one phase-2 row through the API. Both OOS at modelled cost so neither is
+    // dropped by the default view.
+    const mk = (name: string, phase: number) =>
+      page.request.post("/api/proxy/api/backtest/strategies", {
+        data: {
+          name,
+          entry_threshold: 3.5,
+          exit_threshold: 0.5,
+          scan_window_days: 7,
+          trade_window_days: 3,
+          start_time: "2025-11-07T00:00:00Z",
+          end_time: "2026-03-01T00:00:00Z",
+          slippage_pct: 0.05,
+          taker_fee_pct: 0.05,
+          phase,
+        },
+      });
+    expect((await mk(p1, 1)).ok()).toBeTruthy();
+    expect((await mk(p2, 2)).ok()).toBeTruthy();
+    await page.reload();
+
+    // The Phase-2 run carries the badge; the preserved Phase-1 row does not.
+    await expect(row(page, p2).getByTestId("badge-phase")).toContainText("Phase 2");
+    await expect(row(page, p1).getByTestId("badge-phase")).toHaveCount(0);
+
+    // The Phase toggle partitions the list, and Phase 1 is never hidden by default.
+    await page.getByTestId("phase-filter-select").selectOption("phase2");
+    await expect(row(page, p2)).toBeVisible();
+    await expect(row(page, p1)).toHaveCount(0);
+    await page.getByTestId("phase-filter-select").selectOption("phase1");
+    await expect(row(page, p1)).toBeVisible();
+    await expect(row(page, p2)).toHaveCount(0);
+  });
 });

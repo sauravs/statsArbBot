@@ -160,6 +160,8 @@ Replays **historical** candles at N× speed through the same simulation engine o
 
 The rigorous evaluation: sliding **scan (90d) / trade (30d)** windows so pairs are re-selected out-of-sample, across strategies **S1–S4** (varying entry-Z and z-window). **Seed S1–S4** with one click, or **create** your own (name, capital, entry-Z, window lengths, date range). Run it; strategies are **ranked by net P&L**; each shows an **equity curve**, a **per-window** table, **per-pair P&L**, exit reasons, and a **markdown report**. Pause / stop / resume are supported. This is how you decide *which* parameters to trust before going live.
 
+**Reading a row's badges (don't read net P&L alone).** Each row carries badges that decide whether its number *means* anything: a **cost** badge (⚠ NO-COST / LOW-COST diagnostics are untradeable), a **span** badge (OUT-OF-SAMPLE is the honest test; IN-SAMPLE proves nothing), a **DSR** badge (green `DSR 0.9x ✓` = survives correction for how many configs were searched, gate B3), and a **"Phase 2"** badge (provenance — created in Phase-2, carrying the honest per-market cost model on prod). Filters above the list let you narrow by **span**, **cost**, **realistic-only**, and **Phase** (Phase 1 / Phase 2 / **All** by default — Phase-1 runs are the preserved baseline and never hidden).
+
 ---
 
 ## 12 · Telegram (optional)

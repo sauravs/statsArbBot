@@ -66,6 +66,14 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await createStrategy(page, "E2E Loose", "0.5");
     await runToCompletion(page);
 
+    // Gate B3 (Slice 4): once the run completes, the list refreshes and merges the
+    // Deflated-Sharpe significance from /api/backtest/significance, so the row carries
+    // a "corrected significance" DSR badge (the completed run has enough windows to
+    // score). This is the dashboard surface of the multiple-testing correction.
+    const dsrBadge = page.getByTestId("badge-dsr").first();
+    await expect(dsrBadge).toBeVisible({ timeout: 15_000 });
+    await expect(dsrBadge).toContainText("DSR");
+
     // Saved aggregates are viewable (PRD F8): equity curve, per-window, report.
     await expect(page.getByTestId("bt-equity-chart")).toBeVisible();
     await expect(page.getByTestId("bt-perwindow-table")).toBeVisible();

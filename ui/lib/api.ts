@@ -833,6 +833,8 @@ export interface Strategy {
   name: string;
   description: string | null;
   status: BacktestStatus;
+  /** Provenance (Phase-2 Slice 6): 1 = phase-1 baseline, 2 = phase-2. */
+  phase: number;
   scan_window_days: number;
   trade_window_days: number;
   zscore_window: number;
@@ -867,6 +869,9 @@ export interface Strategy {
   created_at: string | null;
   updated_at: string | null;
   completed_at: string | null;
+  /** Deflated Sharpe Ratio (Phase-2 Slice 4) — populated client-side by merging the
+   *  /significance response; not stored on the row. In [0,1]; > 0.95 clears gate B3. */
+  dsr?: number | null;
 }
 
 export interface CreateStrategyInput {
@@ -895,6 +900,18 @@ export interface CreateStrategyInput {
 /** List strategies, ranked by net P&L (best first). */
 export function listStrategies(): Promise<{ strategies: Strategy[]; count: number }> {
   return proxyGet("api/backtest/strategies");
+}
+
+export interface StrategySignificance {
+  n_trials: number;
+  trial_sr_variance: number;
+  /** Per-strategy Deflated Sharpe Ratio, keyed by id (gate B3). */
+  dsr: Record<string, number>;
+}
+
+/** Deflated-Sharpe significance across the saved-strategy search (Phase-2 Slice 4). */
+export function listStrategySignificance(): Promise<StrategySignificance> {
+  return proxyGet("api/backtest/significance");
 }
 
 /** One strategy + its latest backtest result. */
