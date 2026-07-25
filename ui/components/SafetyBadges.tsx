@@ -124,6 +124,22 @@ export function DsrBadge({ dsr }: { dsr: number | null | undefined }) {
   );
 }
 
+/** Provenance badge (Phase-2 Slice 6): marks a phase-2 run. Phase-1 runs (the
+ *  preserved baseline) carry no badge — phase 1 is the default, and the absence of
+ *  the badge IS the "phase 1" signal, so the list stays quiet. */
+export function PhaseBadge({ phase }: { phase: number | undefined }) {
+  if ((phase ?? 1) !== 2) return null;
+  return (
+    <span
+      title="Phase 2: created in Phase-2 (sub-phase B onward). On prod these runs carry the honest per-market cost model (per-market spread + market impact). Phase-1 runs are the preserved baseline and never hidden."
+      data-testid="badge-phase"
+      className="rounded border border-blue/50 bg-blue/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue"
+    >
+      Phase 2
+    </span>
+  );
+}
+
 /** The quiet tier: which experiment this run belongs to. Styled to recede — it is
  *  context, not a warning, and must never compete with the safety badges. */
 export function FamilyBadge({

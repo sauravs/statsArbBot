@@ -607,6 +607,7 @@ class FakeStrategyRepository:
         "completed_at": None,
         "exchange": "dydx",
         "data_source": "dydx",
+        "phase": 1,  # backfill default (Phase-2 Slice 6); create path stamps 2
     }
 
     def __init__(self) -> None:

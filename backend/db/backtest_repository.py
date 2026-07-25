@@ -234,6 +234,7 @@ class PrismaStrategyRepository:
             "name": r.name,
             "description": r.description,
             "status": _enum_value(r.status),
+            "phase": r.phase,
             "scan_window_days": r.scan_window_days,
             "trade_window_days": r.trade_window_days,
             "zscore_window": r.zscore_window,

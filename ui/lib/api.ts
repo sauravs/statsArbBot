@@ -833,6 +833,8 @@ export interface Strategy {
   name: string;
   description: string | null;
   status: BacktestStatus;
+  /** Provenance (Phase-2 Slice 6): 1 = phase-1 baseline, 2 = phase-2. */
+  phase: number;
   scan_window_days: number;
   trade_window_days: number;
   zscore_window: number;

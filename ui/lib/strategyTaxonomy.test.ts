@@ -11,6 +11,8 @@ import {
   dsrLevel,
   groupByFamily,
   median,
+  phaseMatches,
+  phaseOf,
   sortGroups,
   sortStrategies,
 } from "@/lib/strategyTaxonomy";
@@ -27,6 +29,7 @@ function strategy(over: Partial<Strategy> = {}): Strategy {
     name: "Untitled strategy",
     description: null,
     status: "COMPLETED",
+    phase: 1,
     scan_window_days: BASELINE_REFERENCE.scan_window_days,
     trade_window_days: BASELINE_REFERENCE.trade_window_days,
     zscore_window: BASELINE_REFERENCE.zscore_window,
@@ -407,5 +410,25 @@ describe("dsrLevel — corrected-significance bucketing (Slice 4, gate B3)", () 
     expect(dsrLevel(0.9499)).toBe("insignificant");
     expect(dsrLevel(0.5)).toBe("insignificant");
     expect(dsrLevel(0)).toBe("insignificant");
+  });
+});
+
+describe("phase provenance (Slice 6)", () => {
+  it("phaseOf defaults a missing phase to 1", () => {
+    expect(phaseOf(strategy())).toBe(1);
+    expect(phaseOf(strategy({ phase: 2 }))).toBe(2);
+    expect(phaseOf(strategy({ phase: undefined }))).toBe(1);
+  });
+
+  it("phaseMatches: 'all' keeps everything (Phase 1 is never hidden)", () => {
+    expect(phaseMatches(strategy({ phase: 1 }), "all")).toBe(true);
+    expect(phaseMatches(strategy({ phase: 2 }), "all")).toBe(true);
+  });
+
+  it("phaseMatches: phase1 / phase2 partition the list", () => {
+    expect(phaseMatches(strategy({ phase: 1 }), "phase1")).toBe(true);
+    expect(phaseMatches(strategy({ phase: 2 }), "phase1")).toBe(false);
+    expect(phaseMatches(strategy({ phase: 2 }), "phase2")).toBe(true);
+    expect(phaseMatches(strategy({ phase: 1 }), "phase2")).toBe(false);
   });
 });
