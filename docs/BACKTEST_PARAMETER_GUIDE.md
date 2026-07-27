@@ -159,6 +159,17 @@ treat them as indicative.)
 > the answer to "does filtering up gain edge?" is already **no**
 > (`docs/PHASE2_STRATEGY_PLAN.md` §4–§5).
 
+**Per-strategy control (Phase-3 WS1).** The same two knobs are now settable
+**per strategy** from the Backtest *Advanced* panel (or the `create_strategy` API:
+`backtest_min_dollar_volume`, `backtest_max_half_spread_pct`), so a run's universe is
+**persisted with the run** and reproducible — you no longer have to set a process-wide
+env var and restart. Resolution is per-strategy-first: a strategy's own value wins; a
+**null** field (the default → OFF) falls back to the global env (`BACKTEST_MIN_DOLLAR_VOLUME`
+/ `BACKTEST_MAX_HALF_SPREAD_PCT`, themselves `0`/OFF). Existing saved strategies have
+null on both columns, so their behaviour is unchanged. The framing is identical — a
+tractability/honesty knob, **not** a profit lever (the §4 refutation stands). Leave both
+blank for the honest default (full universe).
+
 ---
 
 ## C4. First-order market-impact charge (Phase-2 Slice 3, gate B5)

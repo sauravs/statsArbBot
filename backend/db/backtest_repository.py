@@ -251,6 +251,9 @@ class PrismaStrategyRepository:
             "slippage_pct": r.slippage_pct,
             "taker_fee_pct": r.taker_fee_pct,
             "funding_freq_h": r.funding_freq_h,
+            # Per-strategy backtest universe filter (Phase-3 WS1). None = OFF.
+            "backtest_min_dollar_volume": r.backtest_min_dollar_volume,
+            "backtest_max_half_spread_pct": r.backtest_max_half_spread_pct,
             "total_windows": r.total_windows,
             "processed_windows": r.processed_windows,
             "progress": r.progress,

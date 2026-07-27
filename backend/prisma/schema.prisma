@@ -463,6 +463,17 @@ model Strategy {
   start_time DateTime? @db.Timestamptz
   end_time   DateTime? @db.Timestamptz
 
+  // Backtest universe liquidity/spread filter (Phase-3 WS1, path b) — PER-STRATEGY.
+  // Optional; null = OFF (fall back to the global env default, which is also OFF).
+  // When set, the walk-forward prunes its market universe BEFORE the scan (drop
+  // markets below the $/hr floor and/or above the half-spread % ceiling), reusing
+  // simulation.spread_cost.filter_universe. Persisted with the run so its universe
+  // is reproducible. HONESTY/robustness knob, NOT alpha — filtering up LOSES money
+  // (the gross lives in the thinnest markets; PHASE2_STRATEGY_PLAN §4). Supersedes
+  // the process-global BACKTEST_MIN_DOLLAR_VOLUME / BACKTEST_MAX_HALF_SPREAD_PCT.
+  backtest_min_dollar_volume   Float? // $/hr floor; null/0 = off
+  backtest_max_half_spread_pct Float? // percent ceiling; null/0 = off
+
   // Cost model (mirrors the SimSession / SavedFFSimulation knobs).
   starting_capital Float @default(10000)
   usd_per_trade    Float @default(100)

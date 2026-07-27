@@ -152,6 +152,29 @@ def test_create_accepts_explicit_phase_1(ctx):
     assert ctx.client.post("/api/backtest/strategies", json=bad, headers=AUTH).status_code == 422
 
 
+def test_universe_filter_defaults_off_and_round_trips(ctx):
+    # Phase-3 WS1: the per-strategy backtest universe filter defaults to None (OFF)
+    # and, when set, is persisted + returned by create/get so the run's universe is
+    # reproducible.
+    created = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()
+    assert created["backtest_min_dollar_volume"] is None
+    assert created["backtest_max_half_spread_pct"] is None
+
+    body = {**_CREATE, "backtest_min_dollar_volume": 1_000_000, "backtest_max_half_spread_pct": 0.05}
+    made = ctx.client.post("/api/backtest/strategies", json=body, headers=AUTH).json()
+    assert made["backtest_min_dollar_volume"] == 1_000_000
+    assert made["backtest_max_half_spread_pct"] == 0.05
+    got = ctx.client.get(f"/api/backtest/strategies/{made['id']}", headers=AUTH).json()
+    assert got["backtest_min_dollar_volume"] == 1_000_000
+    assert got["backtest_max_half_spread_pct"] == 0.05
+
+
+def test_universe_filter_rejects_negative(ctx):
+    # A negative floor/ceiling is invalid (the knob only prunes; it never adds).
+    bad = {**_CREATE, "backtest_min_dollar_volume": -1}
+    assert ctx.client.post("/api/backtest/strategies", json=bad, headers=AUTH).status_code == 422
+
+
 async def test_cannot_edit_paused_strategy(ctx):
     sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
     # A mid-sweep (PAUSED) strategy must not be editable — it would desync the resume.

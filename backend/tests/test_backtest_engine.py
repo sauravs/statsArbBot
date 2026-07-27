@@ -514,6 +514,54 @@ async def test_universe_filter_prunes_high_spread_pair(monkeypatch):
     assert on["total_trades"] <= off["total_trades"]
 
 
+async def test_universe_filter_is_per_strategy(monkeypatch):
+    """Phase-3 WS1: the filter is driven by the STRATEGY's own field, not only the
+    global env. A row carrying backtest_max_half_spread_pct=0.05 prunes the
+    wide-spread pair while the global env stays OFF (0), and a sibling row with the
+    field unset (None) keeps the full universe — proving per-strategy isolation."""
+    import backtest.engine as engine_module
+    import db.backtest_repository as repo_module
+    from simulation import spread_cost
+
+    repo = FakeStrategyRepository()
+    monkeypatch.setattr(repo_module, "_repo", repo)
+    monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+    # Global env stays OFF for the whole test — the per-strategy field must act alone.
+    monkeypatch.setattr(config, "BACKTEST_MAX_HALF_SPREAD_PCT", 0.0)
+    monkeypatch.setattr(config, "BACKTEST_MIN_DOLLAR_VOLUME", 0.0)
+
+    a1, a2 = _cointegrated(11, beta=2.0, alpha=5.0)
+    b1, b2 = _cointegrated(23, beta=1.5, alpha=-3.0)
+    candles = {
+        "AAA-USD": _candles(a1), "BBB-USD": _candles(a2),   # tight-spread pair
+        "CCC-USD": _candles(b1), "DDD-USD": _candles(b2),   # wide-spread pair
+    }
+    monkeypatch.setattr(
+        engine_module, "make_candle_source", lambda **_: FakeCandleSource(candles)
+    )
+    monkeypatch.setattr(
+        spread_cost, "SEED_HALF_SPREAD_PCT",
+        {"AAA-USD": 0.02, "BBB-USD": 0.02, "CCC-USD": 0.09, "DDD-USD": 0.09},
+    )
+
+    async def run(**over):
+        engine = BacktestEngine()
+        row = await repo.create(_params(**over))
+        await engine.run(row["id"])
+        return await repo.get(row["id"])
+
+    # Field unset (None) → no per-strategy filter, global env OFF → full universe.
+    unset = await run(name="filter-unset")
+    assert unset["status"] == "COMPLETED"
+    assert any("CCC-USD" in p or "DDD-USD" in p for p in unset["per_pair_pnl"])
+
+    # Same global env (OFF), but this row sets its own 0.05% ceiling → CCC/DDD gone.
+    per = await run(name="filter-per-strategy", backtest_max_half_spread_pct=0.05)
+    assert per["status"] == "COMPLETED"
+    assert not any("CCC-USD" in p or "DDD-USD" in p for p in per["per_pair_pnl"])
+    assert per["total_trades"] <= unset["total_trades"]
+
+
 async def test_universe_filter_off_by_default_is_full_universe(monkeypatch):
     """With both thresholds 0 (default), every market is kept — no pruning."""
     import backtest.engine as engine_module

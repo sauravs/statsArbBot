@@ -875,6 +875,10 @@ export interface Strategy {
   slippage_pct: number;
   taker_fee_pct: number;
   funding_freq_h: number;
+  /** Per-strategy backtest universe filter (Phase-3 WS1, path b). null = OFF.
+   *  A tractability/honesty knob, NOT alpha — filtering up loses money (QA.md). */
+  backtest_min_dollar_volume?: number | null;
+  backtest_max_half_spread_pct?: number | null;
   total_windows: number;
   processed_windows: number;
   progress: number;
@@ -919,6 +923,11 @@ export interface CreateStrategyInput {
   slippage_pct?: number;
   taker_fee_pct?: number;
   funding_freq_h?: number;
+  // Per-strategy backtest universe filter (Phase-3 WS1, path b). Omit ⇒ OFF (the
+  // server falls back to the global env default, itself OFF). Tractability/honesty
+  // knob, NOT alpha — filtering up loses money (see QA.md).
+  backtest_min_dollar_volume?: number;
+  backtest_max_half_spread_pct?: number;
 }
 
 /** List strategies, ranked by net P&L (best first). */
