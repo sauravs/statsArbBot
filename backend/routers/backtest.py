@@ -28,7 +28,10 @@ from pydantic import BaseModel, Field
 
 import config
 from auth import require_api_key
+from backtest.campaign import CampaignSpecError, cost_flags, expand_campaign_spec
 from backtest.engine import StrategyNotFound, get_backtest_engine
+from db.campaign_repository import get_campaign_repository
+from db.backtest_repository import get_strategy_repository
 from exchanges import EXCHANGE_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -418,3 +421,126 @@ async def seed_defaults() -> dict:
     except Exception as exc:
         raise _guard_db(exc)
     return {"created": created, "count": len(created)}
+
+
+# ── Campaigns (Phase-3 WS3) ──────────────────────────────────────────────────
+# A campaign expands a parameter grid into many member strategies. Slice 1 creates
+# them PENDING (drivable/inspectable); the bounded-concurrency execution queue +
+# auto-start land in Slice 2. Endpoints:
+#   POST   /api/backtest/campaigns        — expand a spec → create members → status.
+#   GET    /api/backtest/campaigns        — list campaigns.
+#   GET    /api/backtest/campaigns/{id}   — one campaign + its member strategies.
+#   DELETE /api/backtest/campaigns/{id}   — delete a campaign (members SET NULL, kept).
+
+_CONCURRENCY_MAX = 8  # bounded — the prod box is 2-vCPU (2-3 concurrent is realistic)
+
+
+class CampaignBody(BaseModel):
+    # The whole grid spec (name / windows / axes / base / cost_flags / concurrency)
+    # lives inside `spec`, stored verbatim so the expansion is reproducible.
+    spec: dict
+
+
+def _valid_config_keys() -> set[str]:
+    return set(StrategyBody.model_fields.keys())
+
+
+@router.post("/campaigns", status_code=201)
+async def create_campaign(body: CampaignBody) -> dict:
+    """Expand the grid `spec` into member strategies and create them PENDING.
+
+    422 on a malformed spec or an axis/base key that isn't a valid strategy
+    parameter. Members are stamped phase-2 provenance and linked to the campaign;
+    execution is not started here (WS3 Slice 2).
+    """
+    exchange = config.active_exchange()
+    _validate_exchange(exchange)
+    try:
+        configs = expand_campaign_spec(body.spec)
+    except CampaignSpecError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # Reject typo'd axis/base keys early (pydantic would silently drop unknowns,
+    # collapsing the grid to identical configs).
+    allowed = _valid_config_keys()
+    for cfg in configs:
+        unknown = set(cfg) - allowed
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"unknown strategy parameter(s) in spec: {sorted(unknown)}",
+            )
+
+    concurrency = body.spec.get("concurrency", 2)
+    try:
+        concurrency = int(concurrency)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="concurrency must be an integer")
+    concurrency = max(1, min(_CONCURRENCY_MAX, concurrency))
+
+    try:
+        campaign = await get_campaign_repository().create(
+            {
+                "name": str(body.spec.get("name") or "Campaign"),
+                "exchange": exchange,
+                "data_source": config.SCAN_DATA_SOURCE,
+                "spec": {**body.spec, "cost_flags": cost_flags(body.spec)},
+                "concurrency": concurrency,
+                "total": len(configs),
+            }
+        )
+        engine = get_backtest_engine()
+        created = []
+        for cfg in configs:
+            params = StrategyBody(**cfg).model_dump()
+            params["exchange"] = exchange
+            params["status"] = "PENDING"
+            params["data_source"] = config.SCAN_DATA_SOURCE
+            params["campaign_id"] = campaign["id"]
+            created.append(await engine.create(params))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+
+    logger.info(
+        "campaign %s created: %d member strategies (concurrency=%d)",
+        campaign["id"], len(created), concurrency,
+    )
+    return {"campaign": campaign, "strategies_created": len(created)}
+
+
+@router.get("/campaigns")
+async def list_campaigns() -> dict:
+    try:
+        rows = await get_campaign_repository().list()
+    except Exception as exc:
+        raise _guard_db(exc)
+    return {"campaigns": rows, "count": len(rows)}
+
+
+@router.get("/campaigns/{campaign_id}")
+async def get_campaign(campaign_id: str) -> dict:
+    try:
+        campaign = await get_campaign_repository().get(campaign_id)
+        if campaign is None:
+            raise HTTPException(status_code=404, detail="Campaign not found.")
+        members = await get_strategy_repository().list_by_campaign(campaign_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+    return {"campaign": campaign, "strategies": members, "count": len(members)}
+
+
+@router.delete("/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: str) -> dict:
+    """Delete a campaign. Member strategies are DETACHED (campaign_id → null), never
+    deleted — the runs are the evidence and outlive the campaign."""
+    try:
+        ok = await get_campaign_repository().delete(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    return {"deleted": campaign_id}
