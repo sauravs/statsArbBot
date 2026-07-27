@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSystemHealth, type SystemHealth } from "@/lib/api";
 import BacktestPanel from "@/components/BacktestPanel";
+import CampaignPanel from "@/components/CampaignPanel";
 import BacktestDataBanner from "@/components/BacktestDataBanner";
 import DataSourceControl from "@/components/DataSourceControl";
 
@@ -88,6 +89,7 @@ export default function BacktestPage() {
         </p>
         <BacktestDataBanner source={health?.data_source} reloadKey={sourceKey} />
         <BacktestPanel reloadKey={sourceKey} />
+        <CampaignPanel />
       </section>
     </main>
   );

@@ -1017,6 +1017,70 @@ export function seedDefaultStrategies(): Promise<{ created: Strategy[]; count: n
   return proxyPost("api/backtest/seed-defaults");
 }
 
+// ── Campaigns (Phase-3 WS3) ──────────────────────────────────────────────────
+
+export type CampaignStatus = "PENDING" | "RUNNING" | "PAUSED" | "DONE" | "STOPPED";
+
+export interface Campaign {
+  id: string;
+  name: string;
+  exchange: string;
+  data_source: string;
+  status: CampaignStatus;
+  spec: Record<string, unknown>;
+  concurrency: number;
+  total: number;
+  completed: number;
+  failed: number;
+  created_at: string | null;
+  updated_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+/** A grid spec (posted verbatim; the backend expands windows × axes). */
+export interface CampaignSpec {
+  name?: string;
+  concurrency?: number;
+  windows: { label?: string; start: string; end: string }[];
+  axes?: Record<string, number[]>;
+  base?: Record<string, number>;
+  cost_flags?: { per_market_slippage?: boolean; market_impact?: boolean };
+}
+
+export function createCampaign(
+  spec: CampaignSpec,
+): Promise<{ campaign: Campaign; strategies_created: number; started: boolean }> {
+  return proxyPost("api/backtest/campaigns", { spec });
+}
+
+export function listCampaigns(): Promise<{ campaigns: Campaign[]; count: number }> {
+  return proxyGet("api/backtest/campaigns");
+}
+
+/** One campaign + its member strategies. */
+export function getCampaign(
+  id: string,
+): Promise<{ campaign: Campaign; strategies: Strategy[]; count: number }> {
+  return proxyGet(`api/backtest/campaigns/${encodeURIComponent(id)}`);
+}
+
+export function pauseCampaign(id: string): Promise<Campaign> {
+  return proxyPost(`api/backtest/campaigns/${encodeURIComponent(id)}/pause`);
+}
+
+export function stopCampaign(id: string): Promise<Campaign> {
+  return proxyPost(`api/backtest/campaigns/${encodeURIComponent(id)}/stop`);
+}
+
+export function resumeCampaign(id: string): Promise<Campaign> {
+  return proxyPost(`api/backtest/campaigns/${encodeURIComponent(id)}/resume`);
+}
+
+export function deleteCampaign(id: string): Promise<{ deleted: string }> {
+  return proxyDelete(`api/backtest/campaigns/${encodeURIComponent(id)}`);
+}
+
 /** Entry/exit overlay for a backtest trade's chart (issue #166). */
 export interface BacktestTradeOverlay {
   time: number; // epoch seconds
