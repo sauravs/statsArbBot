@@ -828,3 +828,13 @@ It's computed in-house (`backend/stats/deflated_sharpe.py`, stdlib only — no s
 **Your Phase-1 baseline is fully preserved.** The `phase` column was added by an *additive, default-backfilled* migration (`0015_strategy_phase`): every pre-existing row was stamped `phase 1`, and **nothing was deleted or mutated**. New runs (created during/after sub-phase B) are stamped `phase 2` — and on prod, where the honest-cost flags are on, a phase-2 run genuinely carries the per-market spread + market-impact cost model, so the tag is *technically* meaningful, not just a label. Phase is an **orthogonal provenance axis** — it sits alongside the cost tier, span, and family axes, and does not change any of them. (A name-prefix convention was deliberately rejected: names are unreliable — 24 rows are literally "Untitled strategy" — so provenance, like safety, is derived from a real field, not a name.)
 
 ---
+
+## 2026-07-27 — Can I change the scan liquidity floor from the UI without a restart? (WS1)
+
+**Q:** The scan liquidity floor was an env-only constant (`MIN_LIQUIDITY_USD`). Can I now set it from the dashboard, and does raising it make the strategy more profitable?
+
+**A:** Yes — Phase-3 Workstream 1 surfaces the floor as a **runtime control** in the dashboard header ("Scan floor" card, next to Market data). It offers preset buttons (Off / $100k / $1M / $5M / $20M) and a free numeric input; the value takes effect on the **next scan** with no restart. Under the hood it POSTs `/api/system/scan-floor`, which calls `config.set_min_liquidity_usd()` — both exchange clients read `config.MIN_LIQUIDITY_USD` at scan time (`exchanges/hyperliquid/client.py`, `dydx/client.py`), so the change is app-wide immediately. It is **not persisted**: the process resets to the `MIN_LIQUIDITY_USD` env default on restart (same design as the market-data-source switch — a restart can't leave a stale override).
+
+**Does it add edge? No** — and the UI says so (an inline ⓘ note). This is a **tractability/executability** knob, identical in spirit to Slice 0's env change (see the 2026-07-24 entry above): raising the floor shrinks the scan/manual pair list **super-linearly** (the scan pairs markets, ≈ N²/2) to a reviewable, fillable set. It does **not** create alpha — the plan's §4 "deciding experiment" refuted that: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering up **loses** money (gross +$2,554 → −$183 at ≥$100k/hr; net worse at every threshold). The names you drop carry no *tradeable* P&L. The floor affects only the **live scan (path a)** — it does not touch any backtest (`_universe()`, path b — that's WS1's separate per-strategy filter), and it never changes `ENVIRONMENT` or pushes the bot toward going live.
+
+---

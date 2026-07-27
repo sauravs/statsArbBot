@@ -187,6 +187,40 @@ BACKTEST_MIN_COMPLETENESS: float = _env(
 # Market eligibility filters.
 MIN_LIQUIDITY_USD: float = _env("MIN_LIQUIDITY_USD", default=1_000_000.0, cast=float)
 
+# Sane bound for the runtime scan-floor setter (WS1). Rejects fat-finger values;
+# 0 means "no floor" (every cached market clears it).
+MIN_LIQUIDITY_USD_MAX = 1_000_000_000_000.0  # $1T/24h — effectively unbounded
+
+
+def get_min_liquidity_usd() -> float:
+    """The active live/manual-scan liquidity floor (24h $ notional) — WS1."""
+    return MIN_LIQUIDITY_USD
+
+
+def set_min_liquidity_usd(value: float) -> None:
+    """Reassign the live/manual-scan liquidity floor at runtime (WS1).
+
+    Both exchange clients read ``config.MIN_LIQUIDITY_USD`` at call time
+    (``exchanges/hyperliquid/client.py``, ``dydx/client.py`` — ``if volume <
+    config.MIN_LIQUIDITY_USD: continue``), so this takes effect on the next scan
+    without a restart, mirroring :func:`set_scan_data_source`. It is **not**
+    persisted — the process resets to the ``MIN_LIQUIDITY_USD`` env default on
+    restart (a restart can't leave a stale override).
+
+    This is a TRACTABILITY/executability knob, NOT an alpha lever: raising it
+    shrinks the pair list super-linearly (the scan pairs markets, ~N²/2) to a
+    reviewable, fillable size — it does not create edge (the §4 refutation shows
+    filtering up *loses* money). Enforces finite & ``0 <= value <=
+    MIN_LIQUIDITY_USD_MAX``; raises ``ValueError`` otherwise.
+    """
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError("scan floor must be a finite number")
+    if not 0 <= value <= MIN_LIQUIDITY_USD_MAX:
+        raise ValueError(f"scan floor must be in [0, {MIN_LIQUIDITY_USD_MAX}]")
+    global MIN_LIQUIDITY_USD
+    MIN_LIQUIDITY_USD = value
+
 # Per-market realistic cost model (Phase-2 Slice 1). When ON, the walk-forward
 # backtest charges each leg its market's half-spread (seed override table →
 # volume→spread curve → measured-mean default; simulation.spread_cost) instead of

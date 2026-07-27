@@ -13,6 +13,8 @@ export interface SystemHealth {
   environment: string;
   /** Active market-data source: "fake" (synthetic demo) or "dydx" (live indexer). */
   data_source?: string;
+  /** Active live/manual-scan liquidity floor (24h $ notional) — WS1. */
+  scan_floor?: number;
 }
 
 async function proxyGet<T>(path: string): Promise<T> {
@@ -57,6 +59,28 @@ export interface SetDataSourceResult {
 /** Switch the app-wide market-data source (synthetic ↔ live dYdX) (issue #43). */
 export function setDataSource(source: string): Promise<SetDataSourceResult> {
   return proxyPost<SetDataSourceResult>("api/system/data-source", { source });
+}
+
+/**
+ * The live/manual-scan liquidity floor (24h $ notional) — WS1. A tractability
+ * knob: raising it shrinks the scan/manual pair list to a reviewable, fillable
+ * size. It is NOT an alpha lever (filtering up loses money — see QA.md).
+ */
+export interface ScanFloor {
+  min_liquidity_usd: number;
+}
+
+export function getScanFloor(): Promise<ScanFloor> {
+  return proxyGet<ScanFloor>("api/system/scan-floor");
+}
+
+/** Set the app-wide scan floor; resets to the env default on restart. */
+export function setScanFloor(
+  minLiquidityUsd: number,
+): Promise<ScanFloor & { previous: number }> {
+  return proxyPost<ScanFloor & { previous: number }>("api/system/scan-floor", {
+    min_liquidity_usd: minLiquidityUsd,
+  });
 }
 
 /** The Option-B signal thresholds (issue #74); validated exit < entry < stop. */
