@@ -862,3 +862,32 @@ Both default **off** and are **non-destructive + runtime-settable**: they filter
 **Does trimming to liquid names add edge? No.** Same §4 refutation as the scan floor: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering toward liquid names **loses** backtest money. This is a **tractability** lens — surface a reviewable, fillable shortlist you can actually trade at market size — **not** a profit lever (the form/control say so inline). This is the *live-list* path (path a), distinct from the per-strategy **backtest** universe filter (path b; see the other 2026-07-27 entry) and the **scan floor** `MIN_LIQUIDITY_USD` (also path a, but a hard market floor before pairing).
 
 ---
+
+## 2026-07-27 — What is a backtest "campaign" and how do I launch one? (WS3 Slice 1)
+
+**Q:** Phase-1 was a manual 69-config sweep. Is there now a way to define a parameter grid and have the backend create all the runs automatically?
+
+**A:** Yes — Phase-3 Workstream 3 adds a **campaign runner**. A *campaign* is a parameter **grid** (`spec`) that the backend expands into many member `Strategy` rows. **Slice 1** (this increment) ships the data model + grid expansion + create/status endpoints; the **bounded-concurrency execution queue with DB-backed resume + auto-start** lands in Slice 2 (until then, members are created **PENDING** and can be run individually or will be picked up by the queue once Slice 2 ships).
+
+**Spec format** (operator-approved: *explicit* windows, not named spans):
+```json
+POST /api/backtest/campaigns
+{ "spec": {
+    "name": "entry-sweep",
+    "windows": [                         // REQUIRED ≥1 — the OOS date spans
+      {"label": "s2", "start": "2025-11-07T00:00:00Z", "end": "2026-03-01T00:00:00Z"},
+      {"label": "s3", "start": "2025-07-16T00:00:00Z", "end": "2025-11-07T00:00:00Z"}
+    ],
+    "axes": {"entry_threshold": [3.0, 3.5]},   // crossed combinatorially
+    "base": {"usd_per_trade": 1000},           // fixed params on every config
+    "cost_flags": {"per_market_slippage": true, "market_impact": true},  // honest defaults ON
+    "concurrency": 2                            // members running at once (Slice 2)
+} }
+```
+Expansion = the Cartesian product of the axis value-lists crossed with the windows — the example makes **2 × 2 = 4** runs (`entry-sweep · entry_threshold=3.0 · s2`, …). Each member is stamped **phase 2** and linked via `Strategy.campaign_id`. A typo'd axis key (e.g. `entry_z`) is a **422**, not a silently-collapsed grid, and the grid is capped at 500 configs to guard the 2-vCPU box.
+
+**Endpoints:** `POST /api/backtest/campaigns` (create + expand), `GET /api/backtest/campaigns` (list), `GET /api/backtest/campaigns/{id}` (campaign + members), `DELETE /api/backtest/campaigns/{id}` (delete the campaign — members are **detached, not deleted**: `campaign_id → null` via the FK's `ON DELETE SET NULL`; the runs are the evidence and outlive the campaign).
+
+**Honest defaults:** `cost_flags` default to `per_market_slippage` + `market_impact` **on** (the phase-2 cost model) so a campaign's runs are honestly costed. These are process-global engine flags recorded on the campaign; the execution queue (Slice 2) applies them at run time. Migration `0017_campaign` is additive (new `campaigns` table + nullable `strategies.campaign_id` FK) — no existing row changes.
+
+---
