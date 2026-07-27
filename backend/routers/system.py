@@ -51,6 +51,9 @@ async def system_health() -> dict:
         # The active market-data source ("fake" → synthetic demo data, "dydx" →
         # the live indexer). Lets the UI show a DEMO/LIVE data badge (issue #42).
         "data_source": config.SCAN_DATA_SOURCE,
+        # The active live/manual-scan liquidity floor (24h $ notional) — WS1.
+        # Runtime-settable; drives what the scan/manual list surfaces.
+        "scan_floor": config.get_min_liquidity_usd(),
     }
 
 
@@ -92,6 +95,40 @@ async def set_data_source(body: DataSourceBody) -> dict:
 
     logger.info("data source set to %s (was %s)", source, previous)
     return {"data_source": source, "previous": previous, "pairs_cleared": switched}
+
+
+class ScanFloorBody(BaseModel):
+    min_liquidity_usd: float
+
+
+@router.get("/api/system/scan-floor", dependencies=[Depends(require_api_key)])
+async def get_scan_floor() -> dict:
+    """The active live/manual-scan liquidity floor (24h $ notional) — WS1."""
+    return {"min_liquidity_usd": config.get_min_liquidity_usd()}
+
+
+@router.post("/api/system/scan-floor", dependencies=[Depends(require_api_key)])
+async def set_scan_floor(body: ScanFloorBody) -> dict:
+    """
+    Set the live/manual-scan liquidity floor at runtime (WS1).
+
+    Both exchange clients read ``config.MIN_LIQUIDITY_USD`` at scan time, so this
+    takes effect on the next scan without a restart. Resets to the env default on
+    restart (like the data-source switch — a restart can't leave a stale
+    override). Validates finite & ``0 <= value <= MIN_LIQUIDITY_USD_MAX`` (422).
+
+    This is a **tractability/executability** knob (surface a reviewable, fillable
+    pair list), NOT an alpha lever — raising it does not create edge.
+    """
+    previous = config.get_min_liquidity_usd()
+    try:
+        config.set_min_liquidity_usd(body.min_liquidity_usd)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    result = config.get_min_liquidity_usd()
+    logger.info("scan floor set to %s (was %s)", result, previous)
+    return {"min_liquidity_usd": result, "previous": previous}
 
 
 class ThresholdsBody(BaseModel):

@@ -76,6 +76,8 @@ In the **Cointegrated Pairs** panel:
 - **Quick scan** — fewer history pages; fast, for a rough look.
 - **Full scan** — full history; slower, the real result. A progress bar shows phase/percent; results persist (survive reload — they're in the DB).
 
+**Scan floor** (header control, next to *Market data*): the minimum 24h dollar-volume a market must trade to appear in the scan/manual list. Set it live with the presets (Off / $100k / $1M / $5M / $20M) or a custom value — it takes effect on the next scan, no restart (it resets to the env default when the backend restarts). This is a **tractability knob, not a profit lever**: raising it shrinks the pair list to a reviewable, fillable size (the scan pairs markets, so a higher floor cuts the list super-linearly), but it does **not** create edge — filtering up to liquid names actually *loses* money because the strategy's gross lives in the thinnest markets (see `docs/QA.md`, 2026-07-27 entry). Default **$1M/24h**.
+
 When it finishes you get the **pairs table**, one row per surviving cointegrated pair:
 
 | Column | What it tells you |

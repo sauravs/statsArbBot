@@ -8,6 +8,7 @@ import ManualTradesPanel from "@/components/ManualTradesPanel";
 import JumpToSectionButton from "@/components/JumpToSectionButton";
 import StrategyThresholdsControl from "@/components/StrategyThresholdsControl";
 import DataSourceControl from "@/components/DataSourceControl";
+import ScanFloorControl from "@/components/ScanFloorControl";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -162,6 +163,22 @@ export default function DashboardPage() {
                     // Manual trades are now filtered by source → re-fetch so the
                     // other source's trades drop out of the view immediately.
                     setManualRefresh((n) => n + 1);
+                  }}
+                />
+              </div>
+            </div>
+            <div
+              className="flex flex-col gap-1 rounded-lg border border-border px-3 py-1.5"
+              data-testid="scan-floor-control"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-muted">
+                Scan floor
+              </span>
+              <div className="flex items-center text-xs">
+                <ScanFloorControl
+                  floor={health?.scan_floor}
+                  onApplied={(next) => {
+                    setHealth((h) => (h ? { ...h, scan_floor: next } : h));
                   }}
                 />
               </div>
