@@ -168,6 +168,8 @@ The rigorous evaluation: sliding **scan (90d) / trade (30d)** windows so pairs a
 
 **Universe filter (Advanced panel, optional).** Two per-strategy knobs — *Univ. min $-vol/hr* and *Univ. max half-spread %* — prune the backtest's market universe before the scan (drop illiquid / wide-spread markets). They're **persisted with the run** so its universe is reproducible, and default **off** (blank ⇒ full universe). This is a **tractability/honesty knob, not a profit lever**: pruning to liquid names makes a backtest more executable but does *not* add edge — filtering up actually loses money, because the strategy's gross lives in the thinnest markets (see `docs/QA.md`, 2026-07-27 entry, and `docs/BACKTEST_PARAMETER_GUIDE.md` §C3). Distinct from the header **Scan floor** (§4), which affects the *live* scan, not backtests.
 
+**Campaigns (sweep runner).** Below the strategy list, the **Campaigns** panel automates a phase-1-style sweep: give it a **name**, one or more **windows** (OOS date spans), a comma-separated list of **entry-Z** values, and a **concurrency**, then *Launch*. The backend expands the grid (windows × entry-Z) into many strategies, stamps them **phase-2** with the honest cost model on, and runs them with **bounded concurrency** — no need to create each run by hand. Each campaign shows a live **status** (RUNNING → DONE) and `done/total` progress, with **Pause / Resume / Stop** controls; expand a row to watch each member's status. **Deleting a campaign detaches its runs — it never deletes them** (they stay in the strategy list as the evidence). See `docs/QA.md` (WS3 entries) for the spec format and how the queue resumes after a restart.
+
 ---
 
 ## 12 · Telegram (optional)
