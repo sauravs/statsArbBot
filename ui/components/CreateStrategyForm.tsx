@@ -34,6 +34,10 @@ export default function CreateStrategyForm({
   const [slippagePct, setSlippagePct] = useState("0.05");
   const [takerFeePct, setTakerFeePct] = useState("0.05");
   const [fundingFreqH, setFundingFreqH] = useState("1");
+  // Per-strategy backtest universe filter (Phase-3 WS1, path b). Blank ⇒ OFF.
+  // A tractability/honesty knob, NOT alpha — filtering up loses money (QA.md).
+  const [minDollarVol, setMinDollarVol] = useState(""); // $/hr floor; blank ⇒ off
+  const [maxHalfSpread, setMaxHalfSpread] = useState(""); // % ceiling; blank ⇒ off
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +70,13 @@ export default function CreateStrategyForm({
         slippage_pct: Number(slippagePct),
         taker_fee_pct: Number(takerFeePct),
         funding_freq_h: Number(fundingFreqH),
+        // Blank ⇒ omit ⇒ OFF (server default). Only send a real, non-negative number.
+        ...(minDollarVol.trim() !== "" && Number(minDollarVol) >= 0
+          ? { backtest_min_dollar_volume: Number(minDollarVol) }
+          : {}),
+        ...(maxHalfSpread.trim() !== "" && Number(maxHalfSpread) >= 0
+          ? { backtest_max_half_spread_pct: Number(maxHalfSpread) }
+          : {}),
         // Interpret the datetime-local wall-clock value as UTC (append "Z"), like
         // the fast-forward form, so the range matches the UTC-anchored history.
         start_time: start ? new Date(`${start}Z`).toISOString() : undefined,
@@ -283,6 +294,54 @@ export default function CreateStrategyForm({
                   data-testid="strategy-funding-freq"
                 />
               </Field>
+
+              {/* Per-strategy backtest universe filter (Phase-3 WS1, path b).
+                  Persisted with the run. Framed as a tractability/honesty knob —
+                  NOT a profit lever (the §4 refutation shows filtering up loses
+                  money). Blank ⇒ OFF. */}
+              <Field
+                label="Univ. min $-vol/hr (blank ⇒ off)"
+                tip="Backtest universe floor: drop markets whose mean hourly dollar-volume is below this before the scan. Honesty/robustness knob, NOT alpha — filtering up to liquid names LOSES money (the gross lives in the thinnest markets; see docs/QA.md). Blank ⇒ off."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  step="10000"
+                  placeholder="off"
+                  value={minDollarVol}
+                  onChange={(e) => setMinDollarVol(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-univ-min-dollar-vol"
+                />
+              </Field>
+              <Field
+                label="Univ. max half-spread % (blank ⇒ off)"
+                tip="Backtest universe ceiling: drop markets whose modelled half-spread exceeds this % before the scan. Honesty/robustness knob, NOT alpha (see docs/QA.md). Blank ⇒ off."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="off"
+                  value={maxHalfSpread}
+                  onChange={(e) => setMaxHalfSpread(e.target.value)}
+                  className="bt-input"
+                  data-testid="strategy-univ-max-half-spread"
+                />
+              </Field>
+
+              <p
+                className="col-span-2 text-[11px] leading-snug text-muted"
+                data-testid="strategy-univ-filter-note"
+              >
+                <span className="font-medium text-text">Universe filter</span> is a
+                tractability/honesty knob, not a profit lever: pruning to liquid names
+                makes the backtest more executable but does <em>not</em> add edge —
+                filtering up actually loses money (the gross lives in the thinnest
+                markets). Default off; persisted with the run. See{" "}
+                <span className="font-mono">docs/QA.md</span>.
+              </p>
             </div>
           )}
         </div>

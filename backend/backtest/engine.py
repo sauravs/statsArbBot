@@ -245,12 +245,22 @@ class BacktestEngine:
         # warm-up and silently produce no trades (matches replay.engine's load_start).
         markets = await _universe(exchange)
         load_start = windows[cursor_idx].scan_start - timedelta(hours=zwindow + 2)
-        # Optional liquidity/spread universe filter (Phase-2 Slice 2, path b). Prune
-        # BEFORE loading history + scanning so it actually narrows the traded universe
-        # (the §4 "deciding experiment"). DEFAULT OFF → returns the full universe.
-        if config.BACKTEST_MIN_DOLLAR_VOLUME > 0 or config.BACKTEST_MAX_HALF_SPREAD_PCT > 0:
+        # Optional liquidity/spread universe filter (Phase-2 Slice 2 / Phase-3 WS1,
+        # path b). Prune BEFORE loading history + scanning so it actually narrows the
+        # traded universe (the §4 "deciding experiment"). Resolved PER-STRATEGY: the
+        # row's own floor/ceiling wins; a NULL field falls back to the process-global
+        # env default (itself 0 = OFF), so existing rows are unchanged. DEFAULT OFF →
+        # returns the full universe.
+        min_dollar_volume = row.get("backtest_min_dollar_volume")
+        if min_dollar_volume is None:
+            min_dollar_volume = config.BACKTEST_MIN_DOLLAR_VOLUME
+        max_half_spread_pct = row.get("backtest_max_half_spread_pct")
+        if max_half_spread_pct is None:
+            max_half_spread_pct = config.BACKTEST_MAX_HALF_SPREAD_PCT
+        if min_dollar_volume > 0 or max_half_spread_pct > 0:
             markets = await _filter_universe(
-                exchange, markets, load_start, windows[-1].trade_end
+                exchange, markets, load_start, windows[-1].trade_end,
+                min_dollar_volume, max_half_spread_pct,
             )
         candles_by_market, funding_by_market = await _load_history(
             exchange, markets, load_start, windows[-1].trade_end
@@ -624,11 +634,16 @@ async def _universe(exchange: str) -> list[str]:
     return await source.available_markets()
 
 
-async def _filter_universe(exchange, markets, start, end) -> list[str]:
-    """Prune the backtest universe by the configured liquidity floor / spread ceiling
-    (Phase-2 Slice 2). Real mode: per-market mean dollar-volume drives both filters.
-    Fake mode: no cached volume, so the floor is a no-op (markets kept on unknown
-    volume) and only the half-spread ceiling (from the demo/seed table) applies.
+async def _filter_universe(
+    exchange, markets, start, end, min_dollar_volume, max_half_spread_pct
+) -> list[str]:
+    """Prune the backtest universe by the given liquidity floor / spread ceiling
+    (Phase-2 Slice 2; per-strategy in Phase-3 WS1). The thresholds are resolved by
+    the caller (the strategy's own values, or the global env fallback) and passed in
+    — this no longer reads the config globals directly. Real mode: per-market mean
+    dollar-volume drives both filters. Fake mode: no cached volume, so the floor is a
+    no-op (markets kept on unknown volume) and only the half-spread ceiling (from the
+    demo/seed table) applies.
     """
     dollar_volumes: dict[str, float] = {}
     if config.SCAN_DATA_SOURCE != "fake":
@@ -644,13 +659,12 @@ async def _filter_universe(exchange, markets, start, end) -> list[str]:
     kept = filter_universe(
         list(markets),
         dollar_volumes,
-        min_dollar_volume=config.BACKTEST_MIN_DOLLAR_VOLUME,
-        max_half_spread_pct=config.BACKTEST_MAX_HALF_SPREAD_PCT,
+        min_dollar_volume=min_dollar_volume,
+        max_half_spread_pct=max_half_spread_pct,
     )
     logger.info(
         "backtest universe filter: %d → %d markets (min_$vol=%s, max_half_spread=%s)",
-        len(markets), len(kept),
-        config.BACKTEST_MIN_DOLLAR_VOLUME, config.BACKTEST_MAX_HALF_SPREAD_PCT,
+        len(markets), len(kept), min_dollar_volume, max_half_spread_pct,
     )
     return kept
 

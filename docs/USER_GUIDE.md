@@ -164,6 +164,8 @@ The rigorous evaluation: sliding **scan (90d) / trade (30d)** windows so pairs a
 
 **Reading a row's badges (don't read net P&L alone).** Each row carries badges that decide whether its number *means* anything: a **cost** badge (⚠ NO-COST / LOW-COST diagnostics are untradeable), a **span** badge (OUT-OF-SAMPLE is the honest test; IN-SAMPLE proves nothing), a **DSR** badge (green `DSR 0.9x ✓` = survives correction for how many configs were searched, gate B3), and a **"Phase 2"** badge (provenance — created in Phase-2, carrying the honest per-market cost model on prod). Filters above the list let you narrow by **span**, **cost**, **realistic-only**, and **Phase** (Phase 1 / Phase 2 / **All** by default — Phase-1 runs are the preserved baseline and never hidden).
 
+**Universe filter (Advanced panel, optional).** Two per-strategy knobs — *Univ. min $-vol/hr* and *Univ. max half-spread %* — prune the backtest's market universe before the scan (drop illiquid / wide-spread markets). They're **persisted with the run** so its universe is reproducible, and default **off** (blank ⇒ full universe). This is a **tractability/honesty knob, not a profit lever**: pruning to liquid names makes a backtest more executable but does *not* add edge — filtering up actually loses money, because the strategy's gross lives in the thinnest markets (see `docs/QA.md`, 2026-07-27 entry, and `docs/BACKTEST_PARAMETER_GUIDE.md` §C3). Distinct from the header **Scan floor** (§4), which affects the *live* scan, not backtests.
+
 ---
 
 ## 12 · Telegram (optional)

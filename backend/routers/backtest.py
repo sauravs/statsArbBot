@@ -68,6 +68,12 @@ class StrategyBody(BaseModel):
     slippage_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     taker_fee_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     funding_freq_h: int = Field(default=1, ge=1, le=24)
+    # Per-strategy backtest universe filter (Phase-3 WS1, path b). Both optional;
+    # None = OFF (fall back to the global env default). A tractability/honesty knob,
+    # NOT alpha — filtering up loses money (PHASE2_STRATEGY_PLAN §4). Persisted with
+    # the run and threaded into the engine's _filter_universe.
+    backtest_min_dollar_volume: float | None = Field(default=None, ge=0.0)
+    backtest_max_half_spread_pct: float | None = Field(default=None, ge=0.0, le=100.0)
     # Provenance (Phase-2 Slice 6): new runs are phase 2 by default — created in the
     # sub-phase-B era and (on prod, flags on) carrying the honest cost model. The 69
     # phase-1 rows keep phase 1 via the additive migration's backfill.
