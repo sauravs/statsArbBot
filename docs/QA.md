@@ -828,3 +828,80 @@ It's computed in-house (`backend/stats/deflated_sharpe.py`, stdlib only — no s
 **Your Phase-1 baseline is fully preserved.** The `phase` column was added by an *additive, default-backfilled* migration (`0015_strategy_phase`): every pre-existing row was stamped `phase 1`, and **nothing was deleted or mutated**. New runs (created during/after sub-phase B) are stamped `phase 2` — and on prod, where the honest-cost flags are on, a phase-2 run genuinely carries the per-market spread + market-impact cost model, so the tag is *technically* meaningful, not just a label. Phase is an **orthogonal provenance axis** — it sits alongside the cost tier, span, and family axes, and does not change any of them. (A name-prefix convention was deliberately rejected: names are unreliable — 24 rows are literally "Untitled strategy" — so provenance, like safety, is derived from a real field, not a name.)
 
 ---
+
+## 2026-07-27 — Can I change the scan liquidity floor from the UI without a restart? (WS1)
+
+**Q:** The scan liquidity floor was an env-only constant (`MIN_LIQUIDITY_USD`). Can I now set it from the dashboard, and does raising it make the strategy more profitable?
+
+**A:** Yes — Phase-3 Workstream 1 surfaces the floor as a **runtime control** in the dashboard header ("Scan floor" card, next to Market data). It offers preset buttons (Off / $100k / $1M / $5M / $20M) and a free numeric input; the value takes effect on the **next scan** with no restart. Under the hood it POSTs `/api/system/scan-floor`, which calls `config.set_min_liquidity_usd()` — both exchange clients read `config.MIN_LIQUIDITY_USD` at scan time (`exchanges/hyperliquid/client.py`, `dydx/client.py`), so the change is app-wide immediately. It is **not persisted**: the process resets to the `MIN_LIQUIDITY_USD` env default on restart (same design as the market-data-source switch — a restart can't leave a stale override).
+
+**Does it add edge? No** — and the UI says so (an inline ⓘ note). This is a **tractability/executability** knob, identical in spirit to Slice 0's env change (see the 2026-07-24 entry above): raising the floor shrinks the scan/manual pair list **super-linearly** (the scan pairs markets, ≈ N²/2) to a reviewable, fillable set. It does **not** create alpha — the plan's §4 "deciding experiment" refuted that: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering up **loses** money (gross +$2,554 → −$183 at ≥$100k/hr; net worse at every threshold). The names you drop carry no *tradeable* P&L. The floor affects only the **live scan (path a)** — it does not touch any backtest (`_universe()`, path b — that's WS1's separate per-strategy filter), and it never changes `ENVIRONMENT` or pushes the bot toward going live.
+
+---
+
+## 2026-07-27 — Can I set the backtest universe filter per-strategy from the UI? (WS1)
+
+**Q:** The backtest liquidity/spread universe filter (`BACKTEST_MIN_DOLLAR_VOLUME` / `BACKTEST_MAX_HALF_SPREAD_PCT`) was a global env var needing a restart. Can I now set it per-strategy in the create form, and does raising it make a backtest more profitable?
+
+**A:** Yes — Phase-3 Workstream 1 makes it a **per-strategy field**. The Backtest create form's **Advanced** panel now has *Univ. min $-vol/hr* and *Univ. max half-spread %* inputs (blank ⇒ off); the API `create_strategy` accepts `backtest_min_dollar_volume` / `backtest_max_half_spread_pct`. The values are stored on the `strategies` row (additive migration `0016_strategy_backtest_universe_filter`, both columns nullable) and threaded into the engine's `_filter_universe`, so **the run's traded universe is persisted and reproducible** — no more process-wide env + restart. Resolution is per-strategy-first: a strategy's own value wins; a **null** field (the default) falls back to the global env (itself `0`/OFF). Every pre-existing strategy has null on both columns, so **nothing about the saved 69 rows changed**.
+
+**Does it add edge? No** — and the form says so (an inline note + ⓘ tips). This is the **path-b** engine filter the plan calls the "deciding experiment," and it is a **tractability/honesty** knob, not an alpha lever. The §4 evidence is decisive: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering up **loses** money (gross +$2,554 full → −$183 at ≥$100k/hr; net worse at every threshold). Enable it to make a backtest more *honest* (exclude untradeable dust, stress-test robustness), never expecting more profit. Default **OFF** (blank = full universe). Distinct from the WS1 **scan floor** (`MIN_LIQUIDITY_USD`, path a — the *live* scan/manual list; see the entry above); this one touches only the backtest.
+
+---
+
+## 2026-07-27 — How do I shrink the manual pair list to a fillable shortlist? (WS2)
+
+**Q:** After a scan the pairs table can have hundreds of rows, many in coins I can't fill at size. Can I trim it to a short, tradable shortlist — and does trimming to liquid names make me more money?
+
+**A:** Yes — Phase-3 Workstream 2 adds a **read-time "List filter"** control in the dashboard header (next to *Scan floor*), with two knobs applied to the pairs/manual list *after* the scan:
+1. **Half-spread ceiling** — drop any pair whose *wider* leg's modelled half-spread exceeds the ceiling % (you pay both legs' spreads, so the wider one gates fillability).
+2. **Top-N cap** — keep the N most **tradable** pairs, where `tradability = min($-vol_base, $-vol_quote) × (1/half_life) × (1 − p_value)`: the thinner leg caps your size (min $-vol), faster reversion is better (1/half-life), stronger cointegration is better (1−p). Market-cap is deliberately **not** used — it needs an external API + brittle symbol mapping and is a worse "can I fill this?" proxy than liquidity/spread.
+
+Both default **off** and are **non-destructive + runtime-settable**: they filter the *view* (`/api/pairs` enriches each pair with the score/spread and applies the knobs), never the stored scan, so you can adjust them anytime with **no re-scan**. They reset to the env default on restart (like the scan floor). Reuses existing data only — `ohlcv_cache` dollar-volume + the `spread_cost` half-spread model — no new dependency.
+
+**Does trimming to liquid names add edge? No.** Same §4 refutation as the scan floor: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering toward liquid names **loses** backtest money. This is a **tractability** lens — surface a reviewable, fillable shortlist you can actually trade at market size — **not** a profit lever (the form/control say so inline). This is the *live-list* path (path a), distinct from the per-strategy **backtest** universe filter (path b; see the other 2026-07-27 entry) and the **scan floor** `MIN_LIQUIDITY_USD` (also path a, but a hard market floor before pairing).
+
+---
+
+## 2026-07-27 — What is a backtest "campaign" and how do I launch one? (WS3 Slice 1)
+
+**Q:** Phase-1 was a manual 69-config sweep. Is there now a way to define a parameter grid and have the backend create all the runs automatically?
+
+**A:** Yes — Phase-3 Workstream 3 adds a **campaign runner**. A *campaign* is a parameter **grid** (`spec`) that the backend expands into many member `Strategy` rows. **Slice 1** (this increment) ships the data model + grid expansion + create/status endpoints; the **bounded-concurrency execution queue with DB-backed resume + auto-start** lands in Slice 2 (until then, members are created **PENDING** and can be run individually or will be picked up by the queue once Slice 2 ships).
+
+**Spec format** (operator-approved: *explicit* windows, not named spans):
+```json
+POST /api/backtest/campaigns
+{ "spec": {
+    "name": "entry-sweep",
+    "windows": [                         // REQUIRED ≥1 — the OOS date spans
+      {"label": "s2", "start": "2025-11-07T00:00:00Z", "end": "2026-03-01T00:00:00Z"},
+      {"label": "s3", "start": "2025-07-16T00:00:00Z", "end": "2025-11-07T00:00:00Z"}
+    ],
+    "axes": {"entry_threshold": [3.0, 3.5]},   // crossed combinatorially
+    "base": {"usd_per_trade": 1000},           // fixed params on every config
+    "cost_flags": {"per_market_slippage": true, "market_impact": true},  // honest defaults ON
+    "concurrency": 2                            // members running at once (Slice 2)
+} }
+```
+Expansion = the Cartesian product of the axis value-lists crossed with the windows — the example makes **2 × 2 = 4** runs (`entry-sweep · entry_threshold=3.0 · s2`, …). Each member is stamped **phase 2** and linked via `Strategy.campaign_id`. A typo'd axis key (e.g. `entry_z`) is a **422**, not a silently-collapsed grid, and the grid is capped at 500 configs to guard the 2-vCPU box.
+
+**Endpoints:** `POST /api/backtest/campaigns` (create + expand), `GET /api/backtest/campaigns` (list), `GET /api/backtest/campaigns/{id}` (campaign + members), `DELETE /api/backtest/campaigns/{id}` (delete the campaign — members are **detached, not deleted**: `campaign_id → null` via the FK's `ON DELETE SET NULL`; the runs are the evidence and outlive the campaign).
+
+**Honest defaults:** `cost_flags` default to `per_market_slippage` + `market_impact` **on** (the phase-2 cost model) so a campaign's runs are honestly costed. These are process-global engine flags recorded on the campaign; the execution queue (Slice 2) applies them at run time. Migration `0017_campaign` is additive (new `campaigns` table + nullable `strategies.campaign_id` FK) — no existing row changes.
+
+---
+
+## 2026-07-27 — How does a campaign actually run its backtests? (WS3 Slice 2 — execution queue)
+
+**Q:** Slice 1 created campaign members PENDING. How do they get run — and what happens on pause/stop or an API restart?
+
+**A:** Phase-3 WS3 Slice 2 adds the **execution queue**. `POST /api/backtest/campaigns` now **auto-starts** the campaign: a background driver (`backtest/campaign_runner.py`) runs the member strategies through the existing `BacktestEngine.run` with **bounded concurrency** (`campaign.concurrency`, default 2 — the prod box is 2-vCPU). As members reach a terminal state the campaign's `completed`/`failed` counters and `status` are updated; when every member is terminal the campaign is **DONE**.
+
+**Controls:** `POST /api/backtest/campaigns/{id}/pause` (stop launching new members + pause in-flight ones at their next window boundary — resumable), `/stop` (terminal), `/resume` (re-drive the non-terminal members of a paused campaign). Pause/stop reuse the engine's per-strategy control, so a paused member keeps its `processed_windows` cursor and resumes from there.
+
+**DB-backed resume:** members are persisted `Strategy` rows with their own resume cursor, and a campaign left `RUNNING` by a crash is re-driven at startup (`resume_running_campaigns`, wired into the app lifespan — the same pattern as the sim scheduler's session re-registration). Members left mid-flight `RUNNING` are normalised (→ `PAUSED` if they have a cursor, else `PENDING`) so the engine doesn't skip them.
+
+**Honest cost:** the driver sets the process-global `PER_MARKET_SLIPPAGE` / `MARKET_IMPACT` to the campaign's `cost_flags` for the duration of the run and **restores** them afterward (operator-approved 2026-07-27). On prod these are already ON, so a campaign runs the phase-2 cost model by default. Caveat: a non-campaign backtest started *while a campaign is running* sees the same globals — acceptable for a single-operator tool. No new migration (Slice 2 is behaviour only). A minimal launch/monitor UI is a later slice; until then campaigns are driven via the API.
+
+---

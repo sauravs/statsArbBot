@@ -608,6 +608,7 @@ class FakeStrategyRepository:
         "exchange": "dydx",
         "data_source": "dydx",
         "phase": 1,  # backfill default (Phase-2 Slice 6); create path stamps 2
+        "campaign_id": None,  # Phase-3 WS3; set when created by a campaign
     }
 
     def __init__(self) -> None:
@@ -655,6 +656,13 @@ class FakeStrategyRepository:
             reverse=True,
         )
         return [dict(r) for r in (ranked + unranked)]
+
+    async def list_by_campaign(self, campaign_id: str) -> list[dict]:
+        rows = [
+            r for r in self.store.values() if r.get("campaign_id") == campaign_id
+        ]
+        rows.sort(key=lambda r: r.get("created_at") or "")
+        return [dict(r) for r in rows]
 
     async def update(self, strategy_id: str, data: dict):
         row = self.store.get(strategy_id)
@@ -726,6 +734,62 @@ class FakeStrategyRepository:
         for r in rows:
             if r["id"] not in ranked_ids:
                 r["rank"] = None
+
+
+class FakeCampaignRepository:
+    """In-memory stand-in for PrismaCampaignRepository (Phase-3 WS3)."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, dict] = {}
+        self._seq = 0
+
+    async def create(self, params: dict) -> dict:
+        self._seq += 1
+        cid = f"camp_{self._seq}"
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "id": cid,
+            "name": params.get("name", "Campaign"),
+            "exchange": params.get("exchange", "dydx"),
+            "data_source": params.get("data_source", "dydx"),
+            "status": params.get("status", "PENDING"),
+            "spec": params.get("spec"),
+            "concurrency": params.get("concurrency", 2),
+            "total": params.get("total", 0),
+            "completed": params.get("completed", 0),
+            "failed": params.get("failed", 0),
+            "created_at": now,
+            "updated_at": now,
+            "started_at": None,
+            "ended_at": None,
+        }
+        self.store[cid] = row
+        return dict(row)
+
+    async def get(self, campaign_id: str):
+        row = self.store.get(campaign_id)
+        return dict(row) if row is not None else None
+
+    async def list(self) -> list[dict]:
+        import config
+
+        rows = [
+            r for r in self.store.values()
+            if r.get("data_source") == config.SCAN_DATA_SOURCE
+        ]
+        rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return [dict(r) for r in rows]
+
+    async def update(self, campaign_id: str, data: dict):
+        row = self.store.get(campaign_id)
+        if row is None:
+            return None
+        row.update(data)
+        row["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return dict(row)
+
+    async def delete(self, campaign_id: str) -> bool:
+        return self.store.pop(campaign_id, None) is not None
 
 
 class FakeManualTradeRepository:

@@ -196,6 +196,42 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(detail).toContainText("Stop |Z|≥5");
   });
 
+  test("per-strategy universe filter persists + carries the honesty note (WS1)", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.getByTestId("nav-backtest").click();
+    await expect(page.getByTestId("create-strategy-form")).toBeVisible();
+
+    await page.getByTestId("strategy-name").fill("E2E Universe Filter");
+    await page.getByTestId("strategy-entry-z").fill("1");
+    await page.getByTestId("strategy-exit-z").fill("0.3");
+    await page.getByTestId("strategy-scan-days").fill("7");
+    await page.getByTestId("strategy-trade-days").fill("3");
+
+    await page.getByTestId("strategy-advanced-toggle").click();
+    // The filter is framed as tractability/honesty, NOT a profit lever.
+    const note = page.getByTestId("strategy-univ-filter-note");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("not a profit lever");
+
+    await page.getByTestId("strategy-univ-min-dollar-vol").fill("1000000");
+    await page.getByTestId("strategy-univ-max-half-spread").fill("0.05");
+    await page.getByTestId("create-strategy-btn").click();
+    await expect(page.getByTestId("strategy-detail")).toBeVisible();
+
+    // Full UI→API→DB round-trip: the created row persisted the per-strategy filter.
+    const list = await page.request
+      .get("/api/proxy/api/backtest/strategies")
+      .then((r) => r.json());
+    const row = list.strategies.find(
+      (s: { name: string }) => s.name === "E2E Universe Filter",
+    );
+    expect(row).toBeTruthy();
+    expect(row.backtest_min_dollar_volume).toBe(1_000_000);
+    expect(row.backtest_max_half_spread_pct).toBe(0.05);
+  });
+
   test("rejects exit ≥ entry client-side (#78)", async ({ page }) => {
     await login(page);
     await page.getByTestId("nav-backtest").click();

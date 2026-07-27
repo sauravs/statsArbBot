@@ -51,6 +51,12 @@ async def system_health() -> dict:
         # The active market-data source ("fake" → synthetic demo data, "dydx" →
         # the live indexer). Lets the UI show a DEMO/LIVE data badge (issue #42).
         "data_source": config.SCAN_DATA_SOURCE,
+        # The active live/manual-scan liquidity floor (24h $ notional) — WS1.
+        # Runtime-settable; drives what the scan/manual list surfaces.
+        "scan_floor": config.get_min_liquidity_usd(),
+        # Read-time scan/manual-list minimisation knobs (WS2): half-spread ceiling
+        # + top-N cap. {max_half_spread_pct, top_n}; 0 = off.
+        "scan_list_filters": config.get_scan_list_filters(),
     }
 
 
@@ -92,6 +98,78 @@ async def set_data_source(body: DataSourceBody) -> dict:
 
     logger.info("data source set to %s (was %s)", source, previous)
     return {"data_source": source, "previous": previous, "pairs_cleared": switched}
+
+
+class ScanFloorBody(BaseModel):
+    min_liquidity_usd: float
+
+
+@router.get("/api/system/scan-floor", dependencies=[Depends(require_api_key)])
+async def get_scan_floor() -> dict:
+    """The active live/manual-scan liquidity floor (24h $ notional) — WS1."""
+    return {"min_liquidity_usd": config.get_min_liquidity_usd()}
+
+
+@router.post("/api/system/scan-floor", dependencies=[Depends(require_api_key)])
+async def set_scan_floor(body: ScanFloorBody) -> dict:
+    """
+    Set the live/manual-scan liquidity floor at runtime (WS1).
+
+    Both exchange clients read ``config.MIN_LIQUIDITY_USD`` at scan time, so this
+    takes effect on the next scan without a restart. Resets to the env default on
+    restart (like the data-source switch — a restart can't leave a stale
+    override). Validates finite & ``0 <= value <= MIN_LIQUIDITY_USD_MAX`` (422).
+
+    This is a **tractability/executability** knob (surface a reviewable, fillable
+    pair list), NOT an alpha lever — raising it does not create edge.
+    """
+    previous = config.get_min_liquidity_usd()
+    try:
+        config.set_min_liquidity_usd(body.min_liquidity_usd)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    result = config.get_min_liquidity_usd()
+    logger.info("scan floor set to %s (was %s)", result, previous)
+    return {"min_liquidity_usd": result, "previous": previous}
+
+
+class ScanListFiltersBody(BaseModel):
+    # Both optional so the UI can set either knob independently.
+    max_half_spread_pct: float | None = None
+    top_n: int | None = None
+
+
+@router.get("/api/system/scan-list-filters", dependencies=[Depends(require_api_key)])
+async def get_scan_list_filters() -> dict:
+    """The active read-time scan/manual-list minimisation knobs (WS2)."""
+    return config.get_scan_list_filters()
+
+
+@router.post("/api/system/scan-list-filters", dependencies=[Depends(require_api_key)])
+async def set_scan_list_filters(body: ScanListFiltersBody) -> dict:
+    """
+    Set the read-time scan/manual-list minimisation knobs at runtime (WS2).
+
+    ``max_half_spread_pct`` drops pairs whose wider leg exceeds it; ``top_n`` keeps
+    the most tradable N (by ``min($-vol)·1/half_life·(1-p)``). Either may be omitted
+    to leave it unchanged; 0 turns a knob off. Applied read-time to the pairs/manual
+    list (no re-scan) and reset to the env default on restart. Validates each (422).
+
+    A **tractability** lens — surface a shorter, fillable shortlist — NOT an alpha
+    lever: filtering toward liquid names does not add edge (PHASE2_STRATEGY_PLAN §4).
+    """
+    try:
+        if body.max_half_spread_pct is not None:
+            config.set_scan_max_half_spread_pct(body.max_half_spread_pct)
+        if body.top_n is not None:
+            config.set_scan_top_n(body.top_n)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    result = config.get_scan_list_filters()
+    logger.info("scan list filters set to %s", result)
+    return result
 
 
 class ThresholdsBody(BaseModel):

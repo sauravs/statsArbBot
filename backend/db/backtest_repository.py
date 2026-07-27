@@ -67,6 +67,17 @@ class PrismaStrategyRepository:
         )
         return _sorted([self._to_dict(r) for r in records])
 
+    async def list_by_campaign(self, campaign_id: str) -> list[dict]:
+        """Member strategies of a campaign, newest-first (Phase-3 WS3)."""
+        from db.client import get_db
+
+        db = await get_db()
+        records = await db.strategy.find_many(
+            where={"campaign_id": campaign_id},
+            order={"created_at": "asc"},
+        )
+        return [self._to_dict(r) for r in records]
+
     async def update(self, strategy_id: str, data: dict) -> dict | None:
         from db.client import get_db
         from prisma.errors import RecordNotFoundError
@@ -235,6 +246,8 @@ class PrismaStrategyRepository:
             "description": r.description,
             "status": _enum_value(r.status),
             "phase": r.phase,
+            # Campaign membership (Phase-3 WS3); null for hand-created runs.
+            "campaign_id": r.campaign_id,
             "scan_window_days": r.scan_window_days,
             "trade_window_days": r.trade_window_days,
             "zscore_window": r.zscore_window,
@@ -251,6 +264,9 @@ class PrismaStrategyRepository:
             "slippage_pct": r.slippage_pct,
             "taker_fee_pct": r.taker_fee_pct,
             "funding_freq_h": r.funding_freq_h,
+            # Per-strategy backtest universe filter (Phase-3 WS1). None = OFF.
+            "backtest_min_dollar_volume": r.backtest_min_dollar_volume,
+            "backtest_max_half_spread_pct": r.backtest_max_half_spread_pct,
             "total_windows": r.total_windows,
             "processed_windows": r.processed_windows,
             "progress": r.progress,

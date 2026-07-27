@@ -75,6 +75,18 @@ enum BacktestStatus {
   FAILED    // backtest aborted on an error
 }
 
+// Backend strategy-campaign runner (Phase-3 WS3). A campaign expands a parameter
+// grid into many Strategy rows and runs them with bounded concurrency; DB-backed so
+// a restart resumes. This enum tracks the whole campaign; each member Strategy keeps
+// its own BacktestStatus.
+enum CampaignStatus {
+  PENDING // created, not started
+  RUNNING // execution queue draining the member strategies
+  PAUSED  // execution paused; members mid-flight can resume
+  DONE    // every member reached a terminal state
+  STOPPED // stopped early by the operator (terminal)
+}
+
 // ── Config audit (append-only) ───────────────────────────────────────────────
 // Stable seed model: records every bot-config change for auditing. Present from
 // Phase 0 so migrations exist; extended as config surfaces grow.
@@ -446,6 +458,13 @@ model Strategy {
   // family axes (docs/PHASE2_STRATEGY_PLAN.md §7 Slice 6).
   phase Int @default(1)
 
+  // Campaign membership (Phase-3 WS3). Set when a strategy was created by a campaign
+  // grid expansion; null for hand-created runs. Additive + nullable; ON DELETE SET
+  // NULL so deleting a campaign never deletes its member strategies (the runs are the
+  // evidence — they outlive the campaign).
+  campaign_id String?
+  campaign    Campaign? @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
+
   // Walk-forward window lengths (PRD F8.1 default 90d scan / 30d trade; configurable
   // so the offline demo can use short windows over the synthetic history).
   scan_window_days  Int @default(90)
@@ -462,6 +481,17 @@ model Strategy {
   // Historical span to walk (optional offline: defaults to the demo window).
   start_time DateTime? @db.Timestamptz
   end_time   DateTime? @db.Timestamptz
+
+  // Backtest universe liquidity/spread filter (Phase-3 WS1, path b) — PER-STRATEGY.
+  // Optional; null = OFF (fall back to the global env default, which is also OFF).
+  // When set, the walk-forward prunes its market universe BEFORE the scan (drop
+  // markets below the $/hr floor and/or above the half-spread % ceiling), reusing
+  // simulation.spread_cost.filter_universe. Persisted with the run so its universe
+  // is reproducible. HONESTY/robustness knob, NOT alpha — filtering up LOSES money
+  // (the gross lives in the thinnest markets; PHASE2_STRATEGY_PLAN §4). Supersedes
+  // the process-global BACKTEST_MIN_DOLLAR_VOLUME / BACKTEST_MAX_HALF_SPREAD_PCT.
+  backtest_min_dollar_volume   Float? // $/hr floor; null/0 = off
+  backtest_max_half_spread_pct Float? // percent ceiling; null/0 = off
 
   // Cost model (mirrors the SimSession / SavedFFSimulation knobs).
   starting_capital Float @default(10000)
@@ -501,7 +531,43 @@ model Strategy {
 
   @@index([exchange, data_source, status])
   @@index([rank])
+  @@index([campaign_id])
   @@map("strategies")
+}
+
+// Backend strategy-campaign runner (Phase-3 WS3). Expands a parameter grid (the
+// `spec`) into many member Strategy rows and drives them through a bounded-concurrency
+// execution queue; DB-backed so a restart resumes (mirrors the sweep's
+// processed_windows pattern). Progress counters are cheap, queryable status without
+// scanning every member. Deleting a campaign SET NULLs its members' campaign_id — the
+// runs (the evidence) are never deleted with it.
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  // Scope like Strategy: which venue + market-data source the campaign runs under.
+  exchange    Exchange       @default(dydx)
+  data_source String         @default("dydx")
+  status      CampaignStatus @default(PENDING)
+  // The posted grid spec (windows × axes × base + cost flags), stored verbatim so a
+  // campaign is reproducible and the expansion is auditable.
+  spec        Json
+  // Max member strategies running at once (2-vCPU prod → keep small; configurable).
+  concurrency Int            @default(2)
+  // Progress counters (denormalised for cheap status): total members, terminal
+  // successes, terminal failures. running/pending are derived (total − completed − failed).
+  total       Int            @default(0)
+  completed   Int            @default(0)
+  failed      Int            @default(0)
+
+  strategies Strategy[]
+
+  created_at DateTime  @default(now()) @db.Timestamptz
+  updated_at DateTime  @updatedAt @db.Timestamptz
+  started_at DateTime? @db.Timestamptz
+  ended_at   DateTime? @db.Timestamptz
+
+  @@index([status])
+  @@map("campaigns")
 }
 
 // One closed trade from a walk-forward backtest (issue #162). The engine replays

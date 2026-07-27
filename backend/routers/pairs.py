@@ -56,12 +56,28 @@ async def get_pairs(
         }
 
     scanned_at = pairs[0]["scanned_at"] if pairs else None
+    total = len(pairs)
+    # Read-time list minimisation (Phase-3 WS2): enrich each pair with a tradability
+    # score + max-leg half-spread, then apply the operator's runtime half-spread
+    # ceiling + top-N cap. Non-destructive (the stored scan is untouched) and OFF by
+    # default → identity. A tractability lens, NOT an alpha lever.
+    try:
+        from scan.list_view import minimised_pairs
+
+        pairs = await minimised_pairs(
+            pairs, exchange=exchange, scanned_at=scanned_at, mode=mode
+        )
+    except Exception as exc:  # never fail the list on an enrichment hiccup
+        logger.warning("pair-list minimisation skipped (kept full list): %s", exc)
     return {
         "pairs": pairs,
         "count": len(pairs),
+        # Total found before the read-time filters, so the UI can show "N of M".
+        "total": total,
         "scanned_at": scanned_at,
         "exchange": exchange,
         "mode": mode,
+        "filters": config.get_scan_list_filters(),
         "error": None,
     }
 

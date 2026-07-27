@@ -98,6 +98,14 @@ export async function resetDemoState(api: APIRequestContext): Promise<void> {
     (b) => b.trades ?? b ?? [],
     (id) => `/api/proxy/api/manual/${id}`,
   );
+  // Campaigns first (WS3): deleting a campaign only DETACHES its members, so the
+  // strategy sweep below still removes them. A demo-scoped list keeps this to demo.
+  await deleteAll(
+    api,
+    "/api/proxy/api/backtest/campaigns",
+    (b) => b.campaigns ?? [],
+    (id) => `/api/proxy/api/backtest/campaigns/${id}`,
+  );
   await deleteAll(
     api,
     "/api/proxy/api/backtest/strategies",

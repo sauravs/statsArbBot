@@ -28,7 +28,11 @@ from pydantic import BaseModel, Field
 
 import config
 from auth import require_api_key
+from backtest.campaign import CampaignSpecError, cost_flags, expand_campaign_spec
+from backtest.campaign_runner import get_campaign_runner
 from backtest.engine import StrategyNotFound, get_backtest_engine
+from db.campaign_repository import get_campaign_repository
+from db.backtest_repository import get_strategy_repository
 from exchanges import EXCHANGE_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -68,6 +72,12 @@ class StrategyBody(BaseModel):
     slippage_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     taker_fee_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     funding_freq_h: int = Field(default=1, ge=1, le=24)
+    # Per-strategy backtest universe filter (Phase-3 WS1, path b). Both optional;
+    # None = OFF (fall back to the global env default). A tractability/honesty knob,
+    # NOT alpha — filtering up loses money (PHASE2_STRATEGY_PLAN §4). Persisted with
+    # the run and threaded into the engine's _filter_universe.
+    backtest_min_dollar_volume: float | None = Field(default=None, ge=0.0)
+    backtest_max_half_spread_pct: float | None = Field(default=None, ge=0.0, le=100.0)
     # Provenance (Phase-2 Slice 6): new runs are phase 2 by default — created in the
     # sub-phase-B era and (on prod, flags on) carrying the honest cost model. The 69
     # phase-1 rows keep phase 1 via the additive migration's backfill.
@@ -412,3 +422,172 @@ async def seed_defaults() -> dict:
     except Exception as exc:
         raise _guard_db(exc)
     return {"created": created, "count": len(created)}
+
+
+# ── Campaigns (Phase-3 WS3) ──────────────────────────────────────────────────
+# A campaign expands a parameter grid into many member strategies. Slice 1 creates
+# them PENDING (drivable/inspectable); the bounded-concurrency execution queue +
+# auto-start land in Slice 2. Endpoints:
+#   POST   /api/backtest/campaigns        — expand a spec → create members → status.
+#   GET    /api/backtest/campaigns        — list campaigns.
+#   GET    /api/backtest/campaigns/{id}   — one campaign + its member strategies.
+#   DELETE /api/backtest/campaigns/{id}   — delete a campaign (members SET NULL, kept).
+
+_CONCURRENCY_MAX = 8  # bounded — the prod box is 2-vCPU (2-3 concurrent is realistic)
+
+
+class CampaignBody(BaseModel):
+    # The whole grid spec (name / windows / axes / base / cost_flags / concurrency)
+    # lives inside `spec`, stored verbatim so the expansion is reproducible.
+    spec: dict
+
+
+def _valid_config_keys() -> set[str]:
+    return set(StrategyBody.model_fields.keys())
+
+
+@router.post("/campaigns", status_code=201)
+async def create_campaign(body: CampaignBody) -> dict:
+    """Expand the grid `spec` into member strategies and create them PENDING.
+
+    422 on a malformed spec or an axis/base key that isn't a valid strategy
+    parameter. Members are stamped phase-2 provenance and linked to the campaign;
+    execution is not started here (WS3 Slice 2).
+    """
+    exchange = config.active_exchange()
+    _validate_exchange(exchange)
+    try:
+        configs = expand_campaign_spec(body.spec)
+    except CampaignSpecError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # Reject typo'd axis/base keys early (pydantic would silently drop unknowns,
+    # collapsing the grid to identical configs).
+    allowed = _valid_config_keys()
+    for cfg in configs:
+        unknown = set(cfg) - allowed
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"unknown strategy parameter(s) in spec: {sorted(unknown)}",
+            )
+
+    concurrency = body.spec.get("concurrency", 2)
+    try:
+        concurrency = int(concurrency)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="concurrency must be an integer")
+    concurrency = max(1, min(_CONCURRENCY_MAX, concurrency))
+
+    try:
+        campaign = await get_campaign_repository().create(
+            {
+                "name": str(body.spec.get("name") or "Campaign"),
+                "exchange": exchange,
+                "data_source": config.SCAN_DATA_SOURCE,
+                "spec": {**body.spec, "cost_flags": cost_flags(body.spec)},
+                "concurrency": concurrency,
+                "total": len(configs),
+            }
+        )
+        engine = get_backtest_engine()
+        created = []
+        for cfg in configs:
+            params = StrategyBody(**cfg).model_dump()
+            params["exchange"] = exchange
+            params["status"] = "PENDING"
+            params["data_source"] = config.SCAN_DATA_SOURCE
+            params["campaign_id"] = campaign["id"]
+            created.append(await engine.create(params))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+
+    # Auto-start the execution queue (operator-approved 2026-07-27): the driver runs
+    # the members with bounded concurrency in the background. Best-effort — a launch
+    # hiccup leaves the members PENDING (runnable later), it must not fail the create.
+    started = False
+    try:
+        await get_campaign_runner().start(campaign["id"])
+        started = True
+    except Exception as exc:
+        logger.warning("campaign %s auto-start failed (members left PENDING): %s",
+                       campaign["id"], exc)
+
+    logger.info(
+        "campaign %s created: %d member strategies (concurrency=%d, started=%s)",
+        campaign["id"], len(created), concurrency, started,
+    )
+    return {"campaign": campaign, "strategies_created": len(created), "started": started}
+
+
+@router.post("/campaigns/{campaign_id}/pause")
+async def pause_campaign(campaign_id: str) -> dict:
+    """Pause a campaign: stop launching members; pause in-flight ones (resumable)."""
+    if await get_campaign_repository().get(campaign_id) is None:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    try:
+        return await get_campaign_runner().request_pause(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+
+
+@router.post("/campaigns/{campaign_id}/stop")
+async def stop_campaign(campaign_id: str) -> dict:
+    """Terminally stop a campaign: no new members; in-flight ones stopped."""
+    if await get_campaign_repository().get(campaign_id) is None:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    try:
+        return await get_campaign_runner().request_stop(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+
+
+@router.post("/campaigns/{campaign_id}/resume")
+async def resume_campaign(campaign_id: str) -> dict:
+    """Resume a paused campaign — re-drives its non-terminal members."""
+    camp = await get_campaign_repository().get(campaign_id)
+    if camp is None:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    try:
+        await get_campaign_runner().resume(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+    return await get_campaign_repository().get(campaign_id)
+
+
+@router.get("/campaigns")
+async def list_campaigns() -> dict:
+    try:
+        rows = await get_campaign_repository().list()
+    except Exception as exc:
+        raise _guard_db(exc)
+    return {"campaigns": rows, "count": len(rows)}
+
+
+@router.get("/campaigns/{campaign_id}")
+async def get_campaign(campaign_id: str) -> dict:
+    try:
+        campaign = await get_campaign_repository().get(campaign_id)
+        if campaign is None:
+            raise HTTPException(status_code=404, detail="Campaign not found.")
+        members = await get_strategy_repository().list_by_campaign(campaign_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+    return {"campaign": campaign, "strategies": members, "count": len(members)}
+
+
+@router.delete("/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: str) -> dict:
+    """Delete a campaign. Member strategies are DETACHED (campaign_id → null), never
+    deleted — the runs are the evidence and outlive the campaign."""
+    try:
+        ok = await get_campaign_repository().delete(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    return {"deleted": campaign_id}

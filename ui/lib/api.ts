@@ -13,6 +13,10 @@ export interface SystemHealth {
   environment: string;
   /** Active market-data source: "fake" (synthetic demo) or "dydx" (live indexer). */
   data_source?: string;
+  /** Active live/manual-scan liquidity floor (24h $ notional) — WS1. */
+  scan_floor?: number;
+  /** Read-time scan/manual-list minimisation knobs (WS2). */
+  scan_list_filters?: { max_half_spread_pct: number; top_n: number };
 }
 
 async function proxyGet<T>(path: string): Promise<T> {
@@ -57,6 +61,28 @@ export interface SetDataSourceResult {
 /** Switch the app-wide market-data source (synthetic ↔ live dYdX) (issue #43). */
 export function setDataSource(source: string): Promise<SetDataSourceResult> {
   return proxyPost<SetDataSourceResult>("api/system/data-source", { source });
+}
+
+/**
+ * The live/manual-scan liquidity floor (24h $ notional) — WS1. A tractability
+ * knob: raising it shrinks the scan/manual pair list to a reviewable, fillable
+ * size. It is NOT an alpha lever (filtering up loses money — see QA.md).
+ */
+export interface ScanFloor {
+  min_liquidity_usd: number;
+}
+
+export function getScanFloor(): Promise<ScanFloor> {
+  return proxyGet<ScanFloor>("api/system/scan-floor");
+}
+
+/** Set the app-wide scan floor; resets to the env default on restart. */
+export function setScanFloor(
+  minLiquidityUsd: number,
+): Promise<ScanFloor & { previous: number }> {
+  return proxyPost<ScanFloor & { previous: number }>("api/system/scan-floor", {
+    min_liquidity_usd: minLiquidityUsd,
+  });
 }
 
 /** The Option-B signal thresholds (issue #74); validated exit < entry < stop. */
@@ -164,15 +190,43 @@ export interface PairRecord {
   window_end: string | null;
   exchange: string;
   mode: string;
+  // Read-time tradability enrichment (Phase-3 WS2) — present when the pairs list
+  // has been scored. Undefined on rows served before enrichment (defensive).
+  tradability?: number;
+  min_dollar_volume?: number;
+  max_half_spread_pct?: number | null;
+  dollar_volume_base?: number | null;
+  dollar_volume_quote?: number | null;
+}
+
+/** Read-time scan/manual-list minimisation knobs (Phase-3 WS2). 0 = off. */
+export interface ScanListFilters {
+  max_half_spread_pct: number;
+  top_n: number;
 }
 
 export interface PairsResponse {
   pairs: PairRecord[];
   count: number;
+  /** Pairs found before the read-time WS2 filters (for a "N of M" display). */
+  total?: number;
   scanned_at: string | null;
   exchange: string;
   mode: string;
+  /** The active read-time minimisation knobs applied to this list (WS2). */
+  filters?: ScanListFilters;
   error?: string | null;
+}
+
+export function getScanListFilters(): Promise<ScanListFilters> {
+  return proxyGet<ScanListFilters>("api/system/scan-list-filters");
+}
+
+/** Set the read-time list minimisation knobs; either may be omitted. WS2. */
+export function setScanListFilters(
+  patch: Partial<ScanListFilters>,
+): Promise<ScanListFilters> {
+  return proxyPost<ScanListFilters>("api/system/scan-list-filters", patch);
 }
 
 export interface ScanStatus {
@@ -851,6 +905,10 @@ export interface Strategy {
   slippage_pct: number;
   taker_fee_pct: number;
   funding_freq_h: number;
+  /** Per-strategy backtest universe filter (Phase-3 WS1, path b). null = OFF.
+   *  A tractability/honesty knob, NOT alpha — filtering up loses money (QA.md). */
+  backtest_min_dollar_volume?: number | null;
+  backtest_max_half_spread_pct?: number | null;
   total_windows: number;
   processed_windows: number;
   progress: number;
@@ -895,6 +953,11 @@ export interface CreateStrategyInput {
   slippage_pct?: number;
   taker_fee_pct?: number;
   funding_freq_h?: number;
+  // Per-strategy backtest universe filter (Phase-3 WS1, path b). Omit ⇒ OFF (the
+  // server falls back to the global env default, itself OFF). Tractability/honesty
+  // knob, NOT alpha — filtering up loses money (see QA.md).
+  backtest_min_dollar_volume?: number;
+  backtest_max_half_spread_pct?: number;
 }
 
 /** List strategies, ranked by net P&L (best first). */
@@ -952,6 +1015,70 @@ export function stopStrategy(id: string): Promise<Strategy> {
 /** Seed the S1–S4 baseline strategies. */
 export function seedDefaultStrategies(): Promise<{ created: Strategy[]; count: number }> {
   return proxyPost("api/backtest/seed-defaults");
+}
+
+// ── Campaigns (Phase-3 WS3) ──────────────────────────────────────────────────
+
+export type CampaignStatus = "PENDING" | "RUNNING" | "PAUSED" | "DONE" | "STOPPED";
+
+export interface Campaign {
+  id: string;
+  name: string;
+  exchange: string;
+  data_source: string;
+  status: CampaignStatus;
+  spec: Record<string, unknown>;
+  concurrency: number;
+  total: number;
+  completed: number;
+  failed: number;
+  created_at: string | null;
+  updated_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+/** A grid spec (posted verbatim; the backend expands windows × axes). */
+export interface CampaignSpec {
+  name?: string;
+  concurrency?: number;
+  windows: { label?: string; start: string; end: string }[];
+  axes?: Record<string, number[]>;
+  base?: Record<string, number>;
+  cost_flags?: { per_market_slippage?: boolean; market_impact?: boolean };
+}
+
+export function createCampaign(
+  spec: CampaignSpec,
+): Promise<{ campaign: Campaign; strategies_created: number; started: boolean }> {
+  return proxyPost("api/backtest/campaigns", { spec });
+}
+
+export function listCampaigns(): Promise<{ campaigns: Campaign[]; count: number }> {
+  return proxyGet("api/backtest/campaigns");
+}
+
+/** One campaign + its member strategies. */
+export function getCampaign(
+  id: string,
+): Promise<{ campaign: Campaign; strategies: Strategy[]; count: number }> {
+  return proxyGet(`api/backtest/campaigns/${encodeURIComponent(id)}`);
+}
+
+export function pauseCampaign(id: string): Promise<Campaign> {
+  return proxyPost(`api/backtest/campaigns/${encodeURIComponent(id)}/pause`);
+}
+
+export function stopCampaign(id: string): Promise<Campaign> {
+  return proxyPost(`api/backtest/campaigns/${encodeURIComponent(id)}/stop`);
+}
+
+export function resumeCampaign(id: string): Promise<Campaign> {
+  return proxyPost(`api/backtest/campaigns/${encodeURIComponent(id)}/resume`);
+}
+
+export function deleteCampaign(id: string): Promise<{ deleted: string }> {
+  return proxyDelete(`api/backtest/campaigns/${encodeURIComponent(id)}`);
 }
 
 /** Entry/exit overlay for a backtest trade's chart (issue #166). */
