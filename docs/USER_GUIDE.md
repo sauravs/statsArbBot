@@ -78,6 +78,8 @@ In the **Cointegrated Pairs** panel:
 
 **Scan floor** (header control, next to *Market data*): the minimum 24h dollar-volume a market must trade to appear in the scan/manual list. Set it live with the presets (Off / $100k / $1M / $5M / $20M) or a custom value — it takes effect on the next scan, no restart (it resets to the env default when the backend restarts). This is a **tractability knob, not a profit lever**: raising it shrinks the pair list to a reviewable, fillable size (the scan pairs markets, so a higher floor cuts the list super-linearly), but it does **not** create edge — filtering up to liquid names actually *loses* money because the strategy's gross lives in the thinnest markets (see `docs/QA.md`, 2026-07-27 entry). Default **$1M/24h**.
 
+**List filter** (header control, next to *Scan floor*): trims the *already-scanned* pair list to a fillable shortlist — a **half-spread ceiling** (drop pairs whose wider leg is too wide to fill cheaply) and a **top-N cap** by a tradability score (`min $-vol × 1/half-life × (1−p)`). Unlike the scan floor, it's **read-time and non-destructive** — it filters the view, not the stored scan, so you can adjust it with **no re-scan** (resets on restart). Both default off. Same framing: **tractability, not profit** — trimming to liquid names does not add edge (see `docs/QA.md`, WS2 entry).
+
 When it finishes you get the **pairs table**, one row per surviving cointegrated pair:
 
 | Column | What it tells you |

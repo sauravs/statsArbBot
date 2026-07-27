@@ -9,6 +9,7 @@ import JumpToSectionButton from "@/components/JumpToSectionButton";
 import StrategyThresholdsControl from "@/components/StrategyThresholdsControl";
 import DataSourceControl from "@/components/DataSourceControl";
 import ScanFloorControl from "@/components/ScanFloorControl";
+import ScanListFilterControl from "@/components/ScanListFilterControl";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -179,6 +180,24 @@ export default function DashboardPage() {
                   floor={health?.scan_floor}
                   onApplied={(next) => {
                     setHealth((h) => (h ? { ...h, scan_floor: next } : h));
+                  }}
+                />
+              </div>
+            </div>
+            <div
+              className="flex flex-col gap-1 rounded-lg border border-border px-3 py-1.5"
+              data-testid="scan-list-filter-control"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-muted">
+                List filter
+              </span>
+              <div className="flex items-center text-xs">
+                <ScanListFilterControl
+                  filters={health?.scan_list_filters}
+                  onApplied={(next) => {
+                    setHealth((h) => (h ? { ...h, scan_list_filters: next } : h));
+                    // The pairs list is trimmed server-side → reload it.
+                    setDataSourceKey((k) => k + 1);
                   }}
                 />
               </div>
