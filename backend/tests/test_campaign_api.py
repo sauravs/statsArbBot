@@ -21,10 +21,27 @@ import config
 import db.backtest_repository as repo_module
 import db.campaign_repository as campaign_repo_module
 import backtest.engine as engine_module
+import routers.backtest as backtest_router
 from app import create_app
 from tests.conftest import FakeCampaignRepository, FakeStrategyRepository
 
 AUTH = {"X-API-Key": config.API_KEY}
+
+
+class _NoopRunner:
+    """Stub campaign runner: these Slice-1 tests assert create/expand/link only, not
+    execution (which has its own test_campaign_runner). Keeps members PENDING."""
+
+    async def start(self, campaign_id):
+        return None
+
+    resume = start
+
+    async def request_pause(self, campaign_id):
+        return None
+
+    async def request_stop(self, campaign_id):
+        return None
 
 _WINDOWS = [
     {"label": "s2", "start": "2025-11-07T00:00:00+00:00", "end": "2026-03-01T00:00:00+00:00"},
@@ -46,6 +63,9 @@ def ctx(monkeypatch):
     monkeypatch.setattr(campaign_repo_module, "_repo", camp_repo)
     monkeypatch.setattr(engine_module, "_engine", None)
     monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "fake")
+    # Slice-1 create tests assert linkage, not execution — stub auto-start.
+    noop = _NoopRunner()
+    monkeypatch.setattr(backtest_router, "get_campaign_runner", lambda: noop)
     client = TestClient(create_app())
     return types.SimpleNamespace(client=client, strat=strat_repo, camp=camp_repo)
 

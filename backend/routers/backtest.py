@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 import config
 from auth import require_api_key
 from backtest.campaign import CampaignSpecError, cost_flags, expand_campaign_spec
+from backtest.campaign_runner import get_campaign_runner
 from backtest.engine import StrategyNotFound, get_backtest_engine
 from db.campaign_repository import get_campaign_repository
 from db.backtest_repository import get_strategy_repository
@@ -503,11 +504,57 @@ async def create_campaign(body: CampaignBody) -> dict:
     except Exception as exc:
         raise _guard_db(exc)
 
+    # Auto-start the execution queue (operator-approved 2026-07-27): the driver runs
+    # the members with bounded concurrency in the background. Best-effort — a launch
+    # hiccup leaves the members PENDING (runnable later), it must not fail the create.
+    started = False
+    try:
+        await get_campaign_runner().start(campaign["id"])
+        started = True
+    except Exception as exc:
+        logger.warning("campaign %s auto-start failed (members left PENDING): %s",
+                       campaign["id"], exc)
+
     logger.info(
-        "campaign %s created: %d member strategies (concurrency=%d)",
-        campaign["id"], len(created), concurrency,
+        "campaign %s created: %d member strategies (concurrency=%d, started=%s)",
+        campaign["id"], len(created), concurrency, started,
     )
-    return {"campaign": campaign, "strategies_created": len(created)}
+    return {"campaign": campaign, "strategies_created": len(created), "started": started}
+
+
+@router.post("/campaigns/{campaign_id}/pause")
+async def pause_campaign(campaign_id: str) -> dict:
+    """Pause a campaign: stop launching members; pause in-flight ones (resumable)."""
+    if await get_campaign_repository().get(campaign_id) is None:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    try:
+        return await get_campaign_runner().request_pause(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+
+
+@router.post("/campaigns/{campaign_id}/stop")
+async def stop_campaign(campaign_id: str) -> dict:
+    """Terminally stop a campaign: no new members; in-flight ones stopped."""
+    if await get_campaign_repository().get(campaign_id) is None:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    try:
+        return await get_campaign_runner().request_stop(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+
+
+@router.post("/campaigns/{campaign_id}/resume")
+async def resume_campaign(campaign_id: str) -> dict:
+    """Resume a paused campaign — re-drives its non-terminal members."""
+    camp = await get_campaign_repository().get(campaign_id)
+    if camp is None:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    try:
+        await get_campaign_runner().resume(campaign_id)
+    except Exception as exc:
+        raise _guard_db(exc)
+    return await get_campaign_repository().get(campaign_id)
 
 
 @router.get("/campaigns")

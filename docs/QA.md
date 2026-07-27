@@ -891,3 +891,17 @@ Expansion = the Cartesian product of the axis value-lists crossed with the windo
 **Honest defaults:** `cost_flags` default to `per_market_slippage` + `market_impact` **on** (the phase-2 cost model) so a campaign's runs are honestly costed. These are process-global engine flags recorded on the campaign; the execution queue (Slice 2) applies them at run time. Migration `0017_campaign` is additive (new `campaigns` table + nullable `strategies.campaign_id` FK) — no existing row changes.
 
 ---
+
+## 2026-07-27 — How does a campaign actually run its backtests? (WS3 Slice 2 — execution queue)
+
+**Q:** Slice 1 created campaign members PENDING. How do they get run — and what happens on pause/stop or an API restart?
+
+**A:** Phase-3 WS3 Slice 2 adds the **execution queue**. `POST /api/backtest/campaigns` now **auto-starts** the campaign: a background driver (`backtest/campaign_runner.py`) runs the member strategies through the existing `BacktestEngine.run` with **bounded concurrency** (`campaign.concurrency`, default 2 — the prod box is 2-vCPU). As members reach a terminal state the campaign's `completed`/`failed` counters and `status` are updated; when every member is terminal the campaign is **DONE**.
+
+**Controls:** `POST /api/backtest/campaigns/{id}/pause` (stop launching new members + pause in-flight ones at their next window boundary — resumable), `/stop` (terminal), `/resume` (re-drive the non-terminal members of a paused campaign). Pause/stop reuse the engine's per-strategy control, so a paused member keeps its `processed_windows` cursor and resumes from there.
+
+**DB-backed resume:** members are persisted `Strategy` rows with their own resume cursor, and a campaign left `RUNNING` by a crash is re-driven at startup (`resume_running_campaigns`, wired into the app lifespan — the same pattern as the sim scheduler's session re-registration). Members left mid-flight `RUNNING` are normalised (→ `PAUSED` if they have a cursor, else `PENDING`) so the engine doesn't skip them.
+
+**Honest cost:** the driver sets the process-global `PER_MARKET_SLIPPAGE` / `MARKET_IMPACT` to the campaign's `cost_flags` for the duration of the run and **restores** them afterward (operator-approved 2026-07-27). On prod these are already ON, so a campaign runs the phase-2 cost model by default. Caveat: a non-campaign backtest started *while a campaign is running* sees the same globals — acceptable for a single-operator tool. No new migration (Slice 2 is behaviour only). A minimal launch/monitor UI is a later slice; until then campaigns are driven via the API.
+
+---
