@@ -221,6 +221,54 @@ def set_min_liquidity_usd(value: float) -> None:
     global MIN_LIQUIDITY_USD
     MIN_LIQUIDITY_USD = value
 
+
+# ── Scan/manual list minimisation (Phase-3 WS2, path a — live list only) ──────
+# Read-time view filters on the pairs/manual list: an optional half-spread ceiling
+# (drop pairs whose wider leg is too wide to fill cheaply) and a top-N cap by the
+# tradability score (scan.tradability). Both DEFAULT OFF (0). Runtime-settable and
+# NOT persisted (reset to env on restart, like the scan floor) — they never touch a
+# stored scan, so adjust anytime with no re-scan. TRACTABILITY, not alpha: they
+# surface a shorter, fillable shortlist; filtering toward liquid names does not add
+# edge (PHASE2_STRATEGY_PLAN §4). Distinct from the backtest path-b filter.
+SCAN_MAX_HALF_SPREAD_PCT: float = _env(
+    "SCAN_MAX_HALF_SPREAD_PCT", default=0.0, cast=float
+)  # percent ceiling on the wider leg; 0 = off
+SCAN_TOP_N: int = _env("SCAN_TOP_N", default=0, cast=int)  # keep top-N; 0 = off
+# Trailing window (days) over which the read-time enrichment averages per-market
+# dollar-volume for the tradability score. Env-only (not a UI knob).
+SCAN_DVOL_LOOKBACK_DAYS: int = _env("SCAN_DVOL_LOOKBACK_DAYS", default=7, cast=int)
+
+SCAN_TOP_N_MAX = 100_000  # sane ceiling for the runtime setter
+
+
+def get_scan_list_filters() -> dict:
+    """The active read-time scan/manual-list minimisation knobs (WS2)."""
+    return {
+        "max_half_spread_pct": SCAN_MAX_HALF_SPREAD_PCT,
+        "top_n": SCAN_TOP_N,
+    }
+
+
+def set_scan_max_half_spread_pct(value: float) -> None:
+    """Reassign the live-list half-spread ceiling at runtime (WS2). Percent on the
+    wider leg; 0 = off. Read at call time by the pairs read path, so it takes effect
+    on the next list fetch without a restart; not persisted. Finite & >= 0."""
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("half-spread ceiling must be a finite number >= 0")
+    global SCAN_MAX_HALF_SPREAD_PCT
+    SCAN_MAX_HALF_SPREAD_PCT = value
+
+
+def set_scan_top_n(value: int) -> None:
+    """Reassign the live-list top-N cap at runtime (WS2). 0 = off (no cap). Read at
+    call time by the pairs read path; not persisted. Integer in [0, SCAN_TOP_N_MAX]."""
+    value = int(value)
+    if not 0 <= value <= SCAN_TOP_N_MAX:
+        raise ValueError(f"top-N must be an integer in [0, {SCAN_TOP_N_MAX}]")
+    global SCAN_TOP_N
+    SCAN_TOP_N = value
+
 # Per-market realistic cost model (Phase-2 Slice 1). When ON, the walk-forward
 # backtest charges each leg its market's half-spread (seed override table →
 # volume→spread curve → measured-mean default; simulation.spread_cost) instead of

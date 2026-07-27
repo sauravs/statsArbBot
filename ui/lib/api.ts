@@ -15,6 +15,8 @@ export interface SystemHealth {
   data_source?: string;
   /** Active live/manual-scan liquidity floor (24h $ notional) — WS1. */
   scan_floor?: number;
+  /** Read-time scan/manual-list minimisation knobs (WS2). */
+  scan_list_filters?: { max_half_spread_pct: number; top_n: number };
 }
 
 async function proxyGet<T>(path: string): Promise<T> {
@@ -188,15 +190,43 @@ export interface PairRecord {
   window_end: string | null;
   exchange: string;
   mode: string;
+  // Read-time tradability enrichment (Phase-3 WS2) — present when the pairs list
+  // has been scored. Undefined on rows served before enrichment (defensive).
+  tradability?: number;
+  min_dollar_volume?: number;
+  max_half_spread_pct?: number | null;
+  dollar_volume_base?: number | null;
+  dollar_volume_quote?: number | null;
+}
+
+/** Read-time scan/manual-list minimisation knobs (Phase-3 WS2). 0 = off. */
+export interface ScanListFilters {
+  max_half_spread_pct: number;
+  top_n: number;
 }
 
 export interface PairsResponse {
   pairs: PairRecord[];
   count: number;
+  /** Pairs found before the read-time WS2 filters (for a "N of M" display). */
+  total?: number;
   scanned_at: string | null;
   exchange: string;
   mode: string;
+  /** The active read-time minimisation knobs applied to this list (WS2). */
+  filters?: ScanListFilters;
   error?: string | null;
+}
+
+export function getScanListFilters(): Promise<ScanListFilters> {
+  return proxyGet<ScanListFilters>("api/system/scan-list-filters");
+}
+
+/** Set the read-time list minimisation knobs; either may be omitted. WS2. */
+export function setScanListFilters(
+  patch: Partial<ScanListFilters>,
+): Promise<ScanListFilters> {
+  return proxyPost<ScanListFilters>("api/system/scan-list-filters", patch);
 }
 
 export interface ScanStatus {

@@ -848,3 +848,17 @@ It's computed in-house (`backend/stats/deflated_sharpe.py`, stdlib only — no s
 **Does it add edge? No** — and the form says so (an inline note + ⓘ tips). This is the **path-b** engine filter the plan calls the "deciding experiment," and it is a **tractability/honesty** knob, not an alpha lever. The §4 evidence is decisive: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering up **loses** money (gross +$2,554 full → −$183 at ≥$100k/hr; net worse at every threshold). Enable it to make a backtest more *honest* (exclude untradeable dust, stress-test robustness), never expecting more profit. Default **OFF** (blank = full universe). Distinct from the WS1 **scan floor** (`MIN_LIQUIDITY_USD`, path a — the *live* scan/manual list; see the entry above); this one touches only the backtest.
 
 ---
+
+## 2026-07-27 — How do I shrink the manual pair list to a fillable shortlist? (WS2)
+
+**Q:** After a scan the pairs table can have hundreds of rows, many in coins I can't fill at size. Can I trim it to a short, tradable shortlist — and does trimming to liquid names make me more money?
+
+**A:** Yes — Phase-3 Workstream 2 adds a **read-time "List filter"** control in the dashboard header (next to *Scan floor*), with two knobs applied to the pairs/manual list *after* the scan:
+1. **Half-spread ceiling** — drop any pair whose *wider* leg's modelled half-spread exceeds the ceiling % (you pay both legs' spreads, so the wider one gates fillability).
+2. **Top-N cap** — keep the N most **tradable** pairs, where `tradability = min($-vol_base, $-vol_quote) × (1/half_life) × (1 − p_value)`: the thinner leg caps your size (min $-vol), faster reversion is better (1/half-life), stronger cointegration is better (1−p). Market-cap is deliberately **not** used — it needs an external API + brittle symbol mapping and is a worse "can I fill this?" proxy than liquidity/spread.
+
+Both default **off** and are **non-destructive + runtime-settable**: they filter the *view* (`/api/pairs` enriches each pair with the score/spread and applies the knobs), never the stored scan, so you can adjust them anytime with **no re-scan**. They reset to the env default on restart (like the scan floor). Reuses existing data only — `ohlcv_cache` dollar-volume + the `spread_cost` half-spread model — no new dependency.
+
+**Does trimming to liquid names add edge? No.** Same §4 refutation as the scan floor: the strategy's mid-price gross is concentrated in the *thinnest* markets, so filtering toward liquid names **loses** backtest money. This is a **tractability** lens — surface a reviewable, fillable shortlist you can actually trade at market size — **not** a profit lever (the form/control say so inline). This is the *live-list* path (path a), distinct from the per-strategy **backtest** universe filter (path b; see the other 2026-07-27 entry) and the **scan floor** `MIN_LIQUIDITY_USD` (also path a, but a hard market floor before pairing).
+
+---
