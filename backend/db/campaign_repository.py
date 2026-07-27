@@ -53,6 +53,14 @@ class PrismaCampaignRepository:
         )
         return [self._to_dict(r) for r in records]
 
+    async def list_running(self) -> list[dict]:
+        """Campaigns left RUNNING (across every data source) — for startup resume."""
+        from db.client import get_db
+
+        db = await get_db()
+        records = await db.campaign.find_many(where={"status": "RUNNING"})
+        return [self._to_dict(r) for r in records]
+
     async def update(self, campaign_id: str, data: dict) -> dict | None:
         from prisma import Json
         from prisma.errors import RecordNotFoundError

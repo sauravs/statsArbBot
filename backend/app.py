@@ -81,6 +81,16 @@ async def lifespan(app: FastAPI):
             await reregister_running_sessions()
         except Exception as exc:
             logger.error("Simulation scheduler startup failed: %s", exc)
+
+        # Re-drive any campaigns left RUNNING by a crash/restart (Phase-3 WS3). Members
+        # are persisted Strategy rows with their own resume cursor, so this picks up
+        # where the queue left off. Best-effort — must not block serving.
+        try:
+            from backtest.campaign_runner import resume_running_campaigns
+
+            await resume_running_campaigns()
+        except Exception as exc:
+            logger.error("Campaign resume on startup failed: %s", exc)
     else:
         logger.warning("DATABASE_URL not set — running without a database.")
 
