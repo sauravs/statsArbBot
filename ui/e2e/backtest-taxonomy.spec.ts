@@ -333,4 +333,41 @@ test.describe("Backtest strategy taxonomy", () => {
     await expect(row(page, p1)).toBeVisible();
     await expect(row(page, p2)).toHaveCount(0);
   });
+
+  // Phase-4 Task A. The default IS "All phases" (verified above), so a 0-row list
+  // is always a filter the operator chose — the old message ("No strategy matches
+  // these filters") gave them nothing to act on. Now it names the culprit filter
+  // and offers a one-click way out.
+  test("an empty filtered list explains itself and can be reset in one click", async ({
+    page,
+    names,
+  }) => {
+    await createStrategy(page, { name: names.oos, entryZ: "3.5", span: S2 });
+    await expect(page.getByTestId("strategy-list")).toBeVisible();
+
+    // Two filters that cannot both hold, whatever else is in the list:
+    // "Diagnostics only" keeps ONLY zero/reduced-cost rows, while "Realistic runs
+    // only" requires modelled cost. Guaranteed zero rows, no matter the fixtures.
+    await page.getByTestId("cost-filter-select").selectOption("diagnostic");
+    await page.getByTestId("realistic-only-toggle").locator("input").check();
+
+    // The dead end is gone: the operator is told how many rows exist and is given
+    // a way out. (Which filter gets named is unit-tested in strategyTaxonomy.test.ts
+    // — here we assert the wiring, not the wording.)
+    const empty = page.getByTestId("strategy-list-filtered-empty");
+    await expect(empty).toBeVisible();
+    await expect(empty).toContainText(/0 of \d+ shown/);
+    await expect(page.getByTestId("strategy-list")).toHaveCount(0);
+
+    await page.getByTestId("strategy-list-reset-filters").click();
+    await expect(page.getByTestId("strategy-list")).toBeVisible();
+    await expect(empty).toHaveCount(0);
+    await expect(row(page, names.oos)).toBeVisible();
+    // Every axis is back at its default — including Phase, which must never be
+    // left somewhere that hides the phase-1 baseline.
+    await expect(page.getByTestId("cost-filter-select")).toHaveValue("all");
+    await expect(page.getByTestId("span-filter-select")).toHaveValue("all");
+    await expect(page.getByTestId("phase-filter-select")).toHaveValue("all");
+    await expect(page.getByTestId("realistic-only-toggle").locator("input")).not.toBeChecked();
+  });
 });

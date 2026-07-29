@@ -5,14 +5,19 @@ import { type BacktestStatus, type Strategy } from "@/lib/api";
 import {
   FAMILY_DESCRIPTIONS,
   classify,
+  filterMissReason,
+  filtersActive as anyFilterActive,
   groupByFamily,
-  phaseMatches,
+  matchesFilters,
   sortGroups,
   sortStrategies,
+  type ActiveFilters,
   type Classification,
+  type CostFilter,
   type FamilyKey,
   type PhaseFilter,
   type SortKey,
+  type SpanFilter,
 } from "@/lib/strategyTaxonomy";
 import {
   COUNTERFACTUAL_ROW_STYLE,
@@ -35,9 +40,6 @@ import InfoTip from "./InfoTip";
 // and every row states whether its number is tradeable and whether it was earned on
 // unseen data. Counterfactuals stay visible — hiding them would trade one distortion
 // for another — but they are struck through with stripes and a loud badge.
-
-type SpanFilter = "all" | "oos" | "in-sample";
-type CostFilter = "all" | "tradeable" | "diagnostic";
 
 const SORT_LABELS: Record<SortKey, string> = {
   default: "Default",
@@ -82,25 +84,25 @@ export default function StrategyList({
     return seen;
   }, [classified]);
 
-  const visible = useMemo(() => {
-    return classified
-      .filter(({ s, c }) => {
-        if (!phaseMatches(s, phaseFilter)) return false;
-        if (realisticOnly && !c.safety.realistic) return false;
-        if (family !== "all" && c.family !== family) return false;
-        if (spanFilter === "oos" && c.safety.span !== "OUT_OF_SAMPLE") return false;
-        if (
-          spanFilter === "in-sample" &&
-          c.safety.span !== "IN_SAMPLE" &&
-          c.safety.span !== "OVERLAPS_IN_SAMPLE"
-        )
-          return false;
-        if (costFilter === "tradeable" && !c.safety.tradeable) return false;
-        if (costFilter === "diagnostic" && c.safety.tradeable) return false;
-        return true;
-      })
-      .map(({ s }) => s);
-  }, [classified, realisticOnly, family, spanFilter, costFilter, phaseFilter]);
+  // One object so the list and its empty state read the SAME filter state.
+  const activeFilters: ActiveFilters = useMemo(
+    () => ({ realisticOnly, family, spanFilter, costFilter, phaseFilter }),
+    [realisticOnly, family, spanFilter, costFilter, phaseFilter],
+  );
+
+  const visible = useMemo(
+    () =>
+      classified.filter(({ s, c }) => matchesFilters(s, c, activeFilters)).map(({ s }) => s),
+    [classified, activeFilters],
+  );
+
+  function resetFilters() {
+    setRealisticOnly(false);
+    setFamily("all");
+    setSpanFilter("all");
+    setCostFilter("all");
+    setPhaseFilter("all");
+  }
 
   const sorted = useMemo(() => sortStrategies(visible, sort), [visible, sort]);
   // Sort the groups too, not just the rows inside them — otherwise picking a sort
@@ -111,12 +113,7 @@ export default function StrategyList({
   );
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.family));
 
-  const filtersActive =
-    realisticOnly ||
-    family !== "all" ||
-    spanFilter !== "all" ||
-    costFilter !== "all" ||
-    phaseFilter !== "all";
+  const filtersActive = anyFilterActive(activeFilters);
 
   function toggleGroup(key: FamilyKey) {
     setCollapsed((prev) => {
@@ -281,16 +278,32 @@ export default function StrategyList({
           No strategies yet. Create one or seed the S1–S4 baselines.
         </p>
       ) : visible.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted" data-testid="strategy-list-filtered-empty">
-          No strategy matches these filters.
+        // Name the filter that is hiding everything rather than dead-ending on
+        // "no strategy matches" — the 2026-07-29 "0/75" case was the Phase
+        // dropdown on "Phase 2" against 75 Phase-1 rows (correct, but opaque).
+        <div className="py-4 text-center text-sm text-muted" data-testid="strategy-list-filtered-empty">
+          <p>
+            0 of {strategies.length} shown
+            {(() => {
+              const why = filterMissReason(classified, activeFilters);
+              return why ? ` — ${why}` : " — no strategy matches these filters.";
+            })()}
+          </p>
           {realisticOnly && (
-            <>
-              {" "}
+            <p className="mt-1">
               With realistic costs on unseen data, there may simply be nothing here — which
               is itself the result.
-            </>
+            </p>
           )}
-        </p>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="mt-3 rounded border border-border px-2.5 py-1 text-xs text-blue hover:bg-bg/50"
+            data-testid="strategy-list-reset-filters"
+          >
+            Reset filters
+          </button>
+        </div>
       ) : (
         <div className="space-y-3" data-testid="strategy-list">
           {grouped
