@@ -131,6 +131,44 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     // No row may render the reconciliation warning on engine-produced data.
     await expect(page.getByTestId("bt-blotter-mismatch")).toHaveCount(0);
 
+    // Slice A2 — the aggregate view. Both panels come from GET /costs, which
+    // aggregates in Postgres (a real group_by, not the in-memory test fake), so
+    // this is the only place that path is exercised end to end.
+    const bucket = async (testid: string) => {
+      const v = async (part: string) =>
+        Number(
+          ((await page.getByTestId(`${testid}-${part}`).textContent()) ?? "").replace(
+            /[$,]/g,
+            "",
+          ),
+        );
+      return {
+        gross: await v("gross"),
+        fees: await v("fees"),
+        funding: await v("funding"),
+        net: await v("net"),
+      };
+    };
+
+    // The open window's decomposition summarises the WHOLE window, so its trade
+    // count must exceed the 25-row page when the window has more than 25 trades.
+    const win = page.getByTestId("bt-window-cost-summary");
+    await expect(win).toBeVisible();
+    await expect(page.getByTestId("bt-window-cost-summary-meta")).toContainText(/trades? · avg hold \d+h/);
+    const w = await bucket("bt-window-cost-summary");
+    expect(w.gross + w.fees + w.funding).toBeCloseTo(w.net, 2);
+    expect(w.fees).toBeLessThanOrEqual(0);
+
+    // The run-level panel must reconcile too, and agree with the headline metric.
+    const run = page.getByTestId("bt-cost-summary");
+    await expect(run).toBeVisible();
+    const r = await bucket("bt-cost-summary");
+    expect(r.gross + r.fees + r.funding).toBeCloseTo(r.net, 2);
+    const headline = Number(
+      ((await page.getByTestId("bt-net-pnl").textContent()) ?? "").replace(/[$,]/g, ""),
+    );
+    expect(r.net).toBeCloseTo(headline, 2);
+
     // The "Losing take-profits" server-side filter narrows to reason=TAKE_PROFIT
     // AND net_pnl<0 — so no Win chip can survive it (or the empty-state shows).
     const ltpFilter = page.getByTestId("bt-blotter-filter-losing-tp");

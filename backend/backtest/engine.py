@@ -118,6 +118,11 @@ class BacktestEngine:
             outcome=outcome,
         )
 
+    async def cost_summary(self, strategy_id: str) -> dict:
+        """Σ gross / fees / funding / net per window and overall (Phase-4 Task A) —
+        the aggregate counterpart to the per-trade blotter breakdown."""
+        return await get_strategy_repository().backtest_cost_summary(strategy_id)
+
     async def get_trade(self, trade_id: str) -> dict | None:
         """One persisted trade by id — drives the per-trade chart (issue #166)."""
         return await get_strategy_repository().get_backtest_trade(trade_id)

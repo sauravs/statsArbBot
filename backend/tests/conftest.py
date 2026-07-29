@@ -709,6 +709,33 @@ class FakeStrategyRepository:
         rows.sort(key=lambda t: (str(t.get("entry_time")), t["id"]))
         return {"trades": [dict(t) for t in rows[offset : offset + limit]], "total": len(rows)}
 
+    async def backtest_cost_summary(self, strategy_id: str) -> dict:
+        # Mirrors the Prisma group_by: bucket by window, sum the cost columns.
+        from db.backtest_repository import _cost_total
+
+        rows = [t for t in self.trades if t["strategy_id"] == strategy_id]
+        by_window: dict[int, list[dict]] = {}
+        for t in rows:
+            by_window.setdefault(int(t.get("window_index") or 0), []).append(t)
+        windows = []
+        for idx in sorted(by_window):
+            group = by_window[idx]
+            hold = sum(float(t.get("hold_hours") or 0.0) for t in group)
+            windows.append(
+                {
+                    "window_index": idx,
+                    "trades": len(group),
+                    **{
+                        k: sum(float(t.get(k) or 0.0) for t in group)
+                        for k in ("gross_pnl", "fee_cost", "funding_pnl", "net_pnl",
+                                  "notional_usd")
+                    },
+                    "hold_hours": hold,
+                    "avg_hold_hours": hold / len(group) if group else 0.0,
+                }
+            )
+        return {"per_window": windows, "total": _cost_total(windows)}
+
     async def get_backtest_trade(self, trade_id: str):
         for t in self.trades:
             if t["id"] == trade_id:

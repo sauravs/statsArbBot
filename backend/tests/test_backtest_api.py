@@ -333,6 +333,68 @@ def test_trades_endpoint_404_and_auth(ctx):
     )
 
 
+def test_cost_summary_decomposes_per_window_and_overall(ctx):
+    """Phase-4 Task A: the aggregate counterpart to the blotter's per-trade
+    breakdown. Every bucket must satisfy the same identity the UI renders —
+    net = gross − fees + funding — and the windows must roll up to the total."""
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    ctx.client.post(f"/api/backtest/strategies/{sid}/run", headers=AUTH)
+    detail = ctx.client.get(f"/api/backtest/strategies/{sid}", headers=AUTH).json()
+
+    costs = ctx.client.get(f"/api/backtest/strategies/{sid}/costs", headers=AUTH).json()
+    assert costs["id"] == sid
+    total, windows = costs["total"], costs["per_window"]
+    assert windows, "a completed run with trades must decompose into windows"
+
+    # The identity holds at every level of aggregation.
+    for bucket in [*windows, total]:
+        assert (
+            abs(
+                (bucket["gross_pnl"] - bucket["fee_cost"] + bucket["funding_pnl"])
+                - bucket["net_pnl"]
+            )
+            < 1e-6
+        )
+        # Fees are stored as a positive magnitude (a cost), never signed.
+        assert bucket["fee_cost"] >= 0
+        assert bucket["avg_hold_hours"] == pytest.approx(
+            bucket["hold_hours"] / bucket["trades"]
+        )
+
+    # Windows roll up to the total, and the total agrees with the saved aggregate.
+    assert total["trades"] == sum(w["trades"] for w in windows) == detail["total_trades"]
+    assert total["net_pnl"] == pytest.approx(sum(w["net_pnl"] for w in windows))
+    assert total["net_pnl"] == pytest.approx(detail["net_pnl"], abs=1e-6)
+
+    # Per-window trade counts match the saved per-window summary, and the windows
+    # come back in index order (the UI renders them alongside that table).
+    by_index = {w["window_index"]: w for w in windows}
+    for w in detail["per_window"]:
+        if w["trades"]:
+            assert by_index[w["index"]]["trades"] == w["trades"]
+    assert [w["window_index"] for w in windows] == sorted(by_index)
+
+
+def test_cost_summary_zeroes_for_a_run_with_no_trades(ctx):
+    """Runs predating the per-trade blotter have no trade rows. That must read as
+    an explicit zero decomposition, not a 500 or a missing key."""
+    sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
+    costs = ctx.client.get(f"/api/backtest/strategies/{sid}/costs", headers=AUTH).json()
+    assert costs["per_window"] == []
+    assert costs["total"] == {
+        "trades": 0, "gross_pnl": 0.0, "fee_cost": 0.0, "funding_pnl": 0.0,
+        "net_pnl": 0.0, "notional_usd": 0.0, "hold_hours": 0.0, "avg_hold_hours": 0.0,
+    }
+
+
+def test_cost_summary_404_and_auth(ctx):
+    assert ctx.client.get("/api/backtest/strategies/nope/costs").status_code == 401
+    assert (
+        ctx.client.get("/api/backtest/strategies/nope/costs", headers=AUTH).status_code
+        == 404
+    )
+
+
 async def test_run_rejects_double_launch(ctx):
     sid = ctx.client.post("/api/backtest/strategies", json=_CREATE, headers=AUTH).json()["id"]
     # Force the row into RUNNING so a second run is rejected.
