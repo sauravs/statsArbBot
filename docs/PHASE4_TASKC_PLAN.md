@@ -142,7 +142,8 @@ Two campaigns, 3 entry values × 3 OOS spans = **9 runs each, 18 total**.
   "axes": { "entry_threshold": [3.5, 3.75, 4.0] },
   "base": { "usd_per_trade": 100, "starting_capital": 10000,
             "exit_threshold": 0.5, "stop_threshold": 5.0, "pvalue_max": 0.01,
-            "zscore_window": 21, "scan_window_days": 90, "trade_window_days": 30 },
+            "max_half_life_h": 72, "zscore_window": 21,
+            "scan_window_days": 21, "trade_window_days": 7 },
   "cost_flags": { "per_market_slippage": true, "market_impact": true },
   "concurrency": 2 }
 
@@ -150,6 +151,10 @@ Two campaigns, 3 entry values × 3 OOS spans = **9 runs each, 18 total**.
 //   "base": { "usd_per_trade": 1000, "starting_capital": 100000, ... }
 ```
 
+- **Walk-forward windows are `scan 21 / trade 7`** — copied from the phase-2 reference rows
+  (`per-market-3.5-*`, `b5-3.5-*`) so results are directly comparable. The first launch used the
+  API defaults (90/30) and every member failed instantly: 90 + 30 = 120 days exceeds the 114-day
+  spans, so not one walk-forward window fits. Each span yields **13 windows** at 21/7.
 - **entry 3.5 is included deliberately as the control** — same engine, same run, so the comparison
   against 3.75/4.0 is internal rather than against a figure from a different sweep.
 - **`stop_threshold: 5.0`** avoids the degenerate `entry == stop` at entry 4.0; phase-1 used the
@@ -159,6 +164,13 @@ Two campaigns, 3 entry values × 3 OOS spans = **9 runs each, 18 total**.
 
 **Estimated runtime:** ~2–3h per config across s2–s4 on the 2-vCPU box → roughly **6–9h per
 campaign**, so **12–18h total** at concurrency 2. An overnight job, run sequentially.
+
+### Launch log (2026-07-29)
+
+| Campaign | Outcome |
+|---|---|
+| `entry-size-100` | **All 9 members FAILED instantly** — spec used `scan 90 / trade 30` (the API defaults), which needs 120 days against 114-day spans. Kept, not deleted: strategy rows are never removed, and leaving the members attached to their campaign keeps them grouped and self-explanatory rather than loose in the inventory. |
+| `entry-size-100-r2` | Corrected to `scan 21 / trade 7` (+ `max_half_life_h: 72`) to match the phase-2 reference rows. Launched, running at concurrency 2. |
 
 ### Option B — add the intermediate size
 Adds a third campaign at $250/leg (capital $25,000), +9 runs, +6–9h. Maps the impact curve where
