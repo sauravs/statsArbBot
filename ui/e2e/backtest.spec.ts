@@ -104,6 +104,33 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(reason0).toContainText(/Reverted|Z-stop|Time-stop|Window end|Stopped/);
     await expect(page.getByTestId("bt-blotter-outcome").first()).toContainText(/Win|Loss|Flat/);
 
+    // Cost transparency (Phase-4 Task A): the blotter breaks Net P&L into the
+    // components that produce it, so funding — which accrues with hold time and
+    // was previously invisible — is on screen next to Hold.
+    await expect(page.getByTestId("bt-blotter-cost-legend")).toContainText(
+      "Gross + Fees + Funding = Net",
+    );
+    const money = /^-?\$[\d,]+\.\d{2}$/;
+    for (const col of ["gross", "fees", "funding", "net"]) {
+      await expect(page.getByTestId(`bt-blotter-${col}`).first()).toHaveText(money);
+    }
+    // Fees are a deduction, always rendered negative (or exactly zero on a
+    // zero-cost counterfactual) — never a credit.
+    const fees0 = await page.getByTestId("bt-blotter-fees").first().textContent();
+    expect(fees0).toMatch(/^(-\$|\$0\.00$)/);
+    // And the four numbers must actually add up: gross + fees + funding = net.
+    const usd = async (id: string) =>
+      Number(((await page.getByTestId(id).first().textContent()) ?? "").replace(/[$,]/g, ""));
+    const [g, f, fu, n] = await Promise.all([
+      usd("bt-blotter-gross"),
+      usd("bt-blotter-fees"),
+      usd("bt-blotter-funding"),
+      usd("bt-blotter-net"),
+    ]);
+    expect(g + f + fu).toBeCloseTo(n, 2);
+    // No row may render the reconciliation warning on engine-produced data.
+    await expect(page.getByTestId("bt-blotter-mismatch")).toHaveCount(0);
+
     // The "Losing take-profits" server-side filter narrows to reason=TAKE_PROFIT
     // AND net_pnl<0 — so no Win chip can survive it (or the empty-state shows).
     const ltpFilter = page.getByTestId("bt-blotter-filter-losing-tp");

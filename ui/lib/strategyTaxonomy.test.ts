@@ -3,18 +3,23 @@ import type { Strategy } from "@/lib/api";
 import {
   BASELINE_REFERENCE,
   DSR_SIGNIFICANT,
+  NO_FILTERS,
   autoDescription,
   classify,
   classifyCost,
   classifyFamily,
   classifySpan,
   dsrLevel,
+  filterMissReason,
+  filtersActive,
   groupByFamily,
+  matchesFilters,
   median,
   phaseMatches,
   phaseOf,
   sortGroups,
   sortStrategies,
+  type ActiveFilters,
 } from "@/lib/strategyTaxonomy";
 
 // Fixtures mirror real rows from the production database (69 hyperliquid
@@ -430,5 +435,137 @@ describe("phase provenance (Slice 6)", () => {
     expect(phaseMatches(strategy({ phase: 2 }), "phase1")).toBe(false);
     expect(phaseMatches(strategy({ phase: 2 }), "phase2")).toBe(true);
     expect(phaseMatches(strategy({ phase: 1 }), "phase2")).toBe(false);
+  });
+});
+
+// ── Filters + empty-state diagnosis (Phase-4 Task A) ────────────────────────
+// The list and its empty state must agree by construction: `matchesFilters` is
+// the single predicate both use, and `filterMissReason` explains a 0-row result
+// instead of dead-ending. Motivated by the 2026-07-29 report of "0/75 — No
+// strategy matches these filters" with the Phase dropdown on "Phase 2".
+
+const filters = (over: Partial<ActiveFilters> = {}): ActiveFilters => ({
+  ...NO_FILTERS,
+  ...over,
+});
+
+/** Classified rows in the shape the list holds them. */
+function rows(...list: Strategy[]) {
+  return list.map((s) => ({ s, c: classify(s) }));
+}
+
+/** A realistic-cost, out-of-sample row (span s2). */
+const oosRow = (over: Partial<Strategy> = {}) => strategy({ ...S2, ...over });
+
+describe("matchesFilters", () => {
+  it("keeps every row at the defaults — nothing is hidden out of the box", () => {
+    const all = rows(strategy({ phase: 1 }), oosRow({ phase: 2 }));
+    expect(all.every(({ s, c }) => matchesFilters(s, c, NO_FILTERS))).toBe(true);
+  });
+
+  it("partitions on phase", () => {
+    const p1 = rows(strategy({ phase: 1 }))[0];
+    const p2 = rows(strategy({ phase: 2 }))[0];
+    expect(matchesFilters(p1.s, p1.c, filters({ phaseFilter: "phase1" }))).toBe(true);
+    expect(matchesFilters(p2.s, p2.c, filters({ phaseFilter: "phase1" }))).toBe(false);
+    expect(matchesFilters(p2.s, p2.c, filters({ phaseFilter: "phase2" }))).toBe(true);
+  });
+
+  it("drops zero-cost counterfactuals under 'Tradeable only'", () => {
+    const zeroCost = rows(strategy({ taker_fee_pct: 0, slippage_pct: 0 }))[0];
+    expect(matchesFilters(zeroCost.s, zeroCost.c, filters({ costFilter: "tradeable" }))).toBe(
+      false,
+    );
+    expect(matchesFilters(zeroCost.s, zeroCost.c, filters({ costFilter: "diagnostic" }))).toBe(
+      true,
+    );
+  });
+
+  it("drops the in-sample window under the out-of-sample span filter", () => {
+    const inSample = rows(strategy())[0];
+    const oos = rows(oosRow())[0];
+    expect(matchesFilters(inSample.s, inSample.c, filters({ spanFilter: "oos" }))).toBe(false);
+    expect(matchesFilters(oos.s, oos.c, filters({ spanFilter: "oos" }))).toBe(true);
+  });
+});
+
+describe("filtersActive", () => {
+  it("is false at the defaults and true for any single change", () => {
+    expect(filtersActive(NO_FILTERS)).toBe(false);
+    expect(filtersActive(filters({ phaseFilter: "phase2" }))).toBe(true);
+    expect(filtersActive(filters({ realisticOnly: true }))).toBe(true);
+    expect(filtersActive(filters({ spanFilter: "oos" }))).toBe(true);
+    expect(filtersActive(filters({ costFilter: "diagnostic" }))).toBe(true);
+    expect(filtersActive(filters({ family: "entry-sweep" }))).toBe(true);
+  });
+});
+
+describe("filterMissReason", () => {
+  it("names the Phase filter when every saved run is phase 1 (the 0/75 case)", () => {
+    const all = rows(...Array.from({ length: 3 }, () => strategy({ phase: 1 })));
+    const why = filterMissReason(all, filters({ phaseFilter: "phase2" }));
+    expect(why).toContain("Phase 2");
+    expect(why).toContain("all 3 saved runs are Phase 1");
+  });
+
+  it("uses singular grammar for a single saved run", () => {
+    // "none of the 1 saved run match it" is not English — n=1 gets its own clause.
+    expect(filterMissReason(rows(strategy({ phase: 1 })), filters({ phaseFilter: "phase2" })))
+      .toContain("the one saved run is Phase 1");
+    expect(filterMissReason(rows(strategy()), filters({ costFilter: "diagnostic" })))
+      .toContain("the one saved run does not match it");
+    expect(filterMissReason(rows(strategy()), filters({ spanFilter: "oos" })))
+      .toContain("the one saved run is not in that span");
+    expect(filterMissReason(rows(strategy()), filters({ realisticOnly: true })))
+      .toContain("the one saved run is not both");
+  });
+
+  it("negates correctly in the plural — 'none of the N ... are' never reads as a positive", () => {
+    const two = rows(strategy(), strategy());
+    expect(filterMissReason(two, filters({ spanFilter: "oos" }))).toContain(
+      "none of the 2 saved runs are in that span",
+    );
+    expect(filterMissReason(two, filters({ realisticOnly: true }))).toContain(
+      "none of the 2 saved runs are both tradeable-cost AND out-of-sample",
+    );
+    expect(filterMissReason(two, filters({ costFilter: "diagnostic" }))).toContain(
+      "none of the 2 saved runs match it",
+    );
+  });
+
+  it("names the Span filter when nothing is out-of-sample", () => {
+    const why = filterMissReason(rows(strategy(), strategy()), filters({ spanFilter: "oos" }));
+    expect(why).toContain("Span filter");
+    expect(why).toContain("Out-of-sample");
+  });
+
+  it("names the Costs filter when every run is realistically costed", () => {
+    const why = filterMissReason(rows(strategy()), filters({ costFilter: "diagnostic" }));
+    expect(why).toContain("Costs filter");
+    expect(why).toContain("Diagnostics only");
+  });
+
+  it("names 'Realistic runs only' when no row is both tradeable AND out-of-sample", () => {
+    // The fixture is modelled-cost but IN-SAMPLE, so it fails `realistic`.
+    const why = filterMissReason(rows(strategy()), filters({ realisticOnly: true }));
+    expect(why).toContain("Realistic runs only");
+  });
+
+  it("returns null when no SINGLE filter explains the miss (a combination does)", () => {
+    // Each filter alone keeps a row; only together do they exclude everything.
+    const all = rows(
+      strategy({ phase: 2 }), // phase-2 but in-sample
+      oosRow({ phase: 1 }), // out-of-sample but phase-1
+    );
+    expect(filterMissReason(all, filters({ phaseFilter: "phase2", spanFilter: "oos" }))).toBeNull();
+  });
+
+  it("returns null when there are no saved runs at all", () => {
+    expect(filterMissReason([], filters({ phaseFilter: "phase2" }))).toBeNull();
+  });
+
+  it("stays silent when the filters actually match something", () => {
+    expect(filterMissReason(rows(strategy({ phase: 2 })), filters({ phaseFilter: "phase2" })))
+      .toBeNull();
   });
 });

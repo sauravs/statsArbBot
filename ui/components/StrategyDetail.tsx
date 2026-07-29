@@ -24,6 +24,12 @@ import { FamilyBadge, SafetyBadges } from "./SafetyBadges";
 import { FAMILY_DESCRIPTIONS, classify } from "@/lib/strategyTaxonomy";
 import InfoTip from "./InfoTip";
 import { reasonLabel, reasonHint, reasonBadgeStyle, reasonColor } from "@/lib/exitReason";
+import {
+  FEES_NOTE,
+  FUNDING_NOTE,
+  SLIPPAGE_NOTE,
+  costBreakdown,
+} from "@/lib/tradeCosts";
 
 // The exit-reason mix (issue #79) is coloured by the shared P&L-neutral scheme
 // (`reasonColor`) so a reason reads the same everywhere: Reverted = blue (planned
@@ -648,6 +654,11 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
         <span className="text-muted/70">
           <InfoTip text="Show only 'Reverted' (take-profit) exits that still closed at a net loss — the spread reverted but fees + funding turned the trade red. The interesting cohort for tuning costs / half-life." />
         </span>
+        {/* Make the identity discoverable without hovering every column header. */}
+        <span className="ml-auto text-muted/70" data-testid="bt-blotter-cost-legend">
+          Gross + Fees + Funding = Net
+          <InfoTip text={SLIPPAGE_NOTE} />
+        </span>
       </div>
       {total === 0 ? (
         <p className="py-3 text-center text-xs text-muted" data-testid="bt-blotter-empty">
@@ -656,7 +667,7 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
       ) : (
       <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[940px] text-xs" data-testid="bt-blotter-table">
+        <table className="w-full min-w-[1180px] text-xs" data-testid="bt-blotter-table">
           <thead>
             <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
               <th className="px-2 py-1.5 text-left">Pair</th>
@@ -666,8 +677,26 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
               </th>
               <th className="px-2 py-1.5 text-left">Entry (t · Z · px)</th>
               <th className="px-2 py-1.5 text-left">Exit (t · Z · px)</th>
-              <th className="px-2 py-1.5 text-right">Hold</th>
-              <th className="px-2 py-1.5 text-right">Net P&amp;L</th>
+              <th className="px-2 py-1.5 text-right">
+                Hold
+                <InfoTip text="How long the position was open, in hours. Funding accrues over this time, so a long hold is also a bigger funding bill (or credit) — read it together with the Funding column." />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Gross
+                <InfoTip text={SLIPPAGE_NOTE} />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Fees
+                <InfoTip text={FEES_NOTE} />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Funding
+                <InfoTip text={FUNDING_NOTE} />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Net P&amp;L
+                <InfoTip text="What the trade actually made or lost: Gross + Fees + Funding. Slippage and market impact are not a separate column — they are charged at the fill price, so they are already inside Gross." />
+              </th>
               <th className="px-2 py-1.5 text-center">
                 Outcome
                 <InfoTip text="Did the trade make money? Driven purely by Net P&L sign — kept separate from Reason, because the two are independent: a 'Reverted' (take-profit) exit can still be a Loss after fees & funding." />
@@ -683,7 +712,9 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
             </tr>
           </thead>
           <tbody>
-            {trades.map((t) => (
+            {trades.map((t) => {
+              const c = costBreakdown(t);
+              return (
               <tr key={t.id} className="border-b border-border/40" data-testid="bt-blotter-row">
                 <td className="whitespace-nowrap px-2 py-1.5 text-text">
                   {shortMkt(t.base_market)}/{shortMkt(t.quote_market)}
@@ -701,9 +732,40 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
                   {" · "}
                   {fmtPx(t.exit_base_px)}/{fmtPx(t.exit_quote_px)}
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-muted">{Math.round(t.hold_hours)}h</td>
-                <td className={`px-2 py-1.5 text-right tabular-nums ${t.net_pnl >= 0 ? "text-green" : "text-red"}`}>
-                  {fmtUsd(t.net_pnl)}
+                <td className="px-2 py-1.5 text-right tabular-nums text-muted" data-testid="bt-blotter-hold">
+                  {Math.round(c.holdHours)}h
+                </td>
+                {/* Cost decomposition (Phase-4 Task A): gross + fees + funding = net.
+                    Slippage/impact are inside gross — see SLIPPAGE_NOTE. */}
+                <td
+                  className={`px-2 py-1.5 text-right tabular-nums ${c.gross >= 0 ? "text-green/80" : "text-red/80"}`}
+                  data-testid="bt-blotter-gross"
+                >
+                  {fmtUsd(c.gross)}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-muted" data-testid="bt-blotter-fees">
+                  {fmtUsd(c.fees)}
+                </td>
+                <td
+                  className={`px-2 py-1.5 text-right tabular-nums ${c.funding >= 0 ? "text-green/80" : "text-red/80"}`}
+                  data-testid="bt-blotter-funding"
+                >
+                  {fmtUsd(c.funding)}
+                </td>
+                <td
+                  className={`px-2 py-1.5 text-right tabular-nums ${c.net >= 0 ? "text-green" : "text-red"}`}
+                  data-testid="bt-blotter-net"
+                >
+                  {fmtUsd(c.net)}
+                  {!c.reconciles && (
+                    <span
+                      className="ml-1 cursor-help text-yellow"
+                      title="This row's components do not add up to its stored net P&L — treat the breakdown as unreliable for this trade."
+                      data-testid="bt-blotter-mismatch"
+                    >
+                      ⚠
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   {t.net_pnl > 0 ? (
@@ -742,7 +804,8 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
                   </a>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
