@@ -905,3 +905,29 @@ Expansion = the Cartesian product of the axis value-lists crossed with the windo
 **Honest cost:** the driver sets the process-global `PER_MARKET_SLIPPAGE` / `MARKET_IMPACT` to the campaign's `cost_flags` for the duration of the run and **restores** them afterward (operator-approved 2026-07-27). On prod these are already ON, so a campaign runs the phase-2 cost model by default. Caveat: a non-campaign backtest started *while a campaign is running* sees the same globals — acceptable for a single-operator tool. No new migration (Slice 2 is behaviour only). A minimal launch/monitor UI is a later slice; until then campaigns are driven via the API.
 
 ---
+
+## 2026-07-29 — Why does the blotter show Gross, Fees and Funding but not Slippage?
+
+**Q:** Why does the backtest blotter show Gross, Fees and Funding but not Slippage — and where do I see the totals for a whole run?
+
+**A:** **Because slippage isn't a line item — it's a worse fill price**, so it is already inside Gross. The blotter (Phase-4 Task A) breaks each trade into the three things that *are* separable, and they sum exactly:
+
+> **Gross + Fees + Funding = Net**
+
+- **Gross** — realised P&L on both legs at their **actual fill prices**. `apply_slippage` moves the fill itself (`backend/simulation/costs.py:49-52` — a BUY pays up, a SELL receives down), and market impact is folded into the same per-leg percentage (`backend/backtest/engine.py::_build_slippage_map`, `backend/simulation/market_impact.py::impact_pct`). By the time a P&L exists, the cost is *in the price*. So **Gross is not a mid-price figure** — it is already net of slippage and impact, and there is no arithmetic that recovers the mid-price number after the fact.
+- **Fees** — the taker fee on all four fills of a round-trip (entry + exit, both legs). Stored positive as `fee_cost`, displayed negative because it is always a deduction.
+- **Funding** — signed: the long leg pays, the short leg receives. **This is the one that scales with hold time**, which is why it sits next to the **Hold** column: a position held 3× longer pays roughly 3× the funding. It was the previously-invisible cost the blotter was rebuilt to expose.
+
+The engine's identity is `net_pnl = gross_pnl − fee_cost + funding_pnl` (`backend/simulation/costs.py:178`), persisted per trade on `BacktestTrade` (`backend/prisma/schema.prisma:604-609`). A ⚠ next to a Net value means that row's components don't reconcile to its stored net — a data defect, not rounding (tolerance is half a cent, `ui/lib/tradeCosts.ts`).
+
+**Could slippage get its own column?** Only with an engine change plus an additive migration to persist a per-trade `slippage_cost` alongside a mid-price gross. That was considered and deliberately deferred (operator decision, 2026-07-29): the UI-only breakdown answers "why is my net what it is" without touching the engine or the schema.
+
+**Totals for a whole run:** two panels, both from `GET /api/backtest/strategies/{id}/costs`:
+- a **whole-run** panel under the headline metrics on the strategy detail, and
+- a **per-window** panel at the top of each window's blotter when you expand it.
+
+Each shows Gross / Fees / Funding / Net plus trade count and **average hold**, and each summarises *every* trade in scope — not the 25 rows on the current blotter page. The aggregation runs in Postgres (`db/backtest_repository.py::backtest_cost_summary`, one `group_by`), reading only the persisted trades — so it works **retroactively for every saved run**. `Strategy.per_window` only ever stored `net_pnl` (`schema.prisma:517`) and could not have been back-filled.
+
+Reading one at a glance: *gross $29.38, fees −$27.09, funding $0.00 → net $2.29 over 149 trades* is the whole Phase-2 verdict in miniature — the signal worked, and friction took 92% of it. See `docs/USER_GUIDE.md` §11.
+
+---

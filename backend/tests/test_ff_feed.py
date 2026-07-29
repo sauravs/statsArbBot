@@ -141,3 +141,71 @@ def test_funding_table_step_lookup():
 def test_funding_table_empty_when_no_rates():
     assert FundingTable({}).empty
     assert FundingTable({"AAA": []}).empty
+
+
+# ── DemoCandleSource synthetic funding ──────────────────────────────────────
+# `get_funding` used to return [], which made funding_pnl STRUCTURALLY ZERO on
+# the whole offline stack: every demo backtest, every e2e, every screenshot. The
+# blotter's funding column (Phase-4 Task A) could not render a non-zero value
+# offline, so nothing actually exercised it. These tests pin the properties the
+# demo needs in order to be worth testing against.
+
+
+async def test_demo_funding_is_deterministic_and_bounded():
+    from replay.candle_source import _DEMO_FUNDING_PEAK, DemoCandleSource
+
+    src = DemoCandleSource()
+    markets = await src.available_markets()
+    assert markets, "the demo stack must expose markets"
+
+    start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2100, 1, 1, tzinfo=timezone.utc)
+    rows = await src.get_funding(markets[0], start=start, end=end)
+    assert rows, "demo funding must not be empty — that was the bug"
+
+    # Byte-identical across instances: derived from the market name + bar index,
+    # never an RNG or the clock. The demo stack's determinism depends on this.
+    again = await DemoCandleSource().get_funding(markets[0], start=start, end=end)
+    assert rows == again
+
+    # One rate per candle, aligned to the same hourly grid.
+    candles = await src.get_candles(markets[0], start=start, end=end)
+    assert [r["timestamp"] for r in rows] == [c["timestamp"] for c in candles]
+
+    # Plausible magnitude — a demo that funds at 5%/hr would teach the operator
+    # the wrong thing about which cost dominates.
+    assert all(abs(r["funding_rate"]) <= _DEMO_FUNDING_PEAK for r in rows)
+
+
+async def test_demo_funding_takes_both_signs_and_differs_per_market():
+    from replay.candle_source import DemoCandleSource
+
+    src = DemoCandleSource()
+    markets = await src.available_markets()
+    start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2100, 1, 1, tzinfo=timezone.utc)
+
+    rates = [r["funding_rate"] for r in await src.get_funding(markets[0], start=start, end=end)]
+    # Both branches of compute_funding (long pays / short receives) must be hit.
+    assert any(r > 0 for r in rates) and any(r < 0 for r in rates)
+
+    # A pair trade is long one leg and short the other, so identical rates would
+    # very nearly cancel and leave funding invisible again.
+    assert len(markets) >= 2
+    other = [r["funding_rate"] for r in await src.get_funding(markets[1], start=start, end=end)]
+    assert rates != other
+
+
+async def test_demo_funding_respects_the_requested_window():
+    from replay.candle_source import DemoCandleSource
+
+    src = DemoCandleSource()
+    market = (await src.available_markets())[0]
+    wide = await src.get_funding(
+        market,
+        start=datetime(2000, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2100, 1, 1, tzinfo=timezone.utc),
+    )
+    lo, hi = wide[2]["timestamp"], wide[5]["timestamp"]
+    narrow = await src.get_funding(market, start=lo, end=hi)
+    assert [r["timestamp"] for r in narrow] == [r["timestamp"] for r in wide[2:6]]

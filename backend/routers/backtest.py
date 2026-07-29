@@ -327,6 +327,34 @@ async def list_trades(
     }
 
 
+@router.get("/strategies/{strategy_id}/costs")
+async def trade_cost_summary(strategy_id: str) -> dict:
+    """Cost decomposition for a strategy: Σ gross / fees / funding / net, per
+    walk-forward window and overall (Phase-4 Task A).
+
+    The blotter explains ONE trade; this explains a whole window or run. Computed
+    from the persisted ``backtest_trades`` rows, so it is available retroactively
+    for every saved run — ``Strategy.per_window`` only ever stored ``net_pnl``.
+
+    NOTE ON SLIPPAGE: slippage and market impact are charged at the FILL PRICE
+    (``simulation/costs.py::apply_slippage``, ``simulation/market_impact.py``), so
+    they are already inside ``gross_pnl`` and are not — and cannot be — a separate
+    line here without an engine change. Runs predating the per-trade blotter have
+    no trade rows and return zeroed totals.
+    """
+    try:
+        engine = get_backtest_engine()
+        row = await engine.get(strategy_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Strategy not found.")
+        summary = await engine.cost_summary(strategy_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _guard_db(exc)
+    return {"id": strategy_id, **summary}
+
+
 @router.get("/strategies/{strategy_id}/trades/{trade_id}/series")
 async def trade_series(strategy_id: str, trade_id: str) -> dict:
     """Per-trade chart series (issue #166) — the four pair panels over the trade's
