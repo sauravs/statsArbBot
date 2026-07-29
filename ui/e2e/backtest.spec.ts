@@ -169,6 +169,26 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     );
     expect(r.net).toBeCloseTo(headline, 2);
 
+    // Funding must actually be EXERCISED, not just rendered. The demo source used
+    // to return no funding rates at all, which made funding_pnl structurally zero
+    // across the whole offline stack — so every assertion above would have passed
+    // on `x + 0` while the column the operator asked for was never tested. Guard
+    // the property directly, at cent-level precision the UI would round away.
+    const list = await page.request.get("/api/proxy/api/backtest/strategies");
+    const sid = ((await list.json()).strategies as { id: string; name: string }[]).find(
+      (x) => x.name === "E2E Loose",
+    )?.id;
+    expect(sid).toBeTruthy();
+    const api = await page.request.get(
+      `/api/proxy/api/backtest/strategies/${sid}/costs`,
+    );
+    expect(api.ok()).toBeTruthy();
+    const windows = (await api.json()).per_window as { funding_pnl: number }[];
+    expect(windows.some((w) => w.funding_pnl !== 0)).toBeTruthy();
+    // A long leg pays and a short leg receives, so a healthy run funds BOTH ways.
+    expect(windows.some((w) => w.funding_pnl > 0)).toBeTruthy();
+    expect(windows.some((w) => w.funding_pnl < 0)).toBeTruthy();
+
     // The "Losing take-profits" server-side filter narrows to reason=TAKE_PROFIT
     // AND net_pnl<0 — so no Win chip can survive it (or the empty-state shows).
     const ltpFilter = page.getByTestId("bt-blotter-filter-losing-tp");

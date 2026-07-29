@@ -19,6 +19,7 @@ UTC datetimes so the cursor arithmetic and the engine's position-age clock agree
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 
 import config
@@ -61,12 +62,20 @@ class OhlcvCacheSource:
         )
 
 
+# Synthetic demo funding: peak hourly rate per market, and the period of the sign
+# cycle. Real perps fund at roughly 0.001–0.01%/hr, spiking higher when stressed;
+# the demo sits at the top of that band so a short demo hold still produces a
+# funding figure that renders at cent precision.
+_DEMO_FUNDING_PEAK = 0.0003  # 0.03% per hour
+_DEMO_FUNDING_CYCLE_H = 24
+
+
 class DemoCandleSource:
     """Deterministic offline candle source over the synthetic DEMO markets.
 
     The DEMO series are a fixed number of hourly bars anchored at
     ``exchanges.demo.DEMO_ANCHOR``; this maps them onto timestamps and returns the
-    in-range slice. No funding data (the demo run exercises slippage/fees only).
+    in-range slice, plus a deterministic synthetic funding curve per market.
     """
 
     def __init__(self) -> None:
@@ -85,6 +94,44 @@ class DemoCandleSource:
             for i, c in enumerate(closes)
         ]
 
+    def _funding(self, market: str) -> list[dict]:
+        """Deterministic synthetic hourly funding rates for one DEMO market.
+
+        This used to return nothing, which made ``funding_pnl`` **structurally
+        zero** on the whole demo stack — so every test that claimed to exercise
+        funding was really asserting `x + 0`, and the blotter's funding column
+        could never render a non-zero value offline.
+
+        Two properties make the demo faithful enough to test against:
+
+        * **Per-market rates.** A pair trade is long one leg and short the other,
+          so identical rates would very nearly cancel. Each market gets its own
+          amplitude and phase, derived from its name — so the pair nets a real
+          funding figure.
+        * **Both signs.** The rate follows a 24h sine, so a position pays funding
+          in some windows and earns it in others, exercising the long-pays /
+          short-receives branches of ``compute_funding``.
+
+        Derived from the market name and bar index only — no RNG and no clock, so
+        a demo backtest stays byte-identical across runs (the property the whole
+        demo stack relies on).
+        """
+        closes = self._series.get(market, [])
+        seed = sum(ord(ch) for ch in market)
+        amplitude = _DEMO_FUNDING_PEAK * (1.0 + (seed % 5)) / 5.0
+        phase = seed % _DEMO_FUNDING_CYCLE_H
+        return [
+            {
+                "timestamp": self._anchor + timedelta(hours=i),
+                "funding_rate": round(
+                    amplitude
+                    * math.sin(2 * math.pi * (i + phase) / _DEMO_FUNDING_CYCLE_H),
+                    9,
+                ),
+            }
+            for i in range(len(closes))
+        ]
+
     async def get_candles(
         self, market: str, *, start: datetime, end: datetime
     ) -> list[dict]:
@@ -93,7 +140,7 @@ class DemoCandleSource:
     async def get_funding(
         self, market: str, *, start: datetime, end: datetime
     ) -> list[dict]:
-        return []
+        return [f for f in self._funding(market) if start <= f["timestamp"] <= end]
 
     async def available_markets(self) -> list[str]:
         return sorted(self._series.keys())
