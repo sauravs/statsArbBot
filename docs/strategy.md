@@ -523,3 +523,123 @@ machinery. Its verdict on today's signal is unambiguous: **NO-GO** — best hone
 is a coin flip at $100/leg (+$157), collapses to **−$50,670 at $1k/leg** once market
 impact is charged (gate B5 fails), and **nothing clears DSR > 0.95** (gate B3 fails). The
 machinery now makes any *future* candidate provable or refutable cheaply.
+
+---
+
+## Phase-4 campaign — the entry × size interaction (2026-07-29 → 07-30)
+
+**Verdict up front: NO-GO, unchanged.** This campaign found a real, reproducible
+*mechanism* — raising entry selectivity inverts the size economics — but not a
+defensible edge. The result fails gate B3's Deflated-Sharpe arm and is concentrated
+in a handful of windows. Plan: `docs/PHASE4_TASKC_PLAN.md`.
+
+**What was untested before this.** Every lever had been swept, but only ever at
+**one size** ($100/leg), and the size ladder had only ever been measured at **one
+entry** (3.5). Phase-1 could not explore that surface at all — it never charged
+market impact. Two campaigns, 3 entry values × 3 OOS spans, honest cost flags on
+(`PER_MARKET_SLIPPAGE` + `MARKET_IMPACT`), `scan 21 / trade 7`, 13 windows per span,
+`stop 5.0` throughout to avoid the degenerate `entry == stop` at 4.0.
+
+### Results
+
+| Entry | s2 | s3 | s4 | **OOS total @ $100/leg** | Trades |
+|---|---|---|---|---|---|
+| 3.5 | +$115 | −$1,667 | +$306 | **−$1,246** | 7,699 |
+| 3.75 | +$564 | +$297 | +$50 | **+$911** | 3,711 |
+| 4.0 | +$1,385 | +$807 | +$154 | **+$2,346** | 1,513 |
+
+| Entry | s2 | s3 | s4 | **OOS total @ $1,000/leg** | Trades |
+|---|---|---|---|---|---|
+| 3.5 | −$14,436 | −$29,899 | −$4,537 | **−$48,872** | 7,638 |
+| 3.75 | −$2,178 | −$3,541 | −$2,655 | **−$8,374** | 3,706 |
+| 4.0 | +$10,706 | +$4,796 | +$284 | **+$15,787** | 1,511 |
+
+**Control validated.** The entry-3.5 arm at $1,000/leg reproduces the documented
+gate-B5 figure: **−$48,872 vs the published −$50,670**, within 3.5% (the residual is
+`stop 5.0` vs the reference's 4.0). The machinery is measuring what it did before.
+
+### The mechanism, quantified
+
+Impact cost per trade is **essentially constant across entry thresholds** — what
+changes is how many trades pay it:
+
+| Entry | Gross/trade @ $100 | 10× gross would be | Actual gross @ $1k | Impact absorbed | Impact/trade |
+|---|---|---|---|---|---|
+| 3.5 | $0.56 | $19,990 | $4,315 | $15,675 | **$4.41** |
+| 3.75 | $1.06 | $18,620 | $10,779 | $7,841 | **$4.47** |
+| 4.0 | $3.08 | $22,480 | $19,309 | $3,171 | **$4.35** |
+
+Entry 4.0 wins at size for one reason: its **gross per trade is 5.5× higher** while
+its **friction per trade is the same**, so it clears a per-trade tax that buries
+entry 3.5. Gross scales as Q; impact as Q^1.5 — so the *number* of trades, not the
+size, is the lever that decides whether the edge survives.
+
+### Funding is the dominant explicit cost (Phase-4 Task A)
+
+The per-trade cost columns shipped in Task A make this visible for the first time:
+
+| Config (s2, $100/leg) | Gross | Fees | Funding | Net | Avg hold |
+|---|---|---|---|---|---|
+| e3.5 | +$1,999 | −$675 | **−$1,210** | +$115 | 10.9h |
+| e4.0 | +$2,248 | −$133 | **−$730** | +$1,385 | 11.1h |
+
+**Funding costs 1.8–5.5× more than fees** and eats 32–61% of gross. It scales
+near-linearly with notional (e3.5/s2: −$1,210 → −$12,041 at 10× size, a
+9.95× ratio), confirming it is a pure carry cost, not a microstructure one. The operator's
+instinct to demand funding visibility was correct — it is the largest single
+deduction, and it was previously buried inside net.
+
+### Why this is still NO-GO
+
+| Gate | entry 4.0 @ $1,000/leg | |
+|---|---|---|
+| B1 out-of-sample only | ✅ | s2/s3/s4, zero overlap with the tuned window |
+| B2 real per-market taker cost | ✅ | per-market spread + size-aware impact |
+| B3 net ≥ +$424 | ✅ | +$15,787 |
+| B3 **DSR > 0.95** | ❌ | **0.0000** |
+| B4 non-negative in ≥2 spans | ✅ | 3/3 |
+| B5 executable at real size | ✅ | positive at $1,000/leg |
+
+**The DSR failure is real arithmetic, not a defect.** With `n_trials = 72` and
+trial-Sharpe dispersion 0.76, the multiplicity-corrected bar is
+**`sr_star` = 1.839**; entry 4.0's window-return Sharpe is **0.26**. Nothing is close.
+
+**And the reason is visible in the windows.** Of 13 windows per span, only 5–7 are
+positive, and the best three carry the whole result:
+
+| entry 4.0 @ $1k | Net | Best 3 windows | Other 10 windows |
+|---|---|---|---|
+| s2 | +$10,706 | +$17,998 | **−$7,292** |
+| s3 | +$4,796 | +$7,403 | **−$2,607** |
+| s4 | +$284 | +$6,556 | **−$6,271** |
+
+Across all three spans: **9 of 39 windows produce +$31,957; the other 30 lose
+−$16,170.** Strip the best three windows from any span and it goes negative. That is
+not a broad edge — it is a small number of large wins, which is exactly the pattern
+the Deflated Sharpe exists to catch.
+
+**B3's two arms disagree, and the net arm is the weaker evidence here.** The +$424
+threshold derives from a ±$212 noise floor estimated at *$100/leg on
+entry-3.5-scale runs* (thousands of trades). It was never intended for 1,511 trades
+whose P&L lives in 9 windows. DSR is the purpose-built correction for precisely this
+situation, and it says no.
+
+### Honest note on the prediction
+
+`PHASE4_TASKC_PLAN.md` §3 pre-stated that entry 4.0 would land "near break-even and
+still fail B3" at $1,000/leg. **The net figure was wrong** (+$15,787, not
+break-even). The error is identifiable: the projection assumed the out-of-sample
+haircut measured at entry 3.5 (27.8% of in-sample gross/trade) applied at every
+threshold. It does not — more selective configs held up substantially better
+out-of-sample. The *conclusion* (fails B3) survived, but for the DSR reason rather
+than the net reason.
+
+### What this changes
+
+Nothing about deployment: `ENVIRONMENT` stays testnet, no strategy ships, no gate is
+relaxed. What it does change is the **search direction**. "More selectivity at larger
+size" is now measured, and the honest reading is that the surviving P&L is too
+concentrated to trade. A genuine "yes" still needs what
+`PHASE2_STRATEGY_PLAN.md` §7 says it needs — a **new signal**, most plausibly
+funding-carry-aware pair selection, now that funding is measured as the single
+largest cost line.

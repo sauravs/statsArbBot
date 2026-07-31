@@ -982,3 +982,37 @@ The size ladder is the decisive part. At $100/leg the honest result is a coin fl
 **So what would a genuine "yes" take?** Not another parameter tweak — every parameter has been swept and the honest answer is the same. It needs a **new angle**: funding-carry-aware pair selection, a different universe, hold-time caps that cut funding drag, or a different signal (`PHASE2_STRATEGY_PLAN.md` §7). Until something clears all five gates B1–B5, **NO-GO stands.**
 
 ---
+
+## 2026-07-30 — Did the Phase-4 edge-hunt campaign find an edge?
+
+**Q:** The Phase-4 campaign tested entry threshold × per-leg size. Entry 4.0 made +$15,787 out-of-sample at $1,000/leg. Is that an edge — can we trade it?
+
+**A:** **No. NO-GO stands.** The campaign found a real *mechanism* but not a tradeable edge, and the two are worth separating carefully.
+
+**What is real.** Raising the entry threshold genuinely inverts the size economics. At $1,000/leg entry 3.5 loses **−$48,872** while entry 4.0 makes **+$15,787**, out-of-sample, with honest per-market spread + market-impact costs on. The control validates: entry 3.5 at $1k reproduces the documented gate-B5 figure (−$48,872 vs the published −$50,670, within 3.5%).
+
+The mechanism is clean. Impact cost per trade is **effectively constant across entry thresholds — $4.35 to $4.47** at $1,000/leg. What changes is how many trades pay it. Entry 4.0's gross per trade is **5.5× higher** ($3.08 vs $0.56 at $100/leg) on **5× fewer trades**, so it clears a per-trade tax that buries entry 3.5. Gross scales as Q, impact as Q^1.5 — so **trade count, not size, is what decides whether an edge survives at scale**.
+
+**Why it is still not tradeable.** Two reasons, both pre-stated in the bar before any result existed (`PHASE2_STRATEGY_PLAN.md` §1):
+
+1. **Gate B3's Deflated Sharpe fails, at 0.0000.** This is arithmetic, not a defect: with `n_trials = 72` and trial-Sharpe dispersion 0.76, the multiplicity-corrected bar is `sr_star` = **1.839**. Entry 4.0's window-return Sharpe is **0.26**. Verified against the engine's own `stats/deflated_sharpe.py`, not a reimplementation.
+
+2. **The P&L is concentrated in a handful of windows.** Of 13 walk-forward windows per span, only 5–7 are positive, and the best three carry everything:
+
+   | entry 4.0 @ $1k | Net | Best 3 windows | Other 10 |
+   |---|---|---|---|
+   | s2 | +$10,706 | +$17,998 | −$7,292 |
+   | s3 | +$4,796 | +$7,403 | −$2,607 |
+   | s4 | +$284 | +$6,556 | −$6,271 |
+
+   Across all three spans, **9 of 39 windows produce +$31,957 and the other 30 lose −$16,170.** Remove the best three windows from any span and it turns negative.
+
+**But B3 says "net ≥ +$424 OR DSR > 0.95" — doesn't +$15,787 pass?** Literally, yes; and this is the one place the campaign's result required a judgement call. The `+$424` threshold comes from a **±$212 noise floor estimated at $100/leg on entry-3.5-scale runs** — thousands of trades. It was never meant for 1,511 trades whose P&L lives in 9 windows. DSR is the purpose-built multiple-testing correction, it accounts for all 72 configs now searched, and it is the arm that speaks to this exact failure mode. **The honest reading is that B3 fails.** Treating the net arm as a pass would be moving the bar after seeing the answer, which §1 exists to prevent.
+
+**A bonus finding: funding is the dominant explicit cost.** The Task-A cost columns made this visible for the first time — funding costs **1.8–5.5× more than fees** and eats 32–61% of gross. It scales near-linearly with notional (−$1,210 → −$12,041 at 10× size, a 9.95× ratio), confirming it is pure carry, not microstructure. This is the strongest argument that the next genuine attempt should be **funding-carry-aware pair selection** (`PHASE2_STRATEGY_PLAN.md` §7) rather than another parameter sweep.
+
+**Also worth recording: the plan's own prediction was wrong.** `PHASE4_TASKC_PLAN.md` §3 pre-stated that entry 4.0 would land near break-even at $1,000/leg. It made +$15,787. The projection assumed the out-of-sample haircut measured at entry 3.5 (27.8%) applied at every threshold; it does not — more selective configs held up substantially better out-of-sample. The conclusion survived, but via DSR rather than via net.
+
+Full write-up with all figures: `docs/strategy.md`, "Phase-4 campaign — the entry × size interaction".
+
+---
