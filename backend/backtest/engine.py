@@ -48,10 +48,10 @@ from replay.historical_feed import (
     snapshots_at,
 )
 from replay.working_repo import WorkingSimRepository
+from simulation.cost_map import build_cost_map, load_dollar_volumes
 from simulation.engine import _close_position, run_tick
 from simulation.feed import PairTick
-from simulation.market_impact import impact_pct, realized_daily_vol
-from simulation.spread_cost import filter_universe, half_spread_pct
+from simulation.spread_cost import filter_universe
 
 logger = logging.getLogger(__name__)
 
@@ -677,44 +677,26 @@ async def _filter_universe(
 async def _build_slippage_map(
     exchange, markets, start, end, row, candles_by_market
 ) -> dict[str, float]:
-    """Per-market per-leg cost map for the run (Phase-2 Slices 1 & 3):
-    ``{market: half_spread_or_flat + impact}`` (percent).
+    """Per-market per-leg cost map for the run — thin adapter over the shared builder.
 
-    - **Base** cost per leg is the market's half-spread (Slice 1, when
-      ``PER_MARKET_SLIPPAGE``) else the strategy's flat ``slippage_pct``.
-    - **Impact** (Slice 3, when ``MARKET_IMPACT``) adds a size-aware ``σ·√(Q/ADV)``
-      term: σ from the loaded closes, ADV = mean hourly dollar-volume × 24,
-      Q = ``usd_per_trade``.
-
-    Real mode reads per-market dollar-volume from the cache; fake mode
-    (``SCAN_DATA_SOURCE=fake``) has none, so the spread falls back to the demo/mean
-    default and impact (needing ADV) is 0.
+    The arithmetic now lives in :mod:`simulation.cost_map` so the real-time
+    simulation charges the *same* honest costs (Phase 5). This wrapper only adapts
+    the backtest's shapes (a strategy ``row``, candle dicts) to that signature;
+    behaviour is deliberately unchanged — the Phase-4 campaign numbers are the
+    control for this refactor.
     """
-    dollar_volumes: dict[str, float] = {}
-    if config.SCAN_DATA_SOURCE != "fake":
-        from ingest.cache_repository import get_ohlcv_cache_repository
-
-        dollar_volumes = await get_ohlcv_cache_repository().get_dollar_volumes(
-            exchange=exchange,
-            resolution=config.CANDLE_RESOLUTION,
-            start=start,
-            end=end,
-            markets=list(markets),
-        )
-    flat = row["slippage_pct"]
-    per_leg_usd = row["usd_per_trade"]
-    out: dict[str, float] = {}
-    for m in markets:
-        dv = dollar_volumes.get(m)
-        base = half_spread_pct(m, dv) if config.PER_MARKET_SLIPPAGE else flat
-        impact = 0.0
-        if config.MARKET_IMPACT:
-            closes = [c["close"] for c in candles_by_market.get(m, [])]
-            sigma = realized_daily_vol(closes)
-            adv = (dv or 0.0) * 24.0
-            impact = impact_pct(sigma, per_leg_usd, adv)
-        out[m] = base + impact
-    return out
+    dollar_volumes = await load_dollar_volumes(
+        exchange=exchange, start=start, end=end, markets=markets
+    )
+    return build_cost_map(
+        markets,
+        dollar_volumes=dollar_volumes,
+        closes_by_market={
+            m: [c["close"] for c in candles_by_market.get(m, [])] for m in markets
+        },
+        flat_slippage_pct=row["slippage_pct"],
+        per_leg_usd=row["usd_per_trade"],
+    )
 
 
 async def _load_history(exchange, markets, start, end):

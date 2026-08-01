@@ -150,7 +150,13 @@ The Live Bot workspace has:
 
 ## 9 · Real-time simulation (paper trading) — `Simulation` nav
 
-Create a session with starting capital; it **ticks on a schedule**, opening/closing **virtual** trades on real live signals using the *same* engine and rules as the live bot, with a realistic **cost model** (slippage, taker fee, funding). Controls: **create / pause / resume / stop / top-up capital**. Watch positions, P&L, and the equity curve update. The best way to build confidence in the strategy with no money at risk.
+Create a session with starting capital; it **ticks on a schedule**, opening/closing **virtual** trades on real live signals using the *same* engine and rules as the live bot. Controls: **create / pause / resume / stop / top-up capital**. Watch positions, P&L, and the equity curve update. The best way to build confidence in the strategy with no money at risk.
+
+**Costs are the same honest model the backtest uses (Phase 5).** Previously this path charged one flat slippage for every market, **no market impact**, and **no funding at all** — so a paper run looked considerably better than the backtest it was meant to rehearse. Now, when `PER_MARKET_SLIPPAGE` / `MARKET_IMPACT` are on (they are on prod), each leg pays **its own market's half-spread** plus a **size-aware impact** term, and **funding accrues from the real cached rates** — the single largest cost line (~29% of gross). The per-market map is rebuilt hourly and falls back to the last good one rather than silently reverting to flat; if funding can't be resolved the log says so loudly, because charging none of it would quietly overstate P&L. Which cost model a session ran under is recorded on the session itself (`per_market_slippage` / `market_impact`), so a result stays reproducible after an env change.
+
+**Pair quality is a per-session policy.** `pvalue_max` and `max_half_life_h` (both optional; blank = trade whatever the latest scan produced) let a session demand *tighter* cointegration than the scan did. This matters: the live scan admits everything under the global `PVALUE_MAX` (0.05), while the documented recommendation is **0.01** — and loosening 0.01 → 0.05 flipped +$1,865 to −$1,176 in the phase-1 sweep.
+
+> ⚠️ A paper run is an **operational rehearsal, not evidence of edge.** At the recommended parameters the trade rate is ~1.8/day, so a fortnight is ~26 trades against a per-trade standard deviation of $10.40 — a 95% band of roughly −$97…+$110 around an expected +$6. See `docs/PHASE5_PAPER_TRADING_PLAN.md` §2.
 
 ---
 
