@@ -2,7 +2,7 @@
 
 **Purpose.** A single, ready-to-paste starting prompt for the next-session agent. Phase-4
 (per-trade cost transparency → phase-1-vs-2 explainer → the entry × size edge-hunt campaign) is
-complete and **merged to `main`, but NOT deployed to production**. This bootstraps the next batch —
+complete, merged to `main`, and **deployed to production 2026-08-01** (PR #253). This bootstraps the next batch —
 **two operator-requested tasks, in order** — with the verified numbers, code map and gate encoded
 so nothing is re-derived.
 
@@ -90,9 +90,14 @@ PROD (read-only recon already done 2026-07-31; re-verify, don't assume):
   creation resolves `exchange` AT CREATE TIME from the live data source, so re-POST
   /api/system/data-source -> hyperliquid BEFORE creating anything. Monitor long runs via psql in
   the postgres container, NOT HTTP (the CPU-bound scan saturates the event loop on 2 vCPU).
-  DEPLOY STATE: prod runs branch `production` @ c095bc4 (PR #244). Phase-4's merged work
-  (PRs #246-251, incl. Task A's per-trade cost columns and GET /api/backtest/strategies/{id}/costs)
-  is on `main` but NOT DEPLOYED. Promotion main->production is a SEPARATE explicit operator OK.
+  DEPLOY STATE (updated 2026-08-01): Phase-4 IS NOW DEPLOYED. `production` @ bb55ffb (PR #253,
+  16 commits, PRs #246-251); no migration was needed ("No pending migrations to apply"). So Task A's
+  per-trade cost columns AND `GET /api/backtest/strategies/{id}/costs` are LIVE on prod — use the
+  endpoint, don't hand-roll SQL. Only PR #252 (this kickoff doc) is on `main` and not on prod.
+  Prod disk was pruned to 51% used / 19GB free. Any FURTHER promotion is a separate explicit OK.
+  ALSO: the deploy restart reset SCAN_DATA_SOURCE to dydx; restoring it to hyperliquid returned
+  `pairs_cleared: true`, so THE SCAN PAIR LIST WAS CLEARED — a fresh scan is needed before any
+  manual pair selection or live-simulation session.
 
 ════════ TASK 1 — Parameter recommendation for MANUAL trading (analysis + QA.md log) ════════
 The operator trades signals BY HAND with MARKET ORDERS ONLY, so only taker economics apply
@@ -104,9 +109,9 @@ METHOD (do this properly, it is a quant question not a doc question):
   - Pull the saved strategies from PROD (read-only psql; 75 phase-1 + 27 phase-2). Separate them
     by the existing taxonomy axes: cost tier (ZERO/REDUCED/MODELLED), span (IN_SAMPLE/OVERLAPS/
     OUT_OF_SAMPLE), family, and phase. NEVER rank on in-sample net — that is search output.
-  - Use the Task-A cost decomposition (Σgross / Σfees / Σfunding / Σnet, trade count, avg hold)
-    computed from `backtest_trades` via psql. NOTE: the /costs endpoint is NOT on prod yet, so
-    aggregate in SQL directly.
+  - Use the Task-A cost decomposition (Σgross / Σfees / Σfunding / Σnet, trade count, avg hold).
+    `GET /api/backtest/strategies/{id}/costs` IS live on prod (deployed 2026-08-01) — use it, and
+    cross-check a couple of rows against raw psql over `backtest_trades` rather than trusting it blind.
   - For EACH parameter the operator named, give: the evidence, the recommended value, the reason,
     and the confidence. Explicitly separate "what the data supports" from "what is extrapolation".
   - Per-leg capital deserves special care: within the TESTED range, $1,000/leg BEAT $100/leg for
