@@ -152,6 +152,13 @@ class PrismaSimRepository:
             "slippage_pct": r.slippage_pct,
             "taker_fee_pct": r.taker_fee_pct,
             "funding_freq_h": r.funding_freq_h,
+            # Phase-5 pair quality + honest-cost provenance. These MUST be returned:
+            # the tick reads pvalue_max / max_half_life_h off this dict, so omitting
+            # them silently disables the filter even though the row stores them.
+            "pvalue_max": r.pvalue_max,
+            "max_half_life_h": r.max_half_life_h,
+            "per_market_slippage": r.per_market_slippage,
+            "market_impact": r.market_impact,
             "tick_count": r.tick_count,
             "last_tick_at": _iso(r.last_tick_at),
             "created_at": _iso(r.created_at),

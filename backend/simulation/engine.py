@@ -40,7 +40,8 @@ from simulation.costs import (
     direction_from_z,
     simulate_pair_entry,
 )
-from simulation.feed import PairTick, build_realtime_snapshots
+from simulation.feed import PairTick, build_realtime_snapshots, filter_pairs_by_quality
+from simulation.live_costs import get_live_cost_cache
 from statcore import evaluate_entry, evaluate_exit
 
 logger = logging.getLogger(__name__)
@@ -341,6 +342,12 @@ class SimulationEngine:
     # session lifecycle ---------------------------------------------------------
 
     async def create_session(self, params: dict) -> dict:
+        # Stamp the honest-cost provenance at create time. The flags are process
+        # globals that an env change or a campaign run can flip, so a session that
+        # doesn't record them is not reproducible after the fact.
+        params = dict(params)
+        params.setdefault("per_market_slippage", config.PER_MARKET_SLIPPAGE)
+        params.setdefault("market_impact", config.MARKET_IMPACT)
         return await get_sim_repository().create_session(params)
 
     async def list_sessions(self) -> list[dict]:
@@ -395,6 +402,18 @@ class SimulationEngine:
         )
         if only_pairs is not None:
             pairs = [p for p in pairs if (p["base_market"], p["quote_market"]) in only_pairs]
+        else:
+            # Pair quality is a *session* policy, not just a scan-time one. The scan
+            # admits everything under the process-global PVALUE_MAX (0.05 on prod),
+            # but a session may demand tighter cointegration than the scan did —
+            # p-value 0.01 is the documented recommendation, and loosening it to
+            # 0.05 flipped +$1,865 to −$1,176 in the phase-1 sweep. Without this the
+            # session silently trades at whatever the last scan happened to allow.
+            pairs = filter_pairs_by_quality(
+                pairs,
+                pvalue_max=session.get("pvalue_max"),
+                max_half_life_h=session.get("max_half_life_h"),
+            )
         if not pairs:
             return []
         client = make_data_client()
@@ -411,11 +430,13 @@ class SimulationEngine:
     async def tick(self, session_id: str) -> dict:
         """Run one real-time tick (scheduler / manual). Serialised per process.
 
-        Funding is *not* accrued here: the cost model and ``run_tick`` support it
-        (and the replay path in Phase 7 will supply per-bar rates from
-        ``FundingRateCache``), but fetching *live* funding rates for a real-time
-        session is a separate indexer integration deferred to a follow-up issue.
-        Slippage and taker fees still apply on every open/close.
+        Charges the **same honest costs as the backtest** (Phase 5): each leg pays
+        its own market's half-spread plus a size-aware market-impact term when the
+        ``PER_MARKET_SLIPPAGE`` / ``MARKET_IMPACT`` flags are on, and funding is
+        accrued from the real cached rates. Previously this path charged a flat
+        slippage and **no funding at all**, which made a paper run several-fold
+        more optimistic than the backtest it was meant to rehearse
+        (``docs/PHASE5_PAPER_TRADING_PLAN.md`` §1).
         """
         async with self._lock:
             repo = get_sim_repository()
@@ -432,7 +453,42 @@ class SimulationEngine:
                      "last_tick_at": datetime.now(timezone.utc)},
                 )
                 return {"entries": 0, "exits": 0, "evaluated": 0, "message": "No pairs/prices."}
-            return await run_tick(repo, session, snapshots)
+            session, funding_rates = await self._apply_live_costs(session, snapshots)
+            return await run_tick(repo, session, snapshots, funding_rates=funding_rates)
+
+    async def _apply_live_costs(
+        self, session: dict, snapshots: list[PairTick]
+    ) -> tuple[dict, dict[str, float]]:
+        """Attach the per-market cost map to the session and return live funding rates.
+
+        The map goes on ``session["slippage_by_market"]``, which ``_per_leg_slippage``
+        already reads — so the tick core needs no change. An empty map (both flags
+        off) leaves the flat ``slippage_pct`` behaviour exactly as it was.
+        """
+        markets = {s.base_market for s in snapshots} | {s.quote_market for s in snapshots}
+        cache = get_live_cost_cache()
+        session = dict(session)
+        try:
+            cost_map = await cache.slippage_map(
+                exchange=session["exchange"],
+                markets=markets,
+                flat_slippage_pct=session.get("slippage_pct", 0.05),
+                per_leg_usd=session.get("usd_per_trade") or config.USD_PER_TRADE,
+            )
+            if cost_map:
+                session["slippage_by_market"] = cost_map
+        except Exception as exc:
+            # Never trade on silently-cheaper costs: skip the honest map only if we
+            # truly cannot build one, and say so loudly.
+            logger.error("live cost map unavailable for %s: %s", session["id"], exc)
+        try:
+            funding_rates = await cache.funding_rates(
+                exchange=session["exchange"], markets=markets
+            )
+        except Exception as exc:
+            logger.error("live funding unavailable for %s: %s", session["id"], exc)
+            funding_rates = {}
+        return session, funding_rates
 
     async def stop(self, session_id: str) -> dict:
         """Stop a session: force-close every open position at current prices."""
