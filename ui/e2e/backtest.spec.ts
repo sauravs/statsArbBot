@@ -104,6 +104,91 @@ test.describe("Phase 8 — Walk-Forward Backtest", () => {
     await expect(reason0).toContainText(/Reverted|Z-stop|Time-stop|Window end|Stopped/);
     await expect(page.getByTestId("bt-blotter-outcome").first()).toContainText(/Win|Loss|Flat/);
 
+    // Cost transparency (Phase-4 Task A): the blotter breaks Net P&L into the
+    // components that produce it, so funding — which accrues with hold time and
+    // was previously invisible — is on screen next to Hold.
+    await expect(page.getByTestId("bt-blotter-cost-legend")).toContainText(
+      "Gross + Fees + Funding = Net",
+    );
+    const money = /^-?\$[\d,]+\.\d{2}$/;
+    for (const col of ["gross", "fees", "funding", "net"]) {
+      await expect(page.getByTestId(`bt-blotter-${col}`).first()).toHaveText(money);
+    }
+    // Fees are a deduction, always rendered negative (or exactly zero on a
+    // zero-cost counterfactual) — never a credit.
+    const fees0 = await page.getByTestId("bt-blotter-fees").first().textContent();
+    expect(fees0).toMatch(/^(-\$|\$0\.00$)/);
+    // And the four numbers must actually add up: gross + fees + funding = net.
+    const usd = async (id: string) =>
+      Number(((await page.getByTestId(id).first().textContent()) ?? "").replace(/[$,]/g, ""));
+    const [g, f, fu, n] = await Promise.all([
+      usd("bt-blotter-gross"),
+      usd("bt-blotter-fees"),
+      usd("bt-blotter-funding"),
+      usd("bt-blotter-net"),
+    ]);
+    expect(g + f + fu).toBeCloseTo(n, 2);
+    // No row may render the reconciliation warning on engine-produced data.
+    await expect(page.getByTestId("bt-blotter-mismatch")).toHaveCount(0);
+
+    // Slice A2 — the aggregate view. Both panels come from GET /costs, which
+    // aggregates in Postgres (a real group_by, not the in-memory test fake), so
+    // this is the only place that path is exercised end to end.
+    const bucket = async (testid: string) => {
+      const v = async (part: string) =>
+        Number(
+          ((await page.getByTestId(`${testid}-${part}`).textContent()) ?? "").replace(
+            /[$,]/g,
+            "",
+          ),
+        );
+      return {
+        gross: await v("gross"),
+        fees: await v("fees"),
+        funding: await v("funding"),
+        net: await v("net"),
+      };
+    };
+
+    // The open window's decomposition summarises the WHOLE window, so its trade
+    // count must exceed the 25-row page when the window has more than 25 trades.
+    const win = page.getByTestId("bt-window-cost-summary");
+    await expect(win).toBeVisible();
+    await expect(page.getByTestId("bt-window-cost-summary-meta")).toContainText(/trades? · avg hold \d+h/);
+    const w = await bucket("bt-window-cost-summary");
+    expect(w.gross + w.fees + w.funding).toBeCloseTo(w.net, 2);
+    expect(w.fees).toBeLessThanOrEqual(0);
+
+    // The run-level panel must reconcile too, and agree with the headline metric.
+    const run = page.getByTestId("bt-cost-summary");
+    await expect(run).toBeVisible();
+    const r = await bucket("bt-cost-summary");
+    expect(r.gross + r.fees + r.funding).toBeCloseTo(r.net, 2);
+    const headline = Number(
+      ((await page.getByTestId("bt-net-pnl").textContent()) ?? "").replace(/[$,]/g, ""),
+    );
+    expect(r.net).toBeCloseTo(headline, 2);
+
+    // Funding must actually be EXERCISED, not just rendered. The demo source used
+    // to return no funding rates at all, which made funding_pnl structurally zero
+    // across the whole offline stack — so every assertion above would have passed
+    // on `x + 0` while the column the operator asked for was never tested. Guard
+    // the property directly, at cent-level precision the UI would round away.
+    const list = await page.request.get("/api/proxy/api/backtest/strategies");
+    const sid = ((await list.json()).strategies as { id: string; name: string }[]).find(
+      (x) => x.name === "E2E Loose",
+    )?.id;
+    expect(sid).toBeTruthy();
+    const api = await page.request.get(
+      `/api/proxy/api/backtest/strategies/${sid}/costs`,
+    );
+    expect(api.ok()).toBeTruthy();
+    const windows = (await api.json()).per_window as { funding_pnl: number }[];
+    expect(windows.some((w) => w.funding_pnl !== 0)).toBeTruthy();
+    // A long leg pays and a short leg receives, so a healthy run funds BOTH ways.
+    expect(windows.some((w) => w.funding_pnl > 0)).toBeTruthy();
+    expect(windows.some((w) => w.funding_pnl < 0)).toBeTruthy();
+
     // The "Losing take-profits" server-side filter narrows to reason=TAKE_PROFIT
     // AND net_pnl<0 — so no Win chip can survive it (or the empty-state shows).
     const ltpFilter = page.getByTestId("bt-blotter-filter-losing-tp");

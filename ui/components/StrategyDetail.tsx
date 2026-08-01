@@ -12,9 +12,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
+  fetchBacktestCosts,
   fetchBacktestTrades,
+  type BacktestCostBucket,
+  type BacktestCostSummary,
   type BacktestTrade,
   type BacktestWindow,
   type Strategy,
@@ -24,6 +27,12 @@ import { FamilyBadge, SafetyBadges } from "./SafetyBadges";
 import { FAMILY_DESCRIPTIONS, classify } from "@/lib/strategyTaxonomy";
 import InfoTip from "./InfoTip";
 import { reasonLabel, reasonHint, reasonBadgeStyle, reasonColor } from "@/lib/exitReason";
+import {
+  FEES_NOTE,
+  FUNDING_NOTE,
+  SLIPPAGE_NOTE,
+  costBreakdown,
+} from "@/lib/tradeCosts";
 
 // The exit-reason mix (issue #79) is coloured by the shared P&L-neutral scheme
 // (`reasonColor`) so a reason reads the same everywhere: Reverted = blue (planned
@@ -98,6 +107,28 @@ export default function StrategyDetail({
   // "NaN%" or an invalid CSS width.
   const pct = Math.max(0, Math.min(100, Math.round((s.progress || 0) * 100)));
 
+  // Cost decomposition (Phase-4 Task A, Slice A2). Fetched once per strategy and
+  // shared: the run-level total renders here, and each window's bucket is handed
+  // to its blotter — so drilling into five windows costs one request, not five.
+  const [costs, setCosts] = useState<BacktestCostSummary | null>(null);
+  useEffect(() => {
+    let live = true;
+    setCosts(null);
+    // Only a finished run has a stable decomposition; mid-sweep the totals move.
+    if (running || s.total_trades === 0) return;
+    fetchBacktestCosts(s.id)
+      .then((r) => live && setCosts(r))
+      .catch(() => live && setCosts(null)); // non-fatal: the panel just stays hidden
+    return () => {
+      live = false;
+    };
+  }, [s.id, running, s.total_trades]);
+  const windowCosts = useMemo(() => {
+    const m = new Map<number, BacktestCostBucket>();
+    for (const w of costs?.per_window ?? []) m.set(w.window_index, w);
+    return m;
+  }, [costs]);
+
   return (
     <div className="space-y-6" data-testid="strategy-detail">
       <div className="rounded-xl border border-border bg-card p-5">
@@ -157,6 +188,16 @@ export default function StrategyDetail({
           <Metric label="Win rate" value={s.win_rate != null ? `${(s.win_rate * 100).toFixed(0)}%` : "—"} testid="bt-win-rate"
             tip="Share of closed trades that ended profitable (net of costs)." />
         </div>
+
+        {costs && costs.total.trades > 0 && (
+          <div className="mt-4 sm:max-w-xs">
+            <CostDecomposition
+              bucket={costs.total}
+              title="Cost decomposition · whole run"
+              testid="bt-cost-summary"
+            />
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-muted">
           <span>
@@ -332,7 +373,7 @@ export default function StrategyDetail({
       </div>
 
       {/* Walk-forward windows — each row expands into its per-trade blotter (#162) */}
-      <WalkForwardWindows strategyId={s.id} windows={perWindow} />
+      <WalkForwardWindows strategyId={s.id} windows={perWindow} windowCosts={windowCosts} />
 
       {/* Per-pair P&L + exit reasons */}
       <div className="grid gap-6 md:grid-cols-2">
@@ -489,9 +530,12 @@ const TRADES_PAGE = 25;
 function WalkForwardWindows({
   strategyId,
   windows,
+  windowCosts,
 }: {
   strategyId: string;
   windows: BacktestWindow[];
+  /** Per-window cost decomposition, fetched once by the parent (Slice A2). */
+  windowCosts: Map<number, BacktestCostBucket>;
 }) {
   const [open, setOpen] = useState<number | null>(null);
 
@@ -556,7 +600,11 @@ function WalkForwardWindows({
                   {isOpen && (
                     <tr data-testid="bt-window-blotter">
                       <td colSpan={6} className="bg-bg/40 px-2 py-3">
-                        <TradeBlotter strategyId={strategyId} windowIndex={w.index} />
+                        <TradeBlotter
+                          strategyId={strategyId}
+                          windowIndex={w.index}
+                          costs={windowCosts.get(w.index)}
+                        />
                       </td>
                     </tr>
                   )}
@@ -570,7 +618,17 @@ function WalkForwardWindows({
   );
 }
 
-function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowIndex: number }) {
+function TradeBlotter({
+  strategyId,
+  windowIndex,
+  costs,
+}: {
+  strategyId: string;
+  windowIndex: number;
+  /** This window's Σ decomposition — summarises the whole window, not just the
+   *  25 trades on the current page (Slice A2). */
+  costs?: BacktestCostBucket;
+}) {
   const [trades, setTrades] = useState<BacktestTrade[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -630,6 +688,18 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
 
   return (
     <div data-testid="bt-blotter">
+      {costs && costs.trades > 0 && (
+        // The window's totals, not the page's — the blotter paginates 25 at a
+        // time, so summing what is on screen would understate every column.
+        <div className="mb-2 sm:max-w-xs">
+          <CostDecomposition
+            bucket={costs}
+            title={`Cost decomposition · window ${windowIndex}`}
+            testid="bt-window-cost-summary"
+            compact
+          />
+        </div>
+      )}
       <div className="mb-2 flex items-center gap-2 text-[11px]">
         <button
           type="button"
@@ -648,6 +718,11 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
         <span className="text-muted/70">
           <InfoTip text="Show only 'Reverted' (take-profit) exits that still closed at a net loss — the spread reverted but fees + funding turned the trade red. The interesting cohort for tuning costs / half-life." />
         </span>
+        {/* Make the identity discoverable without hovering every column header. */}
+        <span className="ml-auto text-muted/70" data-testid="bt-blotter-cost-legend">
+          Gross + Fees + Funding = Net
+          <InfoTip text={SLIPPAGE_NOTE} />
+        </span>
       </div>
       {total === 0 ? (
         <p className="py-3 text-center text-xs text-muted" data-testid="bt-blotter-empty">
@@ -656,7 +731,7 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
       ) : (
       <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[940px] text-xs" data-testid="bt-blotter-table">
+        <table className="w-full min-w-[1180px] text-xs" data-testid="bt-blotter-table">
           <thead>
             <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
               <th className="px-2 py-1.5 text-left">Pair</th>
@@ -666,8 +741,26 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
               </th>
               <th className="px-2 py-1.5 text-left">Entry (t · Z · px)</th>
               <th className="px-2 py-1.5 text-left">Exit (t · Z · px)</th>
-              <th className="px-2 py-1.5 text-right">Hold</th>
-              <th className="px-2 py-1.5 text-right">Net P&amp;L</th>
+              <th className="px-2 py-1.5 text-right">
+                Hold
+                <InfoTip text="How long the position was open, in hours. Funding accrues over this time, so a long hold is also a bigger funding bill (or credit) — read it together with the Funding column." />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Gross
+                <InfoTip text={SLIPPAGE_NOTE} />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Fees
+                <InfoTip text={FEES_NOTE} />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Funding
+                <InfoTip text={FUNDING_NOTE} />
+              </th>
+              <th className="px-2 py-1.5 text-right">
+                Net P&amp;L
+                <InfoTip text="What the trade actually made or lost: Gross + Fees + Funding. Slippage and market impact are not a separate column — they are charged at the fill price, so they are already inside Gross." />
+              </th>
               <th className="px-2 py-1.5 text-center">
                 Outcome
                 <InfoTip text="Did the trade make money? Driven purely by Net P&L sign — kept separate from Reason, because the two are independent: a 'Reverted' (take-profit) exit can still be a Loss after fees & funding." />
@@ -683,7 +776,9 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
             </tr>
           </thead>
           <tbody>
-            {trades.map((t) => (
+            {trades.map((t) => {
+              const c = costBreakdown(t);
+              return (
               <tr key={t.id} className="border-b border-border/40" data-testid="bt-blotter-row">
                 <td className="whitespace-nowrap px-2 py-1.5 text-text">
                   {shortMkt(t.base_market)}/{shortMkt(t.quote_market)}
@@ -701,9 +796,40 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
                   {" · "}
                   {fmtPx(t.exit_base_px)}/{fmtPx(t.exit_quote_px)}
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-muted">{Math.round(t.hold_hours)}h</td>
-                <td className={`px-2 py-1.5 text-right tabular-nums ${t.net_pnl >= 0 ? "text-green" : "text-red"}`}>
-                  {fmtUsd(t.net_pnl)}
+                <td className="px-2 py-1.5 text-right tabular-nums text-muted" data-testid="bt-blotter-hold">
+                  {Math.round(c.holdHours)}h
+                </td>
+                {/* Cost decomposition (Phase-4 Task A): gross + fees + funding = net.
+                    Slippage/impact are inside gross — see SLIPPAGE_NOTE. */}
+                <td
+                  className={`px-2 py-1.5 text-right tabular-nums ${c.gross >= 0 ? "text-green/80" : "text-red/80"}`}
+                  data-testid="bt-blotter-gross"
+                >
+                  {fmtUsd(c.gross)}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-muted" data-testid="bt-blotter-fees">
+                  {fmtUsd(c.fees)}
+                </td>
+                <td
+                  className={`px-2 py-1.5 text-right tabular-nums ${c.funding >= 0 ? "text-green/80" : "text-red/80"}`}
+                  data-testid="bt-blotter-funding"
+                >
+                  {fmtUsd(c.funding)}
+                </td>
+                <td
+                  className={`px-2 py-1.5 text-right tabular-nums ${c.net >= 0 ? "text-green" : "text-red"}`}
+                  data-testid="bt-blotter-net"
+                >
+                  {fmtUsd(c.net)}
+                  {!c.reconciles && (
+                    <span
+                      className="ml-1 cursor-help text-yellow"
+                      title="This row's components do not add up to its stored net P&L — treat the breakdown as unreliable for this trade."
+                      data-testid="bt-blotter-mismatch"
+                    >
+                      ⚠
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   {t.net_pnl > 0 ? (
@@ -742,7 +868,8 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
                   </a>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -773,6 +900,78 @@ function TradeBlotter({ strategyId, windowIndex }: { strategyId: string; windowI
       </div>
       </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Where the net went, over a set of trades (Phase-4 Task A, Slice A2). The
+ * blotter answers this for ONE trade; this answers it for a window or a whole
+ * run — the view that makes a campaign's results readable without scrolling
+ * thousands of rows. Same identity, same helper, so the two can never disagree.
+ */
+function CostDecomposition({
+  bucket,
+  title,
+  testid,
+  compact = false,
+}: {
+  bucket: BacktestCostBucket;
+  title: string;
+  testid: string;
+  compact?: boolean;
+}) {
+  const c = costBreakdown(bucket);
+  const rows: { label: string; value: number; tip: string; tone: boolean }[] = [
+    { label: "Gross", value: c.gross, tip: SLIPPAGE_NOTE, tone: true },
+    { label: "Fees", value: c.fees, tip: FEES_NOTE, tone: false },
+    { label: "Funding", value: c.funding, tip: FUNDING_NOTE, tone: true },
+  ];
+  return (
+    <div
+      className={`rounded-lg border border-border bg-bg/40 ${compact ? "p-2.5" : "p-3"}`}
+      data-testid={testid}
+    >
+      <p className="mb-1.5 text-[10px] uppercase tracking-wider text-muted">
+        {title}
+        <InfoTip text="Where this run's net P&L came from: Gross + Fees + Funding = Net, summed over every closed trade. Funding scales with how long positions are held, so a long average hold shows up here as a bigger funding line." />
+      </p>
+      <dl className="space-y-0.5 text-xs">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline justify-between gap-4">
+            <dt className="text-muted">
+              {r.label}
+              <InfoTip text={r.tip} />
+            </dt>
+            <dd
+              className={`tabular-nums ${
+                !r.tone ? "text-muted" : r.value >= 0 ? "text-green/80" : "text-red/80"
+              }`}
+              data-testid={`${testid}-${r.label.toLowerCase()}`}
+            >
+              {fmtUsd(r.value)}
+            </dd>
+          </div>
+        ))}
+        <div className="flex items-baseline justify-between gap-4 border-t border-border/60 pt-1">
+          <dt className="text-text">Net</dt>
+          <dd
+            className={`font-semibold tabular-nums ${c.net >= 0 ? "text-green" : "text-red"}`}
+            data-testid={`${testid}-net`}
+          >
+            {fmtUsd(c.net)}
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-1.5 text-[10px] text-muted/70" data-testid={`${testid}-meta`}>
+        {bucket.trades.toLocaleString()} trade{bucket.trades === 1 ? "" : "s"} · avg hold{" "}
+        {Math.round(bucket.avg_hold_hours)}h
+        {!c.reconciles && (
+          <span className="ml-1 text-yellow" title="These components do not add up to the stored net P&L.">
+            ⚠
+          </span>
+        )}
+      </p>
     </div>
   );
 }

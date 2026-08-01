@@ -138,6 +138,114 @@ export interface Classification {
   description: string;
 }
 
+// ── Strategy-list filters ───────────────────────────────────────────────────
+// The list's five filter axes, as pure data + pure predicates, so the list and
+// its empty state agree by construction (and are testable without React).
+
+export type SpanFilter = "all" | "oos" | "in-sample";
+export type CostFilter = "all" | "tradeable" | "diagnostic";
+
+export interface ActiveFilters {
+  realisticOnly: boolean;
+  family: FamilyKey | "all";
+  spanFilter: SpanFilter;
+  costFilter: CostFilter;
+  phaseFilter: PhaseFilter;
+}
+
+/** Every filter at its default. Phase is "all" — Phase 1 is NEVER hidden by
+ *  default (operator decision 2026-07-24; docs/PHASE2_STRATEGY_PLAN.md Slice 6). */
+export const NO_FILTERS: ActiveFilters = {
+  realisticOnly: false,
+  family: "all",
+  spanFilter: "all",
+  costFilter: "all",
+  phaseFilter: "all",
+};
+
+/** Does one classified row survive the active filters? */
+export function matchesFilters(
+  s: Strategy,
+  c: Classification,
+  f: ActiveFilters,
+): boolean {
+  if (!phaseMatches(s, f.phaseFilter)) return false;
+  if (f.realisticOnly && !c.safety.realistic) return false;
+  if (f.family !== "all" && c.family !== f.family) return false;
+  if (f.spanFilter === "oos" && c.safety.span !== "OUT_OF_SAMPLE") return false;
+  if (
+    f.spanFilter === "in-sample" &&
+    c.safety.span !== "IN_SAMPLE" &&
+    c.safety.span !== "OVERLAPS_IN_SAMPLE"
+  )
+    return false;
+  if (f.costFilter === "tradeable" && !c.safety.tradeable) return false;
+  if (f.costFilter === "diagnostic" && c.safety.tradeable) return false;
+  return true;
+}
+
+/** Are any filters off their default? */
+export function filtersActive(f: ActiveFilters): boolean {
+  return (
+    f.realisticOnly ||
+    f.family !== "all" ||
+    f.spanFilter !== "all" ||
+    f.costFilter !== "all" ||
+    f.phaseFilter !== "all"
+  );
+}
+
+/**
+ * Why did the list come back empty? Returns a concrete sentence naming the ONE
+ * filter that, on its own, hides every saved row — the common case being the
+ * Phase dropdown left on "Phase 2" while every saved run is Phase 1 (observed
+ * 2026-07-29: "0/75 — No strategy matches these filters", which is correct
+ * behaviour but a dead end for the reader).
+ *
+ * Returns null when no single filter explains it (a combination is at fault) or
+ * when there is nothing saved at all — callers fall back to the generic message.
+ */
+export function filterMissReason(
+  rows: { s: Strategy; c: Classification }[],
+  f: ActiveFilters,
+): string | null {
+  const total = rows.length;
+  if (total === 0) return null;
+  const alone = (only: Partial<ActiveFilters>) =>
+    rows.filter(({ s, c }) => matchesFilters(s, c, { ...NO_FILTERS, ...only })).length;
+  const one = total === 1;
+  // Both clause shapes express the same negative, but only one of each pair is
+  // English at n=1 ("none of the 1 saved run match it" is not).
+  const noneAre = (what: string) =>
+    one ? `the one saved run is not ${what}` : `none of the ${total} saved runs are ${what}`;
+  const noneDo = (what: string) =>
+    one ? `the one saved run does not ${what}` : `none of the ${total} saved runs ${what}`;
+  const allAre = (what: string) =>
+    one ? `the one saved run is ${what}` : `all ${total} saved runs are ${what}`;
+
+  if (f.phaseFilter !== "all" && alone({ phaseFilter: f.phaseFilter }) === 0) {
+    const want = f.phaseFilter === "phase2" ? "Phase 2" : "Phase 1";
+    const other = f.phaseFilter === "phase2" ? "Phase 1" : "Phase 2";
+    return `The Phase filter is set to “${want}”, and ${allAre(other)}.`;
+  }
+  if (f.spanFilter !== "all" && alone({ spanFilter: f.spanFilter }) === 0) {
+    const want = f.spanFilter === "oos" ? "Out-of-sample" : "In-sample / overlapping";
+    return `The Span filter is set to “${want}”, and ${noneAre("in that span")}.`;
+  }
+  if (f.costFilter !== "all" && alone({ costFilter: f.costFilter }) === 0) {
+    const want = f.costFilter === "tradeable" ? "Tradeable only" : "Diagnostics only";
+    return `The Costs filter is set to “${want}”, and ${noneDo("match it")}.`;
+  }
+  if (f.family !== "all" && alone({ family: f.family }) === 0) {
+    const label = FAMILY_DESCRIPTIONS[f.family]?.label ?? f.family;
+    return `The Family filter is set to “${label}”, and no saved run belongs to it.`;
+  }
+  if (f.realisticOnly && alone({ realisticOnly: true }) === 0) {
+    return `“Realistic runs only” is on, and ${noneAre("both tradeable-cost AND out-of-sample")}.`;
+  }
+  return null;
+}
+
 export interface FamilyDescription {
   label: string;
   /** What this family of runs is testing. */

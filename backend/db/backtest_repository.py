@@ -32,9 +32,61 @@ _TRADE_FIELDS = (
 )
 
 
+# Numeric per-trade columns summed by the cost summary (Phase-4 Task A). The
+# identity the UI renders is net = gross − fee + funding, so all four are summed
+# rather than derived — a stored net that disagrees with its components is a data
+# defect worth surfacing, not something to paper over by recomputing.
+_COST_SUM_FIELDS = {
+    "gross_pnl": True,
+    "fee_cost": True,
+    "funding_pnl": True,
+    "net_pnl": True,
+    "notional_usd": True,
+    "hold_hours": True,
+}
+
+
 def _dt(value):
     """Coerce an ISO-string (or datetime) timestamp to a datetime for Prisma."""
     return datetime.fromisoformat(value) if isinstance(value, str) else value
+
+
+def _group_count(group: dict) -> int:
+    """Row count out of a Prisma ``group_by`` result. ``_count`` comes back as
+    ``{"_all": n}`` with ``count=True``, but as a bare int on some client
+    versions — accept both rather than depend on the shape."""
+    raw = group.get("_count")
+    if isinstance(raw, dict):
+        return int(raw.get("_all") or 0)
+    return int(raw or 0)
+
+
+def _cost_bucket(window_index, group: dict) -> dict:
+    """One window's Σ cost components, from a Prisma ``group_by`` row."""
+    sums = group.get("_sum") or {}
+    trades = _group_count(group)
+    hold = float(sums.get("hold_hours") or 0.0)
+    return {
+        "window_index": int(window_index or 0),
+        "trades": trades,
+        **{k: float(sums.get(k) or 0.0) for k in
+           ("gross_pnl", "fee_cost", "funding_pnl", "net_pnl", "notional_usd")},
+        "hold_hours": hold,
+        "avg_hold_hours": (hold / trades) if trades else 0.0,
+    }
+
+
+def _cost_total(windows: list[dict]) -> dict:
+    """Roll per-window buckets up to the whole strategy."""
+    trades = sum(w["trades"] for w in windows)
+    hold = sum(w["hold_hours"] for w in windows)
+    return {
+        "trades": trades,
+        **{k: sum(w[k] for w in windows) for k in
+           ("gross_pnl", "fee_cost", "funding_pnl", "net_pnl", "notional_usd")},
+        "hold_hours": hold,
+        "avg_hold_hours": (hold / trades) if trades else 0.0,
+    }
 
 
 class PrismaStrategyRepository:
@@ -180,6 +232,33 @@ class PrismaStrategyRepository:
             skip=offset,
         )
         return {"trades": [self._trade_to_dict(r) for r in records], "total": total}
+
+    async def backtest_cost_summary(self, strategy_id: str) -> dict:
+        """Σ cost components for one strategy's persisted trades, per window and
+        overall (Phase-4 Task A).
+
+        The blotter decomposes a SINGLE trade; this answers the same question for a
+        whole window / whole run — where did the net actually go? It reads only
+        ``backtest_trades``, so it works retroactively for every run already saved
+        (``Strategy.per_window`` stores net_pnl alone and cannot be back-filled).
+
+        One grouped query, not N+1: the aggregation happens in Postgres, so a
+        27k-trade strategy costs the same as a 30-trade one.
+        """
+        from db.client import get_db
+
+        db = await get_db()
+        grouped = await db.backtesttrade.group_by(
+            by=["window_index"],
+            where={"strategy_id": strategy_id},
+            sum=_COST_SUM_FIELDS,
+            count=True,
+        )
+        windows = sorted(
+            (_cost_bucket(g.get("window_index"), g) for g in grouped),
+            key=lambda w: w["window_index"],
+        )
+        return {"per_window": windows, "total": _cost_total(windows)}
 
     async def get_backtest_trade(self, trade_id: str) -> dict | None:
         """One persisted trade by id (drives the per-trade chart, issue #166)."""

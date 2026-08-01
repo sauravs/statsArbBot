@@ -905,3 +905,114 @@ Expansion = the Cartesian product of the axis value-lists crossed with the windo
 **Honest cost:** the driver sets the process-global `PER_MARKET_SLIPPAGE` / `MARKET_IMPACT` to the campaign's `cost_flags` for the duration of the run and **restores** them afterward (operator-approved 2026-07-27). On prod these are already ON, so a campaign runs the phase-2 cost model by default. Caveat: a non-campaign backtest started *while a campaign is running* sees the same globals — acceptable for a single-operator tool. No new migration (Slice 2 is behaviour only). A minimal launch/monitor UI is a later slice; until then campaigns are driven via the API.
 
 ---
+
+## 2026-07-29 — Why does the blotter show Gross, Fees and Funding but not Slippage?
+
+**Q:** Why does the backtest blotter show Gross, Fees and Funding but not Slippage — and where do I see the totals for a whole run?
+
+**A:** **Because slippage isn't a line item — it's a worse fill price**, so it is already inside Gross. The blotter (Phase-4 Task A) breaks each trade into the three things that *are* separable, and they sum exactly:
+
+> **Gross + Fees + Funding = Net**
+
+- **Gross** — realised P&L on both legs at their **actual fill prices**. `apply_slippage` moves the fill itself (`backend/simulation/costs.py:49-52` — a BUY pays up, a SELL receives down), and market impact is folded into the same per-leg percentage (`backend/backtest/engine.py::_build_slippage_map`, `backend/simulation/market_impact.py::impact_pct`). By the time a P&L exists, the cost is *in the price*. So **Gross is not a mid-price figure** — it is already net of slippage and impact, and there is no arithmetic that recovers the mid-price number after the fact.
+- **Fees** — the taker fee on all four fills of a round-trip (entry + exit, both legs). Stored positive as `fee_cost`, displayed negative because it is always a deduction.
+- **Funding** — signed: the long leg pays, the short leg receives. **This is the one that scales with hold time**, which is why it sits next to the **Hold** column: a position held 3× longer pays roughly 3× the funding. It was the previously-invisible cost the blotter was rebuilt to expose.
+
+The engine's identity is `net_pnl = gross_pnl − fee_cost + funding_pnl` (`backend/simulation/costs.py:178`), persisted per trade on `BacktestTrade` (`backend/prisma/schema.prisma:604-609`). A ⚠ next to a Net value means that row's components don't reconcile to its stored net — a data defect, not rounding (tolerance is half a cent, `ui/lib/tradeCosts.ts`).
+
+**Could slippage get its own column?** Only with an engine change plus an additive migration to persist a per-trade `slippage_cost` alongside a mid-price gross. That was considered and deliberately deferred (operator decision, 2026-07-29): the UI-only breakdown answers "why is my net what it is" without touching the engine or the schema.
+
+**Totals for a whole run:** two panels, both from `GET /api/backtest/strategies/{id}/costs`:
+- a **whole-run** panel under the headline metrics on the strategy detail, and
+- a **per-window** panel at the top of each window's blotter when you expand it.
+
+Each shows Gross / Fees / Funding / Net plus trade count and **average hold**, and each summarises *every* trade in scope — not the 25 rows on the current blotter page. The aggregation runs in Postgres (`db/backtest_repository.py::backtest_cost_summary`, one `group_by`), reading only the persisted trades — so it works **retroactively for every saved run**. `Strategy.per_window` only ever stored `net_pnl` (`schema.prisma:517`) and could not have been back-filled.
+
+Reading one at a glance: *gross $29.38, fees −$27.09, funding $0.00 → net $2.29 over 149 trades* is the whole Phase-2 verdict in miniature — the signal worked, and friction took 92% of it. See `docs/USER_GUIDE.md` §11.
+
+---
+
+## 2026-07-29 — What's the difference between phase-1 and phase-2 strategies?
+
+**Q:** What's the difference between phase-1 and phase-2 strategies? (why do the phase-1 ones look profitable but phase-2 says NO-GO?)
+
+**A:** **They are not different trading ideas. They are the same pairs trade, measured two ways.** Phase-1 measured it optimistically; phase-2 measured it honestly; the honest number is lower. `Strategy.phase` is a **provenance stamp**, not a quality grade — and phase-1 rows are the **preserved baseline, never deleted and never hidden** (`schema.prisma:454-459`; the Phase filter defaults to *All*).
+
+Phase-2 did not make the strategies worse. It revealed that phase-1's numbers were optimistic.
+
+### The plain-English version
+
+**1 · Menu price vs. the final bill.** Phase-1 quoted the menu; phase-2 is the bill with tax, tip and the large-party surcharge. Same meal. The clearest example is a single family of runs measured both ways — entry |Z|≥3.5 over the out-of-sample spans s2–s4:
+
+| | Phase-1 view (zero-cost) | Honest view (real taker cost) |
+|---|---|---|
+| s2 | **+$1,181** | −$170 |
+| s3 | −$200 | −$1,313 |
+| s4 | **+$1,573** | +$948 |
+| **OOS total** | **+$2,554** | **−$536** |
+
+Nothing about the strategy changed between those two columns. The right-hand one just pays for its fills. Friction was ≈ **$0.398/trade** and the identity closes exactly: $2,554 − $3,090 = −$536 (`docs/strategy.md`, 2026-07-21).
+
+**2 · An empty test track vs. rush hour.** Phase-1 clocked its top speed on an empty track — mid-price fills, a tiny $100 per leg, one flat slippage number for every coin. Phase-2 drives the same car in traffic: each market charged **its own** half-spread, and a size big enough to move the price.
+
+**3 · A big fish in a small pond.** Buying $100 of a thin altcoin barely nudges it. Buying $1,000–$5,000 pushes the price against you, and impact grows as **Q^1.5** while your edge only grows as **Q** — so scaling up loses ground. The trap: the gross edge **lives in exactly those thin markets**. Filtering up to liquid names doesn't rescue it, it destroys it — gross collapses from **+$2,554 to −$183** at a ≥$100k/hr floor (`PHASE2_STRATEGY_PLAN.md` §4.1). You cannot escape the cost by trading better names, because the edge isn't in the better names.
+
+**4 · A parking meter.** Funding accrues the whole time a position is open, so a long hold keeps paying. It is now visible per trade and per window in the blotter (Phase-4 Task A) instead of being buried inside net.
+
+**5 · A lucky lottery ticket.** Phase-1 tried ~69 configurations and kept the best-looking one. Buy 69 tickets and one of them looks like a winner — by luck. The **Deflated Sharpe Ratio** asks: *skill, or just the luckiest of the batch?* Phase-2's answer: **nothing clears DSR > 0.95.**
+
+### The technical version
+
+**`phase = 1`** — the ~69-config baseline campaign, run under the **old cost model**: one flat `slippage_pct` + flat `taker_fee_pct` for every market, **no** per-market spread, **no** market impact, $100/leg assumed to fill at top-of-book, and ranked on net P&L with **no correction for the size of the search**. Much of what looks green is either **in-sample** (the single tuned 2026-03-01→06-23 window) or a **zero-cost counterfactual** (`cost-000*`, fees and slippage set to 0 — an upper bound, not a runnable config). Applying `realistic = MODELLED_COST && OUT_OF_SAMPLE` to those 69 rows leaves exactly **12 admissible rows, 11 of them losses** (§2.1).
+
+**`phase = 2`** — sub-phase-B onward. Same signal, honest machinery: **`PER_MARKET_SLIPPAGE`** charges each market its real half-spread (`simulation/spread_cost.py`), **`MARKET_IMPACT`** adds a size-aware `σ·√(Q/ADV)` term (`simulation/market_impact.py`), and candidates are judged by **DSR** (gate B3) rather than by leaderboard position. New runs stamp `phase=2` at the create path (`routers/backtest.py:84`); migration `0015_strategy_phase` is additive and backfills every existing row to 1. A name-prefix convention was explicitly rejected — names are unreliable (24 rows are literally "Untitled strategy"), so provenance is a column.
+
+**The verdict, in the order the evidence arrived:**
+
+| Measurement | OOS net | Gate |
+|---|---|---|
+| Flat real-taker cost | **+$187** | inside the ±$212 noise floor → **fails B3** |
+| Per-market spread, $100/leg | **+$157.22** | still inside ±$212 → statistically zero |
+| Per-market spread **+ market impact, $1,000/leg** | **−$50,669.90** | **fails B5 decisively** |
+
+The size ladder is the decisive part. At $100/leg the honest result is a coin flip (+$157 across 7,752 trades, ~65% win rate). Scale to a realistic $1,000/leg and impact alone costs ~$52k — a **−50% loss on $100k of capital** — while the win rate collapses **~65% → ~56%** as impact flips thousands of small winners into losers (`docs/strategy.md`, 2026-07-26). And **nothing clears DSR > 0.95**, so gate B3 fails too.
+
+**One caveat on "69".** That was the search size when the Phase-2 write-up was done. `GET /api/backtest/significance` computes `n_trials` **dynamically** from the qualifying saved runs (`backend/stats/significance.py:41-43`), so the DSR badge deflates against however many configs exist now — it is not frozen at 69. Prod currently holds 75 hyperliquid strategies. More searching makes the correction *stricter*, never looser.
+
+**So what would a genuine "yes" take?** Not another parameter tweak — every parameter has been swept and the honest answer is the same. It needs a **new angle**: funding-carry-aware pair selection, a different universe, hold-time caps that cut funding drag, or a different signal (`PHASE2_STRATEGY_PLAN.md` §7). Until something clears all five gates B1–B5, **NO-GO stands.**
+
+---
+
+## 2026-07-30 — Did the Phase-4 edge-hunt campaign find an edge?
+
+**Q:** The Phase-4 campaign tested entry threshold × per-leg size. Entry 4.0 made +$15,787 out-of-sample at $1,000/leg. Is that an edge — can we trade it?
+
+**A:** **No. NO-GO stands.** The campaign found a real *mechanism* but not a tradeable edge, and the two are worth separating carefully.
+
+**What is real.** Raising the entry threshold genuinely inverts the size economics. At $1,000/leg entry 3.5 loses **−$48,872** while entry 4.0 makes **+$15,787**, out-of-sample, with honest per-market spread + market-impact costs on. The control validates: entry 3.5 at $1k reproduces the documented gate-B5 figure (−$48,872 vs the published −$50,670, within 3.5%).
+
+The mechanism is clean. Impact cost per trade is **effectively constant across entry thresholds — $4.35 to $4.47** at $1,000/leg. What changes is how many trades pay it. Entry 4.0's gross per trade is **5.5× higher** ($3.08 vs $0.56 at $100/leg) on **5× fewer trades**, so it clears a per-trade tax that buries entry 3.5. Gross scales as Q, impact as Q^1.5 — so **trade count, not size, is what decides whether an edge survives at scale**.
+
+**Why it is still not tradeable.** Two reasons, both pre-stated in the bar before any result existed (`PHASE2_STRATEGY_PLAN.md` §1):
+
+1. **Gate B3's Deflated Sharpe fails, at 0.0000.** This is arithmetic, not a defect: with `n_trials = 72` and trial-Sharpe dispersion 0.76, the multiplicity-corrected bar is `sr_star` = **1.839**. Entry 4.0's window-return Sharpe is **0.26**. Verified against the engine's own `stats/deflated_sharpe.py`, not a reimplementation.
+
+2. **The P&L is concentrated in a handful of windows.** Of 13 walk-forward windows per span, only 5–7 are positive, and the best three carry everything:
+
+   | entry 4.0 @ $1k | Net | Best 3 windows | Other 10 |
+   |---|---|---|---|
+   | s2 | +$10,706 | +$17,998 | −$7,292 |
+   | s3 | +$4,796 | +$7,403 | −$2,607 |
+   | s4 | +$284 | +$6,556 | −$6,271 |
+
+   Across all three spans, **9 of 39 windows produce +$31,957 and the other 30 lose −$16,170.** Remove the best three windows from any span and it turns negative.
+
+**But B3 says "net ≥ +$424 OR DSR > 0.95" — doesn't +$15,787 pass?** Literally, yes; and this is the one place the campaign's result required a judgement call. The `+$424` threshold comes from a **±$212 noise floor estimated at $100/leg on entry-3.5-scale runs** — thousands of trades. It was never meant for 1,511 trades whose P&L lives in 9 windows. DSR is the purpose-built multiple-testing correction, it accounts for all 72 configs now searched, and it is the arm that speaks to this exact failure mode. **The honest reading is that B3 fails.** Treating the net arm as a pass would be moving the bar after seeing the answer, which §1 exists to prevent.
+
+**A bonus finding: funding is the dominant explicit cost.** The Task-A cost columns made this visible for the first time — funding costs **1.8–5.5× more than fees** and eats 32–61% of gross. It scales near-linearly with notional (−$1,210 → −$12,041 at 10× size, a 9.95× ratio), confirming it is pure carry, not microstructure. This is the strongest argument that the next genuine attempt should be **funding-carry-aware pair selection** (`PHASE2_STRATEGY_PLAN.md` §7) rather than another parameter sweep.
+
+**Also worth recording: the plan's own prediction was wrong.** `PHASE4_TASKC_PLAN.md` §3 pre-stated that entry 4.0 would land near break-even at $1,000/leg. It made +$15,787. The projection assumed the out-of-sample haircut measured at entry 3.5 (27.8%) applied at every threshold; it does not — more selective configs held up substantially better out-of-sample. The conclusion survived, but via DSR rather than via net.
+
+Full write-up with all figures: `docs/strategy.md`, "Phase-4 campaign — the entry × size interaction".
+
+---

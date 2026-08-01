@@ -870,6 +870,26 @@ export interface BacktestTrade {
   net_pnl: number;
 }
 
+/** Σ cost components over a set of trades (one window, or a whole run). Field
+ *  names match `BacktestTrade` so the same `costBreakdown` helper decomposes
+ *  both — `fee_cost` is a positive magnitude, `funding_pnl` is signed. */
+export interface BacktestCostBucket {
+  trades: number;
+  gross_pnl: number;
+  fee_cost: number;
+  funding_pnl: number;
+  net_pnl: number;
+  notional_usd: number;
+  hold_hours: number;
+  avg_hold_hours: number;
+}
+
+export interface BacktestCostSummary {
+  id: string;
+  total: BacktestCostBucket;
+  per_window: (BacktestCostBucket & { window_index: number })[];
+}
+
 export interface BacktestTradesResponse {
   id: string;
   window: number | null;
@@ -1146,5 +1166,17 @@ export function fetchBacktestTrades(
   const suffix = q.toString() ? `?${q}` : "";
   return proxyGet<BacktestTradesResponse>(
     `api/backtest/strategies/${encodeURIComponent(id)}/trades${suffix}`,
+  );
+}
+
+/**
+ * Cost decomposition for a strategy — Σ gross / fees / funding / net per
+ * walk-forward window and overall (Phase-4 Task A). Computed from the persisted
+ * trades, so it is available for every saved run (`per_window` only ever stored
+ * `net_pnl`). Runs with no trade rows return zeroed totals.
+ */
+export function fetchBacktestCosts(id: string): Promise<BacktestCostSummary> {
+  return proxyGet<BacktestCostSummary>(
+    `api/backtest/strategies/${encodeURIComponent(id)}/costs`,
   );
 }
