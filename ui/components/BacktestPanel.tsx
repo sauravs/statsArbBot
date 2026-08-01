@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   deleteStrategy,
   getStrategy,
+  listSimSessions,
   listStrategies,
   listStrategySignificance,
   pauseStrategy,
@@ -12,6 +14,7 @@ import {
   stopStrategy,
   type Strategy,
 } from "@/lib/api";
+import { liveSimByStrategy, presetFromStrategy, stashSimPreset } from "@/lib/simPresets";
 import CreateStrategyForm from "./CreateStrategyForm";
 import StrategyList from "./StrategyList";
 import StrategyDetail from "./StrategyDetail";
@@ -27,6 +30,12 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
   const [busy, setBusy] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // strategy id → the sim session paper-trading it, so the list can highlight
+  // which saved strategy is the one currently live in simulation (Phase 5).
+  const [liveSims, setLiveSims] = useState<
+    Map<string, { status: string; label: string | null }>
+  >(new Map());
+  const router = useRouter();
 
   // Run / pause / stop are separate actions from create (unlike the FF replay,
   // which launches on create), so polling keys off the live RUNNING status rather
@@ -45,6 +54,11 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
       ? res.strategies.map((s) => ({ ...s, dsr: sig.dsr[s.id] ?? null }))
       : res.strategies;
     setStrategies(rows);
+    // Which strategy is live in simulation right now. Best-effort for the same
+    // reason as the DSR merge: a sim-list failure must not blank the strategy list,
+    // it just means the highlight doesn't render.
+    const sims = await listSimSessions().catch(() => null);
+    setLiveSims(sims ? liveSimByStrategy(sims.sessions) : new Map());
     return rows;
   }, []);
 
@@ -213,12 +227,17 @@ export default function BacktestPanel({ reloadKey = 0 }: { reloadKey?: number })
             onSelect={setSelectedId}
             onSeed={onSeed}
             seeding={seeding}
+            liveSimByStrategyId={liveSims}
           />
         </div>
 
         <div>
           {detail ? (
             <StrategyDetail
+              onPaperTrade={(s) => {
+                stashSimPreset(presetFromStrategy(s));
+                router.push("/dashboard/sim");
+              }}
               strategy={detail}
               busy={busy}
               onRun={onRun}

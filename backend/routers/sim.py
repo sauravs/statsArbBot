@@ -70,6 +70,9 @@ class CreateSessionBody(BaseModel):
     # whatever the latest scan produced — the pre-Phase-5 behaviour.
     pvalue_max: float | None = Field(default=None, gt=0.0, le=1.0)
     max_half_life_h: float | None = Field(default=None, gt=0.0, le=1000.0)
+    # The saved backtest Strategy this session paper-trades, if it was launched
+    # from one. Null for a hand-created session.
+    source_strategy_id: str | None = Field(default=None, max_length=64)
 
 
 class TopUpBody(BaseModel):

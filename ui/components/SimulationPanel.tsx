@@ -9,9 +9,11 @@ import {
   stopSim,
   tickSim,
   topupSim,
+  type CreateSimInput,
   type SimOverview,
   type SimSession,
 } from "@/lib/api";
+import { takeSimPreset } from "@/lib/simPresets";
 import CreateSimForm from "./CreateSimForm";
 import SimSessionList from "./SimSessionList";
 import SimSessionDetail from "./SimSessionDetail";
@@ -28,6 +30,10 @@ export default function SimulationPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState<string | null>(null);
+  // A session prefilled from a saved strategy on the Backtest page (Phase 5).
+  // Read once on mount and cleared, so revisiting the page doesn't resurrect it.
+  const [preset, setPreset] = useState<CreateSimInput | null>(null);
+  useEffect(() => setPreset(takeSimPreset()), []);
 
   const refreshList = useCallback(async () => {
     const res = await listSimSessions();
@@ -123,6 +129,8 @@ export default function SimulationPanel() {
       <div className="grid gap-6 lg:grid-cols-[20rem_1fr]">
         <div className="space-y-6">
           <CreateSimForm
+            key={preset ? "preset" : "blank"}
+            initial={preset ?? undefined}
             onCreated={async (s) => {
               await refreshList();
               setSelectedId(s.id);

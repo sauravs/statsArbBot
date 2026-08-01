@@ -159,6 +159,7 @@ class PrismaSimRepository:
             "max_half_life_h": r.max_half_life_h,
             "per_market_slippage": r.per_market_slippage,
             "market_impact": r.market_impact,
+            "source_strategy_id": r.source_strategy_id,
             "tick_count": r.tick_count,
             "last_tick_at": _iso(r.last_tick_at),
             "created_at": _iso(r.created_at),
