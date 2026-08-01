@@ -590,6 +590,14 @@ export interface SimSession {
   slippage_pct: number;
   taker_fee_pct: number;
   funding_freq_h: number;
+  // Phase-5: per-session pair quality (null = trade whatever the scan produced) and
+  // the honest-cost provenance the session actually ran under.
+  pvalue_max: number | null;
+  max_half_life_h: number | null;
+  per_market_slippage: boolean | null;
+  market_impact: boolean | null;
+  /** The saved backtest Strategy this session paper-trades, if launched from one. */
+  source_strategy_id: string | null;
   tick_count: number;
   last_tick_at: string | null;
   created_at: string | null;
@@ -656,6 +664,10 @@ export interface CreateSimInput {
   max_active_pairs?: number | null;
   slippage_pct?: number;
   taker_fee_pct?: number;
+  funding_freq_h?: number;
+  pvalue_max?: number | null;
+  max_half_life_h?: number | null;
+  source_strategy_id?: string | null;
 }
 
 export interface SimTickResult {

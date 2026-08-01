@@ -82,6 +82,7 @@ export default function StrategyDetail({
   busy,
   onRun,
   onPause,
+  onPaperTrade,
   onStop,
   onDelete,
 }: {
@@ -89,6 +90,8 @@ export default function StrategyDetail({
   busy: boolean;
   onRun: () => void;
   onPause: () => void;
+  /** Launch a linked paper-trading session from this strategy (Phase 5). */
+  onPaperTrade?: (s: Strategy) => void;
   onStop: () => void;
   onDelete: () => void;
 }) {
@@ -257,6 +260,22 @@ export default function StrategyDetail({
                 Stop
               </button>
             </>
+          )}
+          {!running && onPaperTrade && (
+            <button
+              onClick={() => onPaperTrade(s)}
+              disabled={busy}
+              className="rounded-lg border border-amber/50 bg-amber/10 px-3 py-1.5 text-xs font-medium text-amber transition-colors hover:bg-amber/20 disabled:opacity-40"
+              data-testid="bt-paper-trade-btn"
+              title={
+                "Prefill a real-time simulation from this strategy's parameters and link the two, " +
+                "so this row is marked 'In sim' while it runs.\n\n" +
+                "Virtual money only. A paper run rehearses the plumbing — it is not evidence of edge " +
+                "(docs/PHASE5_PAPER_TRADING_PLAN.md §2)."
+              }
+            >
+              Paper-trade this
+            </button>
           )}
           {!running && (
             <button

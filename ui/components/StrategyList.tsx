@@ -23,6 +23,7 @@ import {
   COUNTERFACTUAL_ROW_STYLE,
   DsrBadge,
   FamilyBadge,
+  LiveSimBadge,
   PhaseBadge,
   SafetyBadges,
 } from "./SafetyBadges";
@@ -54,12 +55,15 @@ export default function StrategyList({
   onSelect,
   onSeed,
   seeding,
+  liveSimByStrategyId,
 }: {
   strategies: Strategy[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSeed: () => void;
   seeding: boolean;
+  /** strategy id → the sim session currently paper-trading it (Phase 5). */
+  liveSimByStrategyId?: Map<string, { status: string; label: string | null }>;
 }) {
   const [grouped, setGrouped] = useState(true);
   const [sort, setSort] = useState<SortKey>("default");
@@ -365,6 +369,7 @@ export default function StrategyList({
                             strategy={s}
                             selected={selectedId === s.id}
                             onSelect={onSelect}
+                            liveSim={liveSimByStrategyId?.get(s.id)}
                           />
                         ))}
                       </div>
@@ -379,6 +384,7 @@ export default function StrategyList({
                   selected={selectedId === s.id}
                   onSelect={onSelect}
                   showFamily
+                  liveSim={liveSimByStrategyId?.get(s.id)}
                 />
               ))}
         </div>
@@ -392,14 +398,18 @@ function Row({
   selected,
   onSelect,
   showFamily = false,
+  liveSim,
 }: {
   strategy: Strategy;
   selected: boolean;
   onSelect: (id: string) => void;
   showFamily?: boolean;
+  /** Set when a real-time simulation is currently paper-trading this strategy. */
+  liveSim?: { status: string; label: string | null };
 }) {
   const c = classify(s);
   const untradeable = !c.safety.tradeable;
+  const inSim = liveSim?.status === "RUNNING";
   return (
     <button
       onClick={() => onSelect(s.id)}
@@ -410,10 +420,15 @@ function Row({
       // scrolling ancestor and is accessible without extra wiring.
       title={rowTooltip(s, c)}
       style={untradeable ? COUNTERFACTUAL_ROW_STYLE : undefined}
+      // A live paper run outranks selection for the row's colour: the operator asked
+      // to spot "the one we picked" at a glance, and that is a property of the row
+      // itself, not of what happens to be clicked.
       className={`w-full rounded-lg border px-2 py-1.5 text-left transition-colors ${
-        selected
-          ? "border-blue/60 bg-blue/10"
-          : "border-transparent hover:border-border hover:bg-bg/60"
+        inSim
+          ? "border-amber/60 bg-amber/10 ring-1 ring-amber/30"
+          : selected
+            ? "border-blue/60 bg-blue/10"
+            : "border-transparent hover:border-border hover:bg-bg/60"
       } ${untradeable ? "opacity-70" : ""}`}
     >
       <div className="flex items-baseline gap-2">
@@ -436,6 +451,7 @@ function Row({
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1">
+        {liveSim && <LiveSimBadge status={liveSim.status} label={liveSim.label} />}
         <SafetyBadges classification={c} compact />
         <PhaseBadge phase={s.phase} />
         <DsrBadge dsr={s.dsr} />

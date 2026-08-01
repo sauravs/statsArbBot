@@ -287,9 +287,34 @@ model SimSession {
   stop_threshold   Float            @default(4.0) // |Z| ≥ → stop-loss
   usd_per_trade    Float            @default(100) // notional per leg
   max_active_pairs Int? // cap on concurrent open pairs (null = no cap)
-  slippage_pct     Float            @default(0.05) // per-leg, percent
+  slippage_pct     Float            @default(0.05) // per-leg, percent — FALLBACK once
+  // the per-market map is on (Phase 5); each market then pays its own half-spread.
   taker_fee_pct    Float            @default(0.05) // per-leg, percent
   funding_freq_h   Int              @default(1) // hours between funding accruals
+
+  // Pair-quality policy for THIS session (Phase 5). The scan admits everything under
+  // the process-global PVALUE_MAX / MAX_HALF_LIFE_H, but a session may demand a
+  // tighter bar than the scan did (p ≤ 0.01 is the documented recommendation).
+  // Null = don't apply this bound, i.e. trade whatever the latest scan produced —
+  // so existing rows keep their exact behaviour.
+  pvalue_max      Float?
+  max_half_life_h Float?
+
+  // Honest-cost provenance (Phase 5). Which cost model this session actually ran
+  // under, recorded so a result stays reproducible after an env change — the same
+  // reason Strategy carries its own cost columns. Null = followed the process
+  // global at tick time.
+  per_market_slippage Boolean?
+  market_impact       Boolean?
+
+  // Which saved backtest Strategy this session is paper-trading (Phase 5). Set when
+  // the session is launched from a strategy, so the dashboard can mark that strategy
+  // as "live in simulation" and the session can say what it mirrors. Nullable +
+  // ON DELETE SET NULL: a hand-created session has none, and the link never puts a
+  // strategy row at risk (strategy rows are the evidence and are never deleted).
+  source_strategy_id String?
+  source_strategy    Strategy? @relation(fields: [source_strategy_id], references: [id], onDelete: SetNull)
+
   tick_count       Int              @default(0)
   last_tick_at     DateTime?        @db.Timestamptz
   created_at       DateTime         @default(now()) @db.Timestamptz
@@ -524,6 +549,11 @@ model Strategy {
   // engine discarded these before; persisting them lets the UI drill into a
   // window and see where/when each trade entered/exited and why.
   trades BacktestTrade[]
+
+  // Real-time simulation sessions paper-trading this strategy's parameters (Phase 5).
+  // Reverse side of SimSession.source_strategy; ON DELETE SET NULL there, so a
+  // session never keeps a strategy alive and deleting one never cascades here.
+  sim_sessions SimSession[]
 
   created_at   DateTime  @default(now()) @db.Timestamptz
   updated_at   DateTime  @updatedAt @db.Timestamptz

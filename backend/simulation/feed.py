@@ -75,6 +75,27 @@ async def _tick_for_pair(client, pair: dict, *, window: int | None, now) -> Pair
     )
 
 
+def filter_pairs_by_quality(
+    pairs: list[dict],
+    *,
+    pvalue_max: float | None = None,
+    max_half_life_h: float | None = None,
+) -> list[dict]:
+    """Keep only pairs meeting a session's cointegration-quality bar.
+
+    Both bounds are optional; ``None`` means "don't apply this one", so a session
+    that sets neither behaves exactly as before (trade whatever the scan produced).
+    A pair missing the field is kept — the filter tightens on evidence, it does not
+    reject on absence.
+    """
+    out = pairs
+    if pvalue_max is not None:
+        out = [p for p in out if p.get("p_value") is None or p["p_value"] <= pvalue_max]
+    if max_half_life_h is not None:
+        out = [p for p in out if p.get("half_life") is None or p["half_life"] <= max_half_life_h]
+    return out
+
+
 async def build_realtime_snapshots(
     client,  # PriceSource (live dYdX data client or demo client)
     pairs: list[dict],

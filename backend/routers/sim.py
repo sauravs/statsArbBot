@@ -66,6 +66,13 @@ class CreateSessionBody(BaseModel):
     slippage_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     taker_fee_pct: float = Field(default=0.05, ge=0.0, le=5.0)
     funding_freq_h: int = Field(default=1, ge=1, le=24)
+    # Per-session pair quality (Phase 5). None = don't apply the bound, i.e. trade
+    # whatever the latest scan produced — the pre-Phase-5 behaviour.
+    pvalue_max: float | None = Field(default=None, gt=0.0, le=1.0)
+    max_half_life_h: float | None = Field(default=None, gt=0.0, le=1000.0)
+    # The saved backtest Strategy this session paper-trades, if it was launched
+    # from one. Null for a hand-created session.
+    source_strategy_id: str | None = Field(default=None, max_length=64)
 
 
 class TopUpBody(BaseModel):

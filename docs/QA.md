@@ -1016,3 +1016,154 @@ The mechanism is clean. Impact cost per trade is **effectively constant across e
 Full write-up with all figures: `docs/strategy.md`, "Phase-4 campaign — the entry × size interaction".
 
 ---
+
+## 2026-08-01 — Which parameters should I use for a month of manual trading?
+
+**Q:** Analysing phase-1 AND phase-2/Phase-4 saved strategies together, which entry Z-score, p-value, half-life, per-leg capital, stop-loss (and any other parameter) should I use for a month of manual market-order trading — and which is most optimised?
+
+**A:** **Honest verdict first: nothing clears the bar, and this analysis found a *new* reason it doesn't — one that is worse for manual trading than the statistical objections.** The Phase-4 result that looked best (+$15,787 OOS at entry 4.0 / $1,000 per leg) **requires running 20–100 simultaneous pair positions.** Cap concurrency at anything a human can actually execute by hand and it goes **negative**. NO-GO stands, now on operational as well as statistical grounds.
+
+That said, the operator has decided to trade manually with his own money, so §6 gives the least-bad, risk-managed parameterisation and states exactly what he is accepting.
+
+### 1 · Evidence base (pulled live from prod, read-only, 2026-08-01)
+
+`production` @ `bb55ffb`. Inventory confirmed as documented: **75 phase-1 + 27 phase-2** hyperliquid `strategies` rows (18 phase-2 COMPLETED = the Phase-4 campaign, 9 FAILED kept as a record). Split by the existing taxonomy axes:
+
+| phase | status | cost tier | span | n |
+|---|---|---|---|---|
+| 1 | COMPLETED | MODELLED | OUT_OF_SAMPLE | 18 |
+| 1 | COMPLETED | MODELLED | IN_SAMPLE | 12 |
+| 1 | COMPLETED | MODELLED | OVERLAPS | 29 |
+| 1 | COMPLETED | ZERO / REDUCED | OUT_OF_SAMPLE | 6 / 1 |
+| 1 | PENDING / STOPPED / FAILED | — | — | 6 / 1 / 2 |
+| 2 | COMPLETED | MODELLED | OUT_OF_SAMPLE | **18** |
+| 2 | FAILED | MODELLED | OUT_OF_SAMPLE | 9 |
+
+**Nothing is ranked on in-sample net** — the 12 IN_SAMPLE and 29 OVERLAPS rows are search output and are excluded from every recommendation below.
+
+**Verification.** `GET /api/backtest/strategies/{id}/costs` (live on prod since the 2026-08-01 deploy) was cross-checked against a raw `group by` over `backtest_trades` for three runs. It reproduces them **to the cent**, and the `gross − fees + funding = net` identity closes against the stored `Strategy.net_pnl`:
+
+| Run | trades | gross | fees | funding | identity | stored net |
+|---|---|---|---|---|---|---|
+| e3.5 · s2 · $100 | 3,577 | 1,999.478285 | 674.696101 | −1,209.547992 | 115.234192 | 115.234218 |
+| e4.0 · s2 · $1k | 729 | 19,308.765203 | 1,332.742197 | −7,269.772115 | 10,706.250891 | 10,706.250903 |
+| e4.0 · s4 · $1k | 235 | 2,491.001294 | 474.962408 | −1,731.649559 | 284.389327 | 284.389323 |
+
+**DSR re-verified live**, not quoted from the docs: `GET /api/backtest/significance` returns `n_trials = 72`, trial-Sharpe variance 0.5810 (sd **0.762**). Across all 72 scored runs the **best DSR on prod is 0.031**; every entry-4.0 row is ~1e-10. **Zero runs clear 0.95.** Gate B3's DSR arm fails universally.
+
+### 2 · Full cost decomposition (Task A endpoint, OOS s2+s3+s4)
+
+| Per leg | Entry | Trades | Gross | Fees | Funding | **Net** | Funding/gross | Gross/trade | Avg hold |
+|---|---|---|---|---|---|---|---|---|---|
+| $100 | 3.5 | 7,699 | 1,953 | −1,513 | −1,686 | **−1,246** | 86% | $0.25 | 11.3h |
+| $100 | 3.75 | 3,711 | 3,041 | −723 | −1,407 | **+911** | 46% | $0.82 | 11.6h |
+| $100 | 4.0 | 1,513 | 3,723 | −291 | −1,086 | **+2,346** | 29% | $2.46 | 11.6h |
+| $1,000 | 3.5 | 7,638 | −17,423 | −15,012 | −16,437 | **−48,872** | — | −$2.28 | 11.3h |
+| $1,000 | 3.75 | 3,706 | 12,895 | −7,223 | −14,046 | **−8,374** | 109% | $3.48 | 11.6h |
+| $1,000 | 4.0 | 1,511 | 29,521 | −2,902 | −10,832 | **+15,787** | 37% | $19.54 | 11.6h |
+
+**Funding is confirmed as the dominant explicit cost** — 3.7× fees at entry 4.0/$100 and 29–86% of gross. The per-span friction absorbed by the 10× size step reproduces the documented $4.35–4.47/trade (measured here at **$4.35–5.99/trade**, mean ≈$4.9).
+
+### 3 · The finding that decides this question: the edge arrives in bursts you cannot trade
+
+Measuring **time-weighted** concurrent open positions on an hourly grid (`backtest_trades` over each 114-day span) — this had never been measured:
+
+| Entry | Span | Median open | Mean | p90 | p99 | Max | % time flat |
+|---|---|---|---|---|---|---|---|
+| 4.0 | s2 | **0** | 2.97 | 7 | 41 | **100** | 56% |
+| 4.0 | s3 | **0** | 2.33 | 7 | 31 | **97** | 67% |
+| 4.0 | s4 | **0** | 1.09 | 3 | 16 | 34 | 73% |
+| 3.5 | s2 | 7 | 14.26 | 38 | 102 | 111 | 24% |
+
+At entry 4.0 you are **flat 56–73% of the time**, then occasionally 40–100 pairs (80–200 legs) dislocate at once. Those bursts are where the money is: of 39 walk-forward windows, **the best 3 produce +$18,142 while the other 36 lose −$2,355** ($1k/leg).
+
+So the concentration is not merely statistical — it is **operationally binding**. Replaying each config's own blotter under a hard cap of K simultaneous positions (hourly checks, no lookahead):
+
+| Config | K=2 | K=3 | K=5 | K=8 | K=12 | K=20 | uncapped |
+|---|---|---|---|---|---|---|---|
+| e4.0 · $100 | −$28 | −$4 | +$143 | −$75 | +$342 | +$901 | **+$2,346** |
+| e4.0 · $1,000 | −$1,432 | −$1,232 | −$1,190 | −$2,410 | +$287 | +$5,534 | **+$15,787** |
+
+**The entire +$15,787 requires K ≥ 20.** At every human-executable cap it is negative. And this is not a selection-skill problem: taking the **most extreme |Z| first** (a rule a human *can* follow) does no better — it lands **inside the band of 200 random admission orders** at every K, and at $1k/leg is slightly *worse* than first-come. There is no ordering rule that rescues it.
+
+Caveat, stated plainly: the cap replay is a counterfactual on the *executed set*, not a re-run of the engine (capital and slot dynamics would differ slightly). The direction and magnitude are the point; the non-monotonicity across K (K=8 worse than K=5 and K=12, under all three rules) is itself evidence that the result is unstable.
+
+### 4 · Parameter-by-parameter
+
+| Parameter | Recommend | Evidence | Reason | Confidence |
+|---|---|---|---|---|
+| **Entry \|Z\|** | **4.0** | Phase-4, 18 OOS runs, honest costs | Only threshold positive at *both* sizes. Gross/trade $2.46 vs $0.25 at 3.5 — the per-trade friction tax (~$0.31 spread @$100, ~$4.9 impact @$1k) is ~constant, so per-trade margin is what survives. Also 5× less manual workload. 4.0 is the API ceiling (`routers/backtest.py:62`). | **High** on the ranking; **low** that it is profitable |
+| **p-value max** | **0.01** | Phase-1 sweep (in-sample) | 0.01 → +$1,865; 0.05/0.10/0.15 → −$1,176, *identical to the cent*, because `statcore/cointegration.py:59` hard-wires a 95% t-stat gate the dial can't loosen. Only bites below 0.05. | **High** — structural, not fitted |
+| **Half-life cap** | **72h (leave off)** | Phase-1 s3 sweep + new measurement | Sweep was inert (72h −$1,313 / 48h −$1,326 / 24h −$1,348). Newly confirmed: at entry 4.0 only **0.0–0.2%** of trades have half-life > 48h, and p95 hold is 22–25h. The cap provably cannot bind. Tightening it does nothing. | **High** |
+| **Stop \|Z\|** | **5.0** | Phase-1 s3 sweep + new measurement | Pure risk/return see-saw (3.75 −$1,665 / 4.0 −$1,313 / 6.0 −$1,291). Newly measured: at entry 4.0 stops fire on only **1.6–4.7%** of trades (88–96% are TAKE_PROFIT), so 5.0 is a tail guard, not a lever. 5.0 also avoids the degenerate `entry == stop`. | **High** that it barely matters |
+| **Exit \|Z\|** | **0.5** | Phase-1 6-point sweep | Noise lever: $2,087 ± $212 across 0.05–0.50, best and worst are neighbours. Never re-tested under honest costs, but a noise lever carries little risk. | **Medium** |
+| **Z-window / scan / trade** | **21 / 21d / 7d** | Fixed across all Phase-4 runs | Not independently swept in Phase-4. The 7d trade window caps funding, which is the dominant cost — do not lengthen it. | **Medium** — held constant, not optimised |
+| **Per-leg capital** | **$100** | See §5 | — | — |
+
+**What is data vs extrapolation.** Entry, per-leg size and the cost decomposition are *measured* out-of-sample under honest costs (Phase-4, 18 runs). p-value, half-life, stop and exit rest on **phase-1 sweeps run at $100/leg under the old flat cost model**, mostly on a single span — they are the best evidence that exists, but they were never re-measured with `PER_MARKET_SLIPPAGE` + `MARKET_IMPACT` on. The concurrency-cap analysis is **new** and is a counterfactual replay, not a fresh engine run.
+
+### 5 · Per-leg capital — the answer is $100, and the reason is not the one in the docs
+
+Within the *tested* range, $1,000/leg beat $100/leg at entry 4.0 (+$15,787 vs +$2,346), because gross scales as Q while entry 4.0's low trade count keeps total impact small. **That result does not transfer to manual trading**, because it only exists at K ≥ 20 concurrent positions (§3) — 20 pairs × 2 legs × $1,000 = **$40,000 of gross notional to manage by hand, rebalanced through bursts.** At the caps a human can hold, the $1,000 tier is **−$1,190 to −$2,410**.
+
+- **$5,000/leg is UNTESTED and must not be extrapolated to.** The docs warn the √-law breaks down there (many thin markets hit the 5%/leg impact cap), and `docs/strategy.md` deliberately declines to give a figure.
+- **Recommended capital envelope: $100/leg with a hard cap of 5 concurrent pairs → $1,000 peak gross notional**, plus margin buffer. That is the largest size whose economics were actually measured at a workload a person can execute.
+
+### 6 · The least-bad parameterisation, and what it actually earns
+
+**entry 4.0 · exit 0.5 · stop 5.0 · p-value 0.01 · half-life 72h · z-window 21 · scan 21d / trade 7d · $100 per leg · hard cap 5 concurrent pairs.**
+
+Replayed on its own OOS blotter under that cap (best-|Z| first, hourly checks):
+
+| Span | Signals taken | Trades/day | Net | Win % |
+|---|---|---|---|---|
+| s2 | 278 of 730 | 2.44 | **+$174.51** | 65.1% |
+| s3 | 207 of 548 | 1.82 | **−$115.36** | 63.8% |
+| s4 | 143 of 235 | 1.25 | **+$96.54** | 62.9% |
+| **Total** | **628 of 1,513** | **1.84** | **+$155.68** | 63.9% |
+
+That is **+$0.25 per trade, ≈ +$13.84 per month, ≈ 52 trades/month**, on $1,000 of capital at work. Exit mix: 90.4% TAKE_PROFIT, 5.1% END_OF_WINDOW, 4.5% time-stop.
+
+**Split into the 12 calendar months of OOS history:**
+
+`−189, −136, −71, −41, −34, +14, +29, +49, +76, +107, +131, +221`
+
+- **5 of 12 months (42%) lose money.** Median month **+$21**, mean **+$13**, worst **−$189**, best **+$221**.
+- A bootstrap over the 39 window returns agrees: P(a 4-window ≈ 1-month block loses) = **34%** uncapped at $100/leg, and **40%** at $1,000/leg.
+
+**Note on the "one month = one window" framing:** it isn't. `trade_window_days = 7`, so a walk-forward window is **one week**; a month is ~4 consecutive windows. That makes a month *less* likely to be a total loss than a single window — but 42% of measured months still lost.
+
+**What you are accepting by trading this:**
+
+1. **The expected return is ~+1.4%/month on $1,000 at work — roughly $14.** Against a worst measured month of −$189 (−19%). This is not a business; it is a paid rehearsal.
+2. **DSR = ~1e-10.** After correcting for the 72 configs searched, the corrected bar is `sr_star` = 1.839 and this config's window Sharpe is 0.26. The most likely explanation for the positive number is that it is the luckiest draw of the search.
+3. **Two-thirds of the P&L came from 3 of 39 windows.** A month that misses them is a losing month, and you cannot know in advance which month that is.
+4. **The cap costs you ~93% of the headline result** (+$2,346 → +$156), and the capped figure is *inside* the ±$212 noise floor — i.e. statistically indistinguishable from zero.
+5. **Funding will be your largest cost line**, ~29% of gross, and it accrues whether or not the spread reverts.
+
+**On gate B3's net arm:** B3 reads "net ≥ +$424 **or** DSR > 0.95", and +$15,787 passes literally. The prior session judged that arm inapplicable — its ±$212 noise floor was estimated at $100/leg on thousand-trade runs, not on 1,511 trades whose P&L lives in 9 windows — and **that reading stands here.** The operator may overrule it; if he does, he should know that **it changes nothing for manual trading**, because the config that passes the net arm is the $1,000/leg one, and §3 shows it is negative at every executable concurrency. The overrule would license a configuration he cannot actually run.
+
+### 7 · What would make me tell you to stop
+
+Pre-registered, so the bar cannot move afterwards. Any **one** of these = stop and re-assess:
+
+| Trigger | Threshold | Why this number |
+|---|---|---|
+| **Drawdown** | Cumulative **−$250** from peak (−25% of the $1,000 at work) | Worst measured month was −$189; −$250 is outside anything the backtest produced. |
+| **Single month** | Month closes below **−$200** | Below the worst of 12 measured months. |
+| **Losing streak** | **6 consecutive losing weeks** | Longest measured negative-window run at entry 4.0 is **5**. |
+| **Single trade** | Any trade loses more than **−$40** at $100/leg | The worst measured s2 trade was −$40.24; a bigger one means impact/slippage is worse live than modelled. |
+| **Funding drag** | Funding exceeds **45% of gross** over any 20 trades | Measured 29% at this config; 45% means the carry assumption is broken. |
+| **Fill quality** | Realised entry slippage > **0.06%/leg** on average over 20 trades | P90 of the measured half-spread distribution. Above this the cost model is optimistic. |
+| **Signal rate** | Fewer than **20 trades in a month**, or more than **120** | Measured 52/month. Either extreme means the scanned universe or the regime has shifted. |
+| **Win rate** | Below **55%** over 50 trades | Measured 62–65% on every span; 55% is well outside that. |
+
+### 8 · Bottom line
+
+**Most optimised = entry 4.0 at $1,000/leg** on the raw numbers — and it is **not tradeable by hand**, because it needs 20+ simultaneous positions. **Most optimised among things you can actually execute = entry 4.0 at $100/leg capped at 5 pairs**, which earns ≈ **$14/month with 42% losing months** and sits inside the noise floor.
+
+The honest recommendation is that this is worth running **only as an operational rehearsal** — to prove the plumbing, the fills and the funding accrual — and not as a way to make money. The next genuine attempt at an edge remains **funding-carry-aware pair selection** (`PHASE2_STRATEGY_PLAN.md` §7), now doubly motivated: funding is both the largest cost line *and* the one cost a live run can actually verify.
+
+Figures: prod DB + `GET /api/backtest/strategies/{id}/costs` + `GET /api/backtest/significance`, 2026-08-01. Background: `docs/strategy.md` "Phase-4 campaign", `docs/PHASE2_STRATEGY_PLAN.md` §1.
+
+---
