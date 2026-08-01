@@ -374,6 +374,7 @@ def test_session_serialiser_round_trips_the_new_fields():
         max_half_life_h = 72.0
         per_market_slippage = True
         market_impact = True
+        source_strategy_id = "bt_1"
         tick_count = 0
         last_tick_at = None
         created_at = None
@@ -384,3 +385,6 @@ def test_session_serialiser_round_trips_the_new_fields():
     assert d["max_half_life_h"] == 72.0
     assert d["per_market_slippage"] is True
     assert d["market_impact"] is True
+    # The strategy link drives the dashboard's "In sim" highlight; dropping it here
+    # would leave the badge permanently dark with no other symptom.
+    assert d["source_strategy_id"] == "bt_1"

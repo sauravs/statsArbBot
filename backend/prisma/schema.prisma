@@ -307,6 +307,14 @@ model SimSession {
   per_market_slippage Boolean?
   market_impact       Boolean?
 
+  // Which saved backtest Strategy this session is paper-trading (Phase 5). Set when
+  // the session is launched from a strategy, so the dashboard can mark that strategy
+  // as "live in simulation" and the session can say what it mirrors. Nullable +
+  // ON DELETE SET NULL: a hand-created session has none, and the link never puts a
+  // strategy row at risk (strategy rows are the evidence and are never deleted).
+  source_strategy_id String?
+  source_strategy    Strategy? @relation(fields: [source_strategy_id], references: [id], onDelete: SetNull)
+
   tick_count       Int              @default(0)
   last_tick_at     DateTime?        @db.Timestamptz
   created_at       DateTime         @default(now()) @db.Timestamptz
@@ -541,6 +549,11 @@ model Strategy {
   // engine discarded these before; persisting them lets the UI drill into a
   // window and see where/when each trade entered/exited and why.
   trades BacktestTrade[]
+
+  // Real-time simulation sessions paper-trading this strategy's parameters (Phase 5).
+  // Reverse side of SimSession.source_strategy; ON DELETE SET NULL there, so a
+  // session never keeps a strategy alive and deleting one never cascades here.
+  sim_sessions SimSession[]
 
   created_at   DateTime  @default(now()) @db.Timestamptz
   updated_at   DateTime  @updatedAt @db.Timestamptz

@@ -140,6 +140,45 @@ export function PhaseBadge({ phase }: { phase: number | undefined }) {
   );
 }
 
+/** "This strategy is being paper-traded right now" (Phase 5).
+ *
+ *  The one badge that is about the PRESENT rather than a past result, so it is the
+ *  loudest thing on the row — a pulsing amber pill. Amber, not green: a live paper
+ *  run is an operational rehearsal, not a validated edge, and a green badge would
+ *  imply the opposite of what the evidence says. */
+export function LiveSimBadge({
+  status,
+  label,
+}: {
+  status?: string;
+  label?: string | null;
+}) {
+  const paused = status === "PAUSED";
+  return (
+    <span
+      title={
+        `This strategy is currently being paper-traded in a real-time simulation` +
+        (label ? ` ("${label}")` : "") +
+        (paused ? " — session PAUSED." : " — session RUNNING.") +
+        "\n\nVirtual money only. A paper run rehearses the plumbing; it is not evidence of edge."
+      }
+      data-testid="badge-live-sim"
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+        paused
+          ? "border-muted/50 bg-muted/10 text-muted"
+          : "border-amber/60 bg-amber/20 text-amber"
+      }`}
+    >
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full ${
+          paused ? "bg-muted" : "animate-pulse bg-amber"
+        }`}
+      />
+      {paused ? "Sim paused" : "In sim"}
+    </span>
+  );
+}
+
 /** The quiet tier: which experiment this run belongs to. Styled to recede — it is
  *  context, not a warning, and must never compete with the safety badges. */
 export function FamilyBadge({
