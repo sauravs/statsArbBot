@@ -416,7 +416,12 @@ class SimulationEngine:
             )
         if not pairs:
             return []
-        client = make_data_client()
+        # Scope the price client to the SESSION's venue, not the mutable
+        # SCAN_DATA_SOURCE global: pairs above already come from
+        # session["exchange"], and after any api restart the global reverts to its
+        # env default — which would price this session's pairs against a different
+        # exchange. Shared market names (BTC, XRP, SUI…) make that silent.
+        client = make_data_client(session["exchange"])
         try:
             return await build_realtime_snapshots(
                 client, pairs, window=session.get("zscore_window")

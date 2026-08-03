@@ -35,7 +35,7 @@ def test_make_data_client_dispatch(monkeypatch, source, expected):
 
 def test_make_data_client_unknown_source_raises(monkeypatch):
     monkeypatch.setattr(config, "SCAN_DATA_SOURCE", "bogus")
-    with pytest.raises(ValueError, match="unknown SCAN_DATA_SOURCE"):
+    with pytest.raises(ValueError, match="unknown data source"):
         make_data_client()
 
 

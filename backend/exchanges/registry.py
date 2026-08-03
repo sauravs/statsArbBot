@@ -60,17 +60,26 @@ EXCHANGE_REGISTRY: dict[str, ExchangeInfo] = {
     "hyperliquid": ExchangeInfo(
         id="hyperliquid",
         label="Hyperliquid",
-        # This phase delivers HL **Manual Trading + Backtest** only (data is
+        # HL delivers **Manual Trading + Backtest + paper trading** (data is
         # integrated: scan / historical fetch / backtest run on live HL `/info`
-        # data). `live_modes` is intentionally EMPTY — LiveBot / Fast-Forward /
-        # Simulation and any testnet/live automated trading for HL are PENDING a
-        # future phase, so live trading is cleanly rejected (routers/live.py). The
-        # HL trade client (Slice 4a) is built + tested but PARKED behind this gate.
-        # `integrated` here means "data integrated", not "tradeable".
+        # data). `live_modes` stays intentionally EMPTY — LiveBot and any
+        # testnet/live AUTOMATED trading for HL are still PENDING, so live trading
+        # is cleanly rejected (routers/live.py). The HL trade client (Slice 4a) is
+        # built + tested but PARKED behind that gate. `integrated` here means
+        # "data integrated", not "tradeable".
         integrated=True,
         has_testnet=True,
         live_modes=[],
-        integration_note="Data + Manual Trading + Backtest (this phase); LiveBot/FF/Sim/live-trading pending",
+        # Phase 5: Simulation + Fast-Forward enabled for HL. This flag was
+        # protecting a real defect, not merely an unvalidated path — both paper
+        # paths used to take their price client from the mutable SCAN_DATA_SOURCE
+        # global rather than from the session's own venue, so after any api restart
+        # an HL session would have priced HL pairs against the dYdX indexer (silently,
+        # for the market names the two venues share). Both now resolve their client
+        # and their per-market costs from the persisted `exchange`, so the flag is
+        # safe to open. Virtual money only — this grants no order-placing capability.
+        sim_enabled=True,
+        integration_note="Data + Manual Trading + Backtest + paper trading (Simulation / Fast-Forward); LiveBot + automated live trading pending",
     ),
 }
 

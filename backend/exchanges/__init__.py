@@ -9,11 +9,20 @@ it. Binance stays a registry stub. See ADR-0004 and docs/HYPERLIQUID_PLAN.md.
 from .registry import EXCHANGE_REGISTRY, ExchangeInfo, get_exchange, list_exchanges
 
 
-def make_data_client():
+def make_data_client(exchange: str | None = None):
     """
-    Build a read-only price-data client for the configured data source.
+    Build a read-only price-data client for ``exchange``, or for the configured
+    data source when it is not given.
 
-    Explicit dispatch on ``SCAN_DATA_SOURCE`` (one of ``VALID_DATA_SOURCES``):
+    **Pass ``exchange`` whenever the caller owns a persisted venue** (a simulation
+    session, a live session). ``SCAN_DATA_SOURCE`` is a *mutable process global* —
+    the data-source endpoint changes it at runtime and it resets to its env default
+    on every restart — so a long-lived session that priced off the global would
+    select its pairs from one venue and its prices from another after any restart.
+    Hyperliquid and dYdX share market names (BTC, XRP, SUI, LDO…), so that failure
+    is not loud: those legs fetch *successfully* from the wrong exchange.
+
+    Explicit dispatch on the resolved source (one of ``VALID_DATA_SOURCES``):
     ``fake`` → deterministic, network-free :class:`exchanges.demo.DemoDataClient`;
     ``dydx`` → live :class:`exchanges.dydx.client.DydxDataClient`;
     ``hyperliquid`` → live :class:`exchanges.hyperliquid.client.HyperliquidDataClient`.
@@ -26,7 +35,12 @@ def make_data_client():
     """
     import config
 
+    # `fake` is a whole-process offline mode (demo markets, no network), so it wins
+    # over a caller's venue: a session created against dydx must not start making
+    # real network calls just because the process was flipped into demo.
     source = config.SCAN_DATA_SOURCE
+    if source != "fake" and exchange is not None:
+        source = exchange
     if source == "fake":
         from exchanges.demo import DemoDataClient
 
@@ -40,7 +54,7 @@ def make_data_client():
 
         return DydxDataClient()
     raise ValueError(
-        f"unknown SCAN_DATA_SOURCE {source!r}; valid: {config.VALID_DATA_SOURCES}"
+        f"unknown data source {source!r}; valid: {config.VALID_DATA_SOURCES}"
     )
 
 

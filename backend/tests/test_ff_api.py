@@ -99,13 +99,23 @@ def test_endpoints_require_auth(ctx):
     assert ctx.client.post("/api/ff/simulations", json={}).status_code == 401
 
 
-def test_hyperliquid_ff_rejected(ctx):
-    # HL Fast-Forward is pending this phase (sim_enabled=False) → cleanly 422'd.
+def test_hyperliquid_ff_no_longer_gated(ctx):
+    # Phase 5: HL fast-forward is enabled (it was already exchange-scoped and now
+    # charges the honest per-market cost model). It is no longer 422'd on the venue;
+    # any failure here is about DATA (no scan/pairs), not about the gate.
     r = ctx.client.post(
         "/api/ff/simulations", json={**_BODY, "exchange": "hyperliquid"}, headers=AUTH
     )
+    assert r.status_code != 422
+    if not r.is_success:
+        assert "does not support fast-forward" not in r.text
+
+
+def test_unintegrated_exchange_still_rejected(ctx):
+    r = ctx.client.post(
+        "/api/ff/simulations", json={**_BODY, "exchange": "binance"}, headers=AUTH
+    )
     assert r.status_code == 422
-    assert "does not support fast-forward" in r.json()["detail"]
 
 
 @pytest.mark.parametrize("body", [

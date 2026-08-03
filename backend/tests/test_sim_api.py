@@ -106,13 +106,21 @@ def test_unknown_exchange_rejected(ctx):
     assert r.status_code == 422
 
 
-def test_hyperliquid_sim_rejected(ctx):
-    # HL data is integrated (backtest/manual this phase), but Simulation is pending
-    # (sim_enabled=False) → cleanly 422'd, not a half-validated reachable path.
+def test_hyperliquid_sim_allowed(ctx):
+    # Phase 5: HL paper trading is enabled. The gate was protecting a real defect —
+    # the price client came from the mutable SCAN_DATA_SOURCE global rather than the
+    # session's venue — which is fixed, so an HL session is now a first-class path.
     r = ctx.client.post("/api/sim/sessions",
                         json={"exchange": "hyperliquid", "starting_capital": 100.0}, headers=AUTH)
+    assert r.status_code == 201
+    assert r.json()["exchange"] == "hyperliquid"
+
+
+def test_unintegrated_exchange_still_rejected(ctx):
+    # Opening HL must not open everything: a venue with no data integration stays shut.
+    r = ctx.client.post("/api/sim/sessions",
+                        json={"exchange": "binance", "starting_capital": 100.0}, headers=AUTH)
     assert r.status_code == 422
-    assert "does not support simulation" in r.json()["detail"]
 
 
 def test_get_missing_session_404(ctx):

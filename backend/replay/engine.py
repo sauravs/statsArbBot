@@ -27,6 +27,7 @@ import config
 from db.ff_repository import get_ff_repository
 from db.scan_repository import get_scan_repository
 from replay.candle_source import make_candle_source
+from simulation.cost_map import build_cost_map, load_dollar_volumes
 from replay.historical_feed import (
     FundingTable,
     align_pairs,
@@ -136,6 +137,22 @@ class FastForwardReplayEngine:
         candles_by_market = dict(zip(market_list, candle_results))
         funding_by_market = dict(zip(market_list, funding_results))
 
+        # Honest per-market costs, same model as the backtest and the real-time sim
+        # (Phase 5). Without this the replay charges one flat slippage for every
+        # market and no impact, which is exactly the optimism that made a paper run
+        # look better than the backtest it rehearses.
+        cost_map = build_cost_map(
+            market_list,
+            dollar_volumes=await load_dollar_volumes(
+                exchange=exchange, start=load_start, end=end, markets=market_list
+            ),
+            closes_by_market={
+                m: [c["close"] for c in candles_by_market.get(m, [])] for m in market_list
+            },
+            flat_slippage_pct=row["slippage_pct"],
+            per_leg_usd=row["usd_per_trade"],
+        )
+
         aligned = align_pairs(pairs, candles_by_market)
         timeline = replay_timeline(aligned, start=start, end=end)
         if not timeline:
@@ -163,6 +180,10 @@ class FastForwardReplayEngine:
             "tick_count": 0,
             "last_tick_at": None,
         }
+        # Empty when both honest-cost flags are off ⇒ key stays unset ⇒ the flat
+        # slippage_pct path is preserved exactly (Phase-1 parity).
+        if cost_map:
+            session["slippage_by_market"] = cost_map
         wrepo = WorkingSimRepository(session)
 
         # 4. Walk the cursor. (Marking/closing only need bar prices, not a defined

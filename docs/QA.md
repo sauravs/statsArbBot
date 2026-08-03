@@ -1167,3 +1167,93 @@ The honest recommendation is that this is worth running **only as an operational
 Figures: prod DB + `GET /api/backtest/strategies/{id}/costs` + `GET /api/backtest/significance`, 2026-08-01. Background: `docs/strategy.md` "Phase-4 campaign", `docs/PHASE2_STRATEGY_PLAN.md` §1.
 
 ---
+
+## 2026-08-03 — Would funding-carry-aware pair selection find the edge?
+
+**Q:** Funding is the dominant cost (29–61% of gross). `PHASE2_STRATEGY_PLAN.md` §7 names **funding-carry-aware pair selection** as the most promising untried route to a real edge. Is it worth building?
+
+**A:** **No — it is refuted, and by its own upper bound.** Adverse funding carry is not a drag to be filtered out; it is a **marker of the profitable trades**. You cannot avoid the carry without avoiding the edge.
+
+This was settled in about an hour of read-only analysis on prod, before any engine work — which is the point: the idea was expensive to build and cheap to test.
+
+### Method
+
+For every entry-4.0 out-of-sample trade (1,513 at $100/leg, 1,511 at $1,000/leg, spans s2+s3+s4), the funding rate of **each leg as of `entry_time`** was joined from `funding_rate_cache` (latest rate at-or-before entry — information genuinely available when the trade opens). Predicted carry over the hold is
+
+```
+pred_carry = ±(rate_quote − rate_base) × notional × hold_hours     (+ for LONG_BASE)
+```
+
+Rates were available for **3,024 of 3,024** trades, so there is no coverage gap.
+
+### 1 · Carry IS predictable at entry — that was never the problem
+
+| | value |
+|---|---|
+| corr(predicted carry at entry, realised funding) | **+0.34** |
+| sign agreement | **74.8%** |
+| trades with adverse realised carry | **68.4%** |
+
+So a filter is *implementable*. The question is whether it helps.
+
+### 2 · Filtering on it destroys the P&L
+
+Skipping every trade whose carry was predicted adverse, using only entry-time information:
+
+| Rule | Trades kept | OOS net @ $100/leg | vs baseline |
+|---|---|---|---|
+| **baseline — take everything** | 1,513 | **+$2,346** | — |
+| skip predicted carry < $0.00 | 695 | **+$535** | −$1,811 |
+| skip predicted carry < −$0.25 | 1,267 | +$1,769 | −$577 |
+| skip predicted carry < −$0.50 | 1,344 | +$1,970 | −$376 |
+| skip predicted carry < −$1.00 | 1,430 | +$2,548 | +$202 |
+
+At $1,000/leg the same pattern is starker: **+$15,787 → +$2,051** at the zero threshold. The two thresholds that *appear* to help keep 94–96% of trades, move net by well under the ±$212 noise floor, and are **non-monotonic** (−$1.00 beats both −$0.50 and −$2.00) — the signature of noise, not a lever.
+
+### 3 · The decisive test: even PERFECT foresight loses money
+
+Keep only the trades whose funding actually turned out favourable — not implementable, a pure hindsight upper bound:
+
+| Per-leg size | Baseline | Hindsight "favourable carry only" |
+|---|---|---|
+| $100 | +$2,346 | **+$193** |
+| $1,000 | +$15,787 | **−$226** |
+
+**With perfect knowledge of the funding sign, filtering on it is worse than not filtering.** No implementable version can beat its own ceiling, so the idea is dead in the general case.
+
+### 4 · Why — the carry is the price of admission
+
+| Cohort ($100/leg) | n | Gross/trade | Funding/trade | Net/trade | Win% |
+|---|---|---|---|---|---|
+| **adverse carry** | 1,035 | **$3.364** | −$1.098 | **+$2.080** | 70.4% |
+| favourable carry | 478 | $0.504 | +$0.106 | +$0.404 | 61.9% |
+
+**Adverse-carry trades earn 6.7× the gross of favourable-carry ones** (54× at $1,000/leg, where the favourable cohort is outright net-negative at −$226). They also win more often, 70.4% vs 61.9%.
+
+The economics are coherent. A large spread dislocation happens when one leg is crowded or stressed — and that same crowding is what drives funding against the position you must take to harvest the reversion. **Paying the carry and capturing the reversion are the same trade.** Funding is not a tax bolted onto the edge; it is the market charging rent for the edge.
+
+### What this does and does not refute
+
+- **Refuted:** selecting or filtering stat-arb pairs to *avoid* adverse funding carry. Its upper bound is negative.
+- **Not addressed:** harvesting *favourable* carry as a strategy in its own right. That is a carry trade, not statistical arbitrage — a different signal with different risks, and nothing here supports or opposes it.
+- **Unchanged:** funding remains the largest explicit cost, and the Task-A columns that made it visible remain correct and useful.
+
+### Where this leaves the search
+
+`PHASE2_STRATEGY_PLAN.md` §7 named this the most promising remaining lead. With it refuted, the position on today's signal is:
+
+| Line of attack | Status |
+|---|---|
+| Every parameter (exit, entry, p-value, half-life, stop, windows) | swept — no OOS edge |
+| Entry × per-leg size interaction | measured — mechanism real, fails DSR |
+| Liquidity / universe filters | refuted — the gross lives in the thinnest markets |
+| Multiple-testing correction | best DSR across all 72 saved runs = **0.031** vs a 0.95 bar |
+| Window concentration | 3 of 39 windows carry everything |
+| Executable concurrency | needs 20–100 simultaneous positions; capped to human scale it goes negative |
+| **Funding-carry-aware selection** | **refuted — the carry marks the edge** |
+
+**NO-GO stands, and the search on this signal is closed rather than merely unfinished.** A genuine "yes" now requires a *different signal*, not another refinement of this one.
+
+Figures: prod DB, read-only, 2026-08-03. Background: `docs/strategy.md` "Phase-4 campaign", the 2026-08-01 entry above.
+
+---
