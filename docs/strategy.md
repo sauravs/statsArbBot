@@ -643,3 +643,58 @@ concentrated to trade. A genuine "yes" still needs what
 `PHASE2_STRATEGY_PLAN.md` §7 says it needs — a **new signal**, most plausibly
 funding-carry-aware pair selection, now that funding is measured as the single
 largest cost line.
+
+---
+
+## 🔚 Funding-carry-aware selection — REFUTED; the search on this signal is closed (2026-08-03)
+
+`PHASE2_STRATEGY_PLAN.md` §7 named **funding-carry-aware pair selection** the most
+promising untried route to an edge, on the strength of Phase-4's finding that funding
+is the dominant explicit cost (29–61% of gross). It does not work, and the reason is
+structural rather than a matter of implementation.
+
+**Method (read-only, prod, no engine change).** For all 3,024 entry-4.0 OOS trades,
+each leg's funding rate **as of `entry_time`** was joined from `funding_rate_cache` —
+information available when the trade opens. Coverage was 3,024/3,024.
+
+**Carry is predictable at entry.** corr(predicted, realised) = **+0.34**, sign
+agreement **74.8%**. Predictability was never the obstacle.
+
+**But filtering on it destroys the P&L**, and the decisive result is the hindsight
+ceiling — keep only trades whose funding actually turned out favourable:
+
+| Per-leg size | Baseline | Perfect-foresight "favourable carry only" |
+|---|---|---|
+| $100 | +$2,346 | **+$193** |
+| $1,000 | +$15,787 | **−$226** |
+
+**With perfect knowledge of the funding sign, filtering on it is worse than not
+filtering.** No implementable rule beats its own ceiling.
+
+**Why — the carry is the price of admission:**
+
+| Cohort ($100/leg) | n | Gross/trade | Net/trade | Win% |
+|---|---|---|---|---|
+| **adverse carry** | 1,035 | **$3.364** | +$2.080 | 70.4% |
+| favourable carry | 478 | $0.504 | +$0.404 | 61.9% |
+
+Adverse-carry trades earn **6.7× the gross** of favourable-carry ones (54× at
+$1,000/leg, where the favourable cohort is net-negative). A large dislocation happens
+when one leg is crowded or stressed, and that same crowding drives funding against the
+position needed to harvest the reversion. **Paying the carry and capturing the
+reversion are the same trade** — funding is the market's rent on the edge, not a tax
+bolted onto it.
+
+**Scope:** this refutes *avoiding* adverse carry in stat-arb. It says nothing about
+harvesting *favourable* carry as a strategy in its own right — that is a carry trade,
+a different signal entirely.
+
+**With this closed, every named line of attack on the current signal is exhausted:**
+parameters (all swept), entry × size (mechanism real, fails DSR), liquidity filters
+(refuted), multiplicity (best DSR of 72 runs = **0.031** vs a 0.95 bar), window
+concentration (3 of 39 windows carry everything), executable concurrency (needs 20–100
+simultaneous positions; capped to human scale it goes negative), and now funding carry.
+
+**NO-GO stands, and the search is closed rather than unfinished. A genuine "yes"
+requires a different signal, not another refinement of this one.** Full write-up:
+`docs/QA.md` (2026-08-03).
